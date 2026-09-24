@@ -12,15 +12,15 @@
 **Linux 服务器（容器，推荐）：**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.1.1/install.sh -o install.sh && bash install.sh
-# 熟手一行：curl -fsSL https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.1.1/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.0.0/install.sh -o install.sh && bash install.sh
+# 熟手一行：curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.0.0/install.sh | bash
 ```
 
 **Windows（本机直跑）：**
 
 ```powershell
-irm https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.1.1/install.ps1 -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File .\install.ps1
-# 熟手一行：irm https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.1.1/install.ps1 | iex
+irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.0.0/install.ps1 -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File .\install.ps1
+# 熟手一行：irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.0.0/install.ps1 | iex
 ```
 
 脚本幂等：已装组件自动跳过，重跑不覆盖配置与数据；唯一需要输入的是 DeepSeek API key
@@ -84,7 +84,7 @@ manager 只生成「怎么连」的命令，**SSH 私钥永不进入 manager**�
 每行 = DSH 版本 ↔ facade ref 配对）校验：未知版本直接拒绝，未验证配对安装带
 黄字警告。每个节点的 profile 钉自己的版本；节点页显示配置版本 + 漂移状态，
 「对齐版本」= 重建 profile → 重装依赖 → 按钉版重启。容器节点用镜像
-`ohdsh/dsh-node:<version>`。节点行另有版本下拉——切版本是页面操作（容器 =
+`hellodac/dac-node:<version>`。节点行另有版本下拉——切版本是页面操作（容器 =
 换镜像重建；进程 = 重播种 + 重装 + 重启），不需要改配置文件。
 
 ## 机器与舰队（多服务器）
@@ -161,7 +161,7 @@ agent 节点的 facade 端口（如 3081）暴露在服务器上，**必须只�
 
 ```powershell
 git clone <repo-url>
-cd dsh-agent-manager
+cd hellodac
 npm install
 npm run setup          # 自检表（node/git/dsh）+ 初始化工作区/节点/配置
 npm run build

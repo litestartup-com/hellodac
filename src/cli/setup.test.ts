@@ -14,21 +14,21 @@ test('buildManagerConfig wires two managed nodes, agents, sandbox and presets', 
     personalPort: 3081,
     brainPort: 3082,
     dshBin: 'C:/nvm4w/nodejs/node_modules/@deepseek-ai/dsh/lib/bin.js',
-    personalProfile: 'ohdsh-personal',
-    brainProfile: 'ohdsh-brain',
-    personalHome: 'C:/Users/me/.dsh-ohdsh/ohdsh-personal',
-    brainHome: 'C:/Users/me/.dsh-ohdsh/ohdsh-brain',
+    personalProfile: 'dac-personal',
+    brainProfile: 'dac-brain',
+    personalHome: 'C:/Users/me/.dac/dac-personal',
+    brainHome: 'C:/Users/me/.dac/dac-brain',
     brainToken: 'brain-token-1',
   })
   const ep = config.endpoints as Record<string, Record<string, unknown>>
   const spawn = (id: string) => (ep[id]?.spawn ?? {}) as Record<string, unknown>
   assert.equal(ep['personal']?.url, 'http://127.0.0.1:3081')
   assert.equal(ep['brain']?.url, 'http://127.0.0.1:3082')
-  assert.deepEqual(spawn('brain').args, ['C:/nvm4w/nodejs/node_modules/@deepseek-ai/dsh/lib/bin.js', '--profile', 'ohdsh-brain', '--no-open'])
-  assert.deepEqual(spawn('personal').env, { DSH_HOME: 'C:/Users/me/.dsh-ohdsh/ohdsh-personal' })
+  assert.deepEqual(spawn('brain').args, ['C:/nvm4w/nodejs/node_modules/@deepseek-ai/dsh/lib/bin.js', '--profile', 'dac-brain', '--no-open'])
+  assert.deepEqual(spawn('personal').env, { DSH_HOME: 'C:/Users/me/.dac/dac-personal' })
   // 主脑节点进程必须拿到 BRAIN_TOKEN，技能手册里的 curl 才能过内部 API 的门
   assert.deepEqual(spawn('brain').env, {
-    DSH_HOME: 'C:/Users/me/.dsh-ohdsh/ohdsh-brain',
+    DSH_HOME: 'C:/Users/me/.dac/dac-brain',
     BRAIN_TOKEN: 'brain-token-1',
   })
   // 每节点独立 gateway 密钥（分 ref 引用）
@@ -47,11 +47,11 @@ test('ensureNodeProfiles writes one isolated DSH_HOME per node, idempotently', (
   const nodesHome = mkdtempSync(join(tmpdir(), 'setup-nodes-home-'))
   try {
     const specs = [
-      { name: 'ohdsh-personal', port: 3081 },
-      { name: 'ohdsh-brain', port: 3082 },
+      { name: 'dac-personal', port: 3081 },
+      { name: 'dac-brain', port: 3082 },
     ]
     const created = ensureNodeProfiles(nodesHome, specs, GATEWAY_REF)
-    assert.deepEqual(created.sort(), [join(nodesHome, 'ohdsh-personal'), join(nodesHome, 'ohdsh-brain')].sort())
+    assert.deepEqual(created.sort(), [join(nodesHome, 'dac-personal'), join(nodesHome, 'dac-brain')].sort())
     for (const spec of specs) {
       const dir = join(nodesHome, spec.name, 'profiles', spec.name)
       const patch = parseYaml(readFileSync(join(dir, 'cordis.patch.yml'), 'utf8')) as Array<{ id: string; config: { port: number; host: string } }>
@@ -82,8 +82,8 @@ test('ensureNodeProfiles writes one isolated DSH_HOME per node, idempotently', (
 test('ensureNodeProfiles writes a file: dependency when given a local gateway path', () => {
   const nodesHome = mkdtempSync(join(tmpdir(), 'setup-nodes-home-local-'))
   try {
-    ensureNodeProfiles(nodesHome, [{ name: 'ohdsh-personal', port: 3081 }], 'file:C:/src/dsh-api-gateway')
-    const pkg = JSON.parse(readFileSync(join(nodesHome, 'ohdsh-personal', 'profiles', 'ohdsh-personal', 'package.json'), 'utf8')) as {
+    ensureNodeProfiles(nodesHome, [{ name: 'dac-personal', port: 3081 }], 'file:C:/src/dsh-api-gateway')
+    const pkg = JSON.parse(readFileSync(join(nodesHome, 'dac-personal', 'profiles', 'dac-personal', 'package.json'), 'utf8')) as {
       dependencies: Record<string, string>
     }
     assert.equal(pkg.dependencies['ohdsh-api-facade'], 'file:C:/src/dsh-api-gateway')

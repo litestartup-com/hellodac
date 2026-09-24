@@ -32,14 +32,14 @@ writeFileSync(join(dir, 'fake-dsh.js'), 'process.exit(0)\n', 'utf8')
 const previousCwd = process.cwd()
 process.chdir(dir)
 process.env.DSH_BIN = join(dir, 'fake-dsh.js')
-process.env.DSH_OHDSH_NODES_HOME = nodesRoot
+process.env.DSH_DAC_NODES_HOME = nodesRoot
 
 const stopped: NodeSupervisor[] = []
 after(() => {
   for (const s of stopped) s.stop()
   process.chdir(previousCwd)
   delete process.env.DSH_BIN
-  delete process.env.DSH_OHDSH_NODES_HOME
+  delete process.env.DSH_DAC_NODES_HOME
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -196,12 +196,12 @@ test('能力一回归: 显式 runner=process 在 docker 部署上建宿主机进
       runner: 'docker',
       host: null,
       docker: {
-        image: 'ohdsh/dsh-node:0.1.1-rc.2',
+        image: 'hellodac/dac-node:0.1.1-rc.2',
         containerName: null,
-        network: 'ohdsh-hive',
+        network: 'dac-hive',
         port: 3081,
-        hostVolumes: { '/srv/ohdsh/workspaces/personal': '/opt/ohdsh/workspaces/personal' },
-        namedVolumes: { 'ohdsh-personal': '/data' },
+        hostVolumes: { '/srv/dac/workspaces/personal': '/opt/dac/workspaces/personal' },
+        namedVolumes: { 'dac-personal': '/data' },
       },
     },
     access: null,
@@ -271,11 +271,11 @@ test('舰队 M2 回归: agent 节点工作区 = 远端路径原样透传（不�
       install: false,
       host: 'agent-abc123',
       url: 'http://10.0.0.7:3081',
-      agent: { id: 'ops33', workspace: '/root/ohdsh-workspaces/ops33', preset: 'standard', sandboxMode: 'workspace-write' },
+      agent: { id: 'ops33', workspace: '/root/dac-workspaces/ops33', preset: 'standard', sandboxMode: 'workspace-write' },
     },
   })
   assert.equal(created.statusCode, 201, JSON.stringify(created.body))
-  assert.equal(config.agents['ops33']?.workspacePath, '/root/ohdsh-workspaces/ops33', '远端工作区路径原样落真相源（实测被 resolve 成 C:\\root\\... → facade 拒 cwd）')
+  assert.equal(config.agents['ops33']?.workspacePath, '/root/dac-workspaces/ops33', '远端工作区路径原样落真相源（实测被 resolve 成 C:\\root\\... → facade 拒 cwd）')
   const supervisor = supervisors.get('ops33')!
   stopped.push(supervisor)
 })
@@ -307,8 +307,8 @@ test('舰队 M3-1: ops 节点第三档沙箱——agent.sandboxMode=danger-full-
 })
 
 test('线上教训回归: 容器形态部署显式 process = 400 host_process_unavailable；无标记的裸机部署照常放行', async () => {
-  const prev = process.env.OHDSH_DEPLOY_FORM
-  process.env.OHDSH_DEPLOY_FORM = 'container'
+  const prev = process.env.DAC_DEPLOY_FORM
+  process.env.DAC_DEPLOY_FORM = 'container'
   try {
     const { app } = await boot()
     const bad = await app.inject({
@@ -319,8 +319,8 @@ test('线上教训回归: 容器形态部署显式 process = 400 host_process_un
     assert.equal(bad.statusCode, 400, JSON.stringify(bad.body))
     assert.equal((bad.json() as { error: string }).error, 'host_process_unavailable', '容器形态必须显性拒绝')
   } finally {
-    if (prev === undefined) delete process.env.OHDSH_DEPLOY_FORM
-    else process.env.OHDSH_DEPLOY_FORM = prev
+    if (prev === undefined) delete process.env.DAC_DEPLOY_FORM
+    else process.env.DAC_DEPLOY_FORM = prev
   }
 })
 
@@ -348,12 +348,12 @@ test('蜂群2计划 P6: 容器模式新节点 = docker runner（不找 DSH bin�
       runner: 'docker',
       host: null,
       docker: {
-        image: 'ohdsh/dsh-node:0.1.1-rc.2',
+        image: 'hellodac/dac-node:0.1.1-rc.2',
         containerName: null,
-        network: 'ohdsh-hive',
+        network: 'dac-hive',
         port: 3081,
-        hostVolumes: { '/srv/ohdsh/workspaces/personal': '/opt/ohdsh/workspaces/personal' },
-        namedVolumes: { 'ohdsh-personal': '/data' },
+        hostVolumes: { '/srv/dac/workspaces/personal': '/opt/dac/workspaces/personal' },
+        namedVolumes: { 'dac-personal': '/data' },
       },
     },
     access: null,
@@ -362,15 +362,15 @@ test('蜂群2计划 P6: 容器模式新节点 = docker runner（不找 DSH bin�
   const created = await app.inject({ method: 'POST', url: '/api/nodes', payload: { name: 'product' } })
   assert.equal(created.statusCode, 201, JSON.stringify(created.body))
   const body = created.json() as { node: { id: string; home: string; port: number } }
-  assert.equal(body.node.home, 'ohdsh-product', '节点 home = 命名卷')
+  assert.equal(body.node.home, 'dac-product', '节点 home = 命名卷')
 
   const spawn = config.endpoints['product']?.spawn
   assert.ok(spawn !== null && spawn !== undefined)
   assert.equal(spawn.runner, 'docker', '容器模式绝不找 DSH bin')
-  assert.equal(spawn.docker?.network, 'ohdsh-hive')
-  assert.equal(spawn.docker?.namedVolumes['ohdsh-product'], '/data')
-  // 宿主路径前缀从 personal 推导（/srv/ohdsh/workspaces/product），容器内路径 = manager 视角
-  assert.equal(spawn.docker?.hostVolumes['/srv/ohdsh/workspaces/product'], '/opt/ohdsh/workspaces/product')
+  assert.equal(spawn.docker?.network, 'dac-hive')
+  assert.equal(spawn.docker?.namedVolumes['dac-product'], '/data')
+  // 宿主路径前缀从 personal 推导（/srv/dac/workspaces/product），容器内路径 = manager 视角
+  assert.equal(spawn.docker?.hostVolumes['/srv/dac/workspaces/product'], '/opt/dac/workspaces/product')
   assert.equal(config.endpoints['product']?.url, 'http://node-product:3090')
   // 债务 R10 回归（compose-e2e worker live 超时实证）：0.1.2 切主路后新建端点必须走
   // facade（/api-gw/v1/proxy + GW_KEY）——旧 0.1.1 接线 prefix:/api + key_ref:'' 探活 401。
@@ -416,12 +416,12 @@ test('蜂群2计划 P6 回归: 容器模式新建节点同步镜像进 DB（chat
       runner: 'docker',
       host: null,
       docker: {
-        image: 'ohdsh/dsh-node:0.1.1-rc.2',
+        image: 'hellodac/dac-node:0.1.1-rc.2',
         containerName: null,
-        network: 'ohdsh-hive',
+        network: 'dac-hive',
         port: 3081,
-        hostVolumes: { '/srv/ohdsh/workspaces/personal': '/opt/ohdsh/workspaces/personal' },
-        namedVolumes: { 'ohdsh-personal': '/data' },
+        hostVolumes: { '/srv/dac/workspaces/personal': '/opt/dac/workspaces/personal' },
+        namedVolumes: { 'dac-personal': '/data' },
       },
     },
     access: null,

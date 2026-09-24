@@ -157,7 +157,7 @@ test('蜂群2计划 P3 自愈: 升级前老会话缺 CSRF cookie，403 补发 co
   const { app } = await boot()
   const { sid } = await login(app, 'admin', 'initial-pass')
 
-  // 模拟升级前的老会话：只有 mgr_sid、没有 ohdsh_csrf（Windows 生产机改密报 403 的现场）
+  // 模拟升级前的老会话：只有 mgr_sid、没有 dac_csrf（Windows 生产机改密报 403 的现场）
   const first = await app.inject({
     method: 'POST',
     url: '/api/logout',
@@ -166,7 +166,7 @@ test('蜂群2计划 P3 自愈: 升级前老会话缺 CSRF cookie，403 补发 co
   assert.equal(first.statusCode, 403)
   assert.equal((first.json()).error, 'csrf_token_missing_or_mismatch')
   const healed = cookieOf(first, CSRF_COOKIE)
-  assert.ok(healed !== '', '缺 cookie 的 403 必须补发 ohdsh_csrf')
+  assert.ok(healed !== '', '缺 cookie 的 403 必须补发 dac_csrf')
 
   // 前端 apiFetch 带新 cookie 重试一次 → 放行
   const retry = await app.inject({

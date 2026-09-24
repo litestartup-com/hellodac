@@ -1,17 +1,17 @@
-﻿﻿# Oh! dsh — Windows 一键安装（裸机形态：manager + 主脑 + 个人，本机直跑）。
+﻿# DAC — Windows 一键安装（裸机形态：manager + 主脑 + 个人，本机直跑）。
 #
 # 推荐（先下载查看再执行）：
-#   irm https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.1.1/install.ps1 -OutFile install.ps1
+#   irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.0.0/install.ps1 -OutFile install.ps1
 #   powershell -ExecutionPolicy Bypass -File .\install.ps1
 # 熟手一行（直接执行，参数不可传）：
-#   irm https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.1.1/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.0.0/install.ps1 | iex
 #
 # 幂等：Node/git/pnpm/DSH 已装且版本对 = 跳过；仓库/配置已存在 = 不覆盖。
 # 计划先行：DRY_RUN=1 只看不执行；-Yes 跳过确认。唯一人肉输入 = DeepSeek API key
 # （-ApiKey 或环境变量 DEEPSEEK_API_KEY 预置则全自动）。
 param(
   [string]$ApiKey = $env:DEEPSEEK_API_KEY,
-  [string]$WorkspaceDir = "$env:USERPROFILE\ohdsh",
+  [string]$WorkspaceDir = "$env:USERPROFILE\dac",
   [switch]$Service,
   [switch]$Yes,
   [switch]$DryRun
@@ -86,7 +86,7 @@ if (-not [string]::IsNullOrEmpty($ApiKey)) {
 if (Test-Path (Join-Path $WorkspaceDir 'package.json')) {
   Step "仓库已存在（$WorkspaceDir），跳过克隆。"
 } else {
-  Step '克隆 dsh-agent-manager…'
+  Step '克隆 hellodac…'
   $cloned = $false
   if ($DryRun) { $cloned = $true }
   else {
@@ -94,15 +94,15 @@ if (Test-Path (Join-Path $WorkspaceDir 'package.json')) {
     # native stderr 生成 NativeCommandError，撞上顶部 ErrorActionPreference=Stop
     # 直接终止脚本；不重定向时 stderr 直通控制台（有噪音但安全），失败后
     # 由下方 package.json 判据接管回退。
-    git clone https://github.com/litestartup-com/dsh-agent-manager.git $WorkspaceDir
+    git clone https://github.com/litestartup-com/hellodac.git $WorkspaceDir
     if (Test-Path (Join-Path $WorkspaceDir 'package.json')) { $cloned = $true }
     else {
       Step 'GitHub 直连失败，回退 codeload zip（此路径装完可用；npm run update 需 git 仓，不可用）…'
       try {
-        $zip = Join-Path $env:TEMP 'ohdsh-master.zip'
+        $zip = Join-Path $env:TEMP 'dac-master.zip'
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        Invoke-WebRequest -UseBasicParsing -Uri 'https://codeload.github.com/litestartup-com/dsh-agent-manager/zip/refs/heads/master' -OutFile $zip
-        $extract = Join-Path $env:TEMP ('ohdsh-extract-' + [guid]::NewGuid().ToString('N'))
+        Invoke-WebRequest -UseBasicParsing -Uri 'https://codeload.github.com/litestartup-com/hellodac/zip/refs/heads/master' -OutFile $zip
+        $extract = Join-Path $env:TEMP ('dac-extract-' + [guid]::NewGuid().ToString('N'))
         Expand-Archive -Path $zip -DestinationPath $extract
         $inner = Get-ChildItem $extract -Directory | Select-Object -First 1
         # 失败克隆可能留下残缺 .git——整体清掉重建，杜绝半坏仓库

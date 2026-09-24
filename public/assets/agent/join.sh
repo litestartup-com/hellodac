@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # 能力四（舰队 M1-5）：Linux 工作机一键加入——安装 node-agent（systemd user unit）。
 # 用法：
-#   MANAGER_URL=https://app.example.com AGENT_JOIN_TOKEN=ohdsh-join-xxx bash join.sh
-# 幂等：重跑不重复注册（agent 本地已存身份）；只动 ~/.ohdsh-agent 与 user unit。
+#   MANAGER_URL=https://app.example.com AGENT_JOIN_TOKEN=dac-join-xxx bash join.sh
+# 幂等：重跑不重复注册（agent 本地已存身份）；只动 ~/.dac-agent 与 user unit。
 set -euo pipefail
 
 MANAGER_URL="${MANAGER_URL:?需要 MANAGER_URL（manager 基址，如 https://app.example.com）}"
 AGENT_JOIN_TOKEN="${AGENT_JOIN_TOKEN:?需要 AGENT_JOIN_TOKEN（manager 机器页签发的一次性 token）}"
-AGENT_DIR="${AGENT_DIR:-$HOME/.ohdsh-agent}"
+AGENT_DIR="${AGENT_DIR:-$HOME/.dac-agent}"
 NODE_BIN="$(command -v node || true)"
 
 if [ -z "$NODE_BIN" ]; then
@@ -31,9 +31,9 @@ curl -fsSL "$MANAGER_URL/assets/agent/update.mjs" -o "$AGENT_DIR/update.mjs"
 
 UNIT_DIR="$HOME/.config/systemd/user"
 mkdir -p "$UNIT_DIR"
-cat > "$UNIT_DIR/ohdsh-agent.service" <<EOF
+cat > "$UNIT_DIR/dac-agent.service" <<EOF
 [Unit]
-Description=Oh! dsh node-agent（能力四舰队）
+Description=DAC node-agent（能力四舰队）
 After=network-online.target
 
 [Service]
@@ -51,7 +51,7 @@ WantedBy=default.target
 EOF
 
 systemctl --user daemon-reload
-systemctl --user enable --now ohdsh-agent
+systemctl --user enable --now dac-agent
 sleep 2
-systemctl --user --no-pager status ohdsh-agent --lines=8 || true
+systemctl --user --no-pager status dac-agent --lines=8 || true
 echo "join.sh: agent 已安装并启动（AGENT_DIR=$AGENT_DIR）。manager 机器页应出现本机。"

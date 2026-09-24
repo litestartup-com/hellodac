@@ -730,7 +730,7 @@ const SECTION_TITLES = {
 const setTopbarTitle = (text) => {
   $('topbar-title').textContent = text
 }
-setTopbarTitle(SECTION_TITLES[segments[0] ?? ''] ?? 'Oh! dsh')
+setTopbarTitle(SECTION_TITLES[segments[0] ?? ''] ?? 'DAC')
 window.addEventListener('shell:title', (event) => {
   if (typeof event.detail === 'string' && event.detail !== '') setTopbarTitle(event.detail)
 })

@@ -1,4 +1,4 @@
-# ohdsh/dsh-node — 蜂群2计划 P2：一个容器 = 一个 DSH 节点（DSH + gateway + 独立 DSH_HOME）
+# hellodac/dac-node — 蜂群2计划 P2：一个容器 = 一个 DSH 节点（DSH + gateway + 独立 DSH_HOME）
 #
 # 构建期冻结依赖（DSH 钉版 + gateway 钉 commit），运行时零安装。
 # 国内构建：
@@ -42,7 +42,7 @@ RUN chmod +x /usr/local/bin/dsh-node-entrypoint \
     # EACCES、节点无限重启）。卷根 777：任何 uid 都能在自己创建的子树里工作，
     # 文件本身仍按创建者属主 + 既有 0600 等位收紧（单租户节点容器，无多用户面）。
     && chmod 777 /data
-# DSH_HOME 挂卷：首次启动从 /opt/ohdsh-profile 复制 profile（本地复制，零网络）。
+# DSH_HOME 挂卷：首次启动从 /opt/dac-profile 复制 profile（本地复制，零网络）。
 # HOME 也指到 /data：$HOME/.brain-auth（主脑令牌，0600）与 dsh 的 ~/.config/~/.npm
 # 等运行时写入全部落在同一个可写卷里（否则 HOME=/home/node 属主 1000，
 # HOST_UID≠1000 时 entrypoint 写 .brain-auth 同样 EACCES）。

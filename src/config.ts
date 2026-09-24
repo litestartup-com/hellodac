@@ -16,7 +16,7 @@ dotenv.config()
 const dockerSpawnSchema = z.object({
   image: z.string().min(1),
   container_name: z.string().min(1).optional(),
-  network: z.string().default('ohdsh-hive'),
+  network: z.string().default('dac-hive'),
   port: z.number().int().positive(),
   /** 宿主机路径 → 容器路径（典型：工作区）。docker.sock 按宿主机语义解析。 */
   host_volumes: z.record(z.string(), z.string()).default({}),

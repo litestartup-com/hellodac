@@ -26,7 +26,7 @@ export const windowsLauncher = (rootDir: string): string => [
 /** Linux systemd user unit。 */
 export const systemdUnit = (rootDir: string, node: string): string => [
   '[Unit]',
-  'Description=Oh! dsh (dsh agents manager)',
+  'Description=DAC (dsh agents manager)',
   'After=network-online.target',
   '',
   '[Service]',
@@ -42,18 +42,18 @@ export const systemdUnit = (rootDir: string, node: string): string => [
 ].join('\n')
 
 export const installWindows = (rootDir: string): { ok: boolean; detail: string } => {
-  const script = join(rootDir, 'scripts', 'ohdsh-start.cmd')
+  const script = join(rootDir, 'scripts', 'dac-start.cmd')
   mkdirSync(dirname(script), { recursive: true })
   writeFileSync(script, windowsLauncher(rootDir), 'utf8')
   try {
     execFileSync('schtasks', [
       '/create', '/f',
-      '/tn', 'OhdshManager',
+      '/tn', 'DacManager',
       '/tr', `"${script}"`,
       '/sc', 'onlogon',
       '/rl', 'limited',
     ], { stdio: ['ignore', 'pipe', 'pipe'] })
-    return { ok: true, detail: `scheduled task OhdshManager created (starts ${script} at sign-in).` }
+    return { ok: true, detail: `scheduled task DacManager created (starts ${script} at sign-in).` }
   } catch (error) {
     return { ok: false, detail: `schtasks failed: ${(error as Error).message.split('\n')[0]}` }
   }
@@ -61,8 +61,8 @@ export const installWindows = (rootDir: string): { ok: boolean; detail: string }
 
 export const uninstallWindows = (): { ok: boolean; detail: string } => {
   try {
-    execFileSync('schtasks', ['/delete', '/f', '/tn', 'OhdshManager'], { stdio: ['ignore', 'pipe', 'pipe'] })
-    return { ok: true, detail: 'scheduled task OhdshManager deleted.' }
+    execFileSync('schtasks', ['/delete', '/f', '/tn', 'DacManager'], { stdio: ['ignore', 'pipe', 'pipe'] })
+    return { ok: true, detail: 'scheduled task DacManager deleted.' }
   } catch (error) {
     return { ok: false, detail: `schtasks failed: ${(error as Error).message.split('\n')[0]}` }
   }
@@ -70,23 +70,23 @@ export const uninstallWindows = (): { ok: boolean; detail: string } => {
 
 export const statusWindows = (): string => {
   try {
-    return execFileSync('schtasks', ['/query', '/tn', 'OhdshManager'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+    return execFileSync('schtasks', ['/query', '/tn', 'DacManager'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
       .split(/\r?\n/)
-      .find((l) => l.includes('OhdshManager')) ?? 'scheduled task OhdshManager not found.'
+      .find((l) => l.includes('DacManager')) ?? 'scheduled task DacManager not found.'
   } catch {
-    return 'scheduled task OhdshManager not found.'
+    return 'scheduled task DacManager not found.'
   }
 }
 
 export const installLinux = (rootDir: string, node: string): { ok: boolean; detail: string } => {
   const unitDir = join(process.env.HOME ?? '.', '.config', 'systemd', 'user')
-  const unit = join(unitDir, 'ohdsh.service')
+  const unit = join(unitDir, 'dac.service')
   try {
     mkdirSync(unitDir, { recursive: true })
     writeFileSync(unit, systemdUnit(rootDir, node), 'utf8')
     execFileSync('systemctl', ['--user', 'daemon-reload'], { stdio: 'ignore' })
-    execFileSync('systemctl', ['--user', 'enable', '--now', 'ohdsh.service'], { stdio: 'ignore' })
-    return { ok: true, detail: `systemd user unit enabled: ${unit} (systemctl --user status ohdsh).` }
+    execFileSync('systemctl', ['--user', 'enable', '--now', 'dac.service'], { stdio: 'ignore' })
+    return { ok: true, detail: `systemd user unit enabled: ${unit} (systemctl --user status dac).` }
   } catch (error) {
     return { ok: false, detail: `systemctl failed: ${(error as Error).message.split('\n')[0]}` }
   }
@@ -94,7 +94,7 @@ export const installLinux = (rootDir: string, node: string): { ok: boolean; deta
 
 export const uninstallLinux = (): { ok: boolean; detail: string } => {
   try {
-    execFileSync('systemctl', ['--user', 'disable', '--now', 'ohdsh.service'], { stdio: 'ignore' })
+    execFileSync('systemctl', ['--user', 'disable', '--now', 'dac.service'], { stdio: 'ignore' })
     return { ok: true, detail: 'systemd user unit disabled.' }
   } catch (error) {
     return { ok: false, detail: `systemctl failed: ${(error as Error).message.split('\n')[0]}` }
@@ -103,7 +103,7 @@ export const uninstallLinux = (): { ok: boolean; detail: string } => {
 
 export const statusLinux = (): string => {
   try {
-    return execFileSync('systemctl', ['--user', 'is-active', 'ohdsh.service'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+    return execFileSync('systemctl', ['--user', 'is-active', 'dac.service'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
   } catch {
     return 'inactive (not installed or not running)'
   }

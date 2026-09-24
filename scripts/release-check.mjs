@@ -91,10 +91,47 @@ check('CHANGELOG 有 v1.0.0 对外条目', () => {
   return /## v1\.0\.0/.test(text) ? true : 'CHANGELOG 缺 v1.0.0 条目'
 })
 
+check('版本号单一口径（pkg / version.ts / compose / install.sh / 锁文件 / 文档钉版 URL）', () => {
+  // 为什么值得一条守卫：发布前版本散落在 6 个地方，漏一处就是「装的还是上一版」
+  // 或「复制到的安装地址 404」。2026-09-24 实况：pkg 1.1.1 / compose 兜底 1.0.3 /
+  // 文档 URL v1.1.1 三个口径并存。
+  const read = (rel) => readFileSync(join(root, rel), 'utf8')
+  const version = JSON.parse(read('package.json')).version
+  const bad = []
+  const expect = (label, actual) => {
+    if (actual !== version) bad.push(`${label}: ${String(actual)}（期望 ${version}）`)
+  }
+  expect('src/version.ts', /MANAGER_VERSION = '([^']+)'/.exec(read('src/version.ts'))?.[1])
+  expect('docker-compose.yml 镜像兜底', /dac-manager:\$\{MANAGER_VERSION:-([^}]+)\}/.exec(read('docker-compose.yml'))?.[1])
+  expect('install.sh DAC_VERSION', /DAC_VERSION:-v([^}]+)\}/.exec(read('install.sh'))?.[1])
+  const lock = JSON.parse(read('package-lock.json'))
+  expect('package-lock.json', lock.version)
+  expect('package-lock.json 根包', lock.packages?.['']?.version)
+  // 文档/脚本里的钉版 URL：必须以 https:// 紧接主机名，否则会把 codeload.github.com 的
+  // `zip/refs/heads/master` 也当成版本引用（分支引用是合法的，跳过）。
+  const refRe = /https:\/\/(?:raw\.githubusercontent\.com\/litestartup-com\/hellodac|github\.com\/litestartup-com\/hellodac\/blob)\/([A-Za-z0-9._-]+)\//g
+  for (const rel of ['README.md', 'README.zh.md', 'docs/USER-GUIDE.md', 'install.sh', 'install.ps1', 'landing/index.html']) {
+    for (const m of read(rel).matchAll(refRe)) {
+      if (m[1] === 'main' || m[1] === 'master') continue
+      if (m[1] !== `v${version}`) bad.push(`${rel}: 钉版 ${m[1]}（期望 v${version}）`)
+    }
+  }
+  return bad.length === 0 ? true : bad.slice(0, 6).join('；')
+})
+
 check('旧品牌名已清零（B2 更名后转绿）', () => {
   // 白名单与 scripts/rename-to-dac.mjs 保持一致：gateway 包名/仓库、加密格式常量、
   // 历史流水账、本地笔记、脚本自身。
   const whitelist = ['ohdsh-api-facade', 'dsh-api-gateway', 'OHDSH-BAK2', 'OHDSH-BAK1', 'ohdsh-backup-v2', 'ohdsh-backup:']
+  // B2 过渡兼容：前端静态资源按请求从磁盘读、后端在已构建的 dist 里，更名落地到
+  // 生产 cutover 之间两边不同步，ui.js 必须新旧 cookie 名双读（见该处注释）。
+  // 收口到「文件 + 串」粒度：别的文件再冒旧名依旧违规，不做全局放行。
+  // 生产 cutover（B6）后删除 ui.js 的回退分支，同时删掉这一行。
+  // 旧名串已进 scripts/rename-to-dac.mjs 保护表，sweep 不会把它自己吃掉。
+  const transition = new Map([
+    ['public/assets/ui.js', ['ohdsh_csrf']],
+    ['public/assets/ui.test.mjs', ['ohdsh_csrf']],
+  ])
   const skipFiles = new Set(['CHANGELOG.md', 'CONTEXT.md', 'RULE.md', 'scripts/rename-to-dac.mjs', 'scripts/release-check.mjs'])
   const skipDirs = /(^|[\\/])(node_modules|\.git|dist|dist-release|data|\.m1-pilot)([\\/]|$)/
   const walk = (dir, out = []) => {
@@ -113,6 +150,7 @@ check('旧品牌名已清零（B2 更名后转绿）', () => {
     if (skipFiles.has(rel)) continue
     let text = readFileSync(file, 'utf8')
     for (const needle of whitelist) text = text.split(needle).join('')
+    for (const needle of transition.get(rel) ?? []) text = text.split(needle).join('')
     if (/ohdsh/i.test(text)) offenders.push(rel)
   }
   return offenders.length === 0 ? true : `仍含 ohdsh：${offenders.slice(0, 8).join(', ')}`

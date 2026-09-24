@@ -34,7 +34,7 @@ test('DAC v1.0.0: 每个受支持 DSH 版本都有容器 profile 锁，且根依
     assert.ok(lock.lockfileVersion >= 3, `${pair.dsh} 锁版本过低`)
     const rootPkg = lock.packages['']
     assert.ok(rootPkg !== undefined, `${pair.dsh} 锁缺根包`)
-    assert.equal(rootPkg.name, 'dsh-profile-ohdsh-node', '根包名必须与 gen-node-profile 写的一致')
+    assert.equal(rootPkg.name, 'dsh-profile-dac-node', '根包名必须与 gen-node-profile 写的一致')
     // 与 src/host-node/profile.ts 的 profileDependencies 同源（容器 profile 少一个
     // 裸 @deepseek-ai/dsh 直依赖，那是裸机路径的入口包）。
     const expected: Record<string, string> = {

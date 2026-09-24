@@ -14,15 +14,15 @@
 **Linux server (containers, recommended):**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.1.1/install.sh -o install.sh && bash install.sh
-# pros: curl -fsSL https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.1.1/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.0.0/install.sh -o install.sh && bash install.sh
+# pros: curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.0.0/install.sh | bash
 ```
 
 **Windows (bare metal):**
 
 ```powershell
-irm https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.1.1/install.ps1 -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File .\install.ps1
-# pros: irm https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.1.1/install.ps1 | iex
+irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.0.0/install.ps1 -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File .\install.ps1
+# pros: irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.0.0/install.ps1 | iex
 ```
 
 The scripts are idempotent: already-installed components are skipped, and re-runs never overwrite config or data.
@@ -96,7 +96,7 @@ facade ref; unknown versions are rejected, and pairs not yet verified install wi
 a warning). Each node's profile is pinned to its version; the nodes page shows the
 configured version plus drift state, and "Align version" reseeds the profile,
 reinstalls dependencies, and restarts the node on its pinned version. Container
-nodes use image `ohdsh/dsh-node:<version>`. Every node row also carries a version
+nodes use image `hellodac/dac-node:<version>`. Every node row also carries a version
 dropdown — switching versions is a page action (container = image rebuild;
 process = reseed + reinstall + restart), no config edits.
 
@@ -190,7 +190,7 @@ node dependencies are installed by setup via npm, no global pnpm needed.
 
 ```powershell
 git clone <repo-url>
-cd dsh-agent-manager
+cd hellodac
 npm install
 npm run setup          # self-check (node/git/dsh) + initialize workspaces/nodes/config
 npm run build

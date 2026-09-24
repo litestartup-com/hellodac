@@ -14,7 +14,7 @@ $created = Invoke-Rpc 'session.create' @{ cwd = 'C:\Workplace\gitee\note-kaka' }
 $sessionId = $created.result.value.sessionId
 Write-Host "session: $sessionId"
 
-Invoke-Rpc 'session.prompt' @{ sessionId = $sessionId; mode = 'queue'; content = @(@{ type = 'text'; text = '请在当前工作目录创建文件 ohdsh-probe.txt，内容一行 hello。只做这一件事。' }) } | Out-Null
+Invoke-Rpc 'session.prompt' @{ sessionId = $sessionId; mode = 'queue'; content = @(@{ type = 'text'; text = '请在当前工作目录创建文件 dac-probe.txt，内容一行 hello。只做这一件事。' }) } | Out-Null
 
 $pendingIds = @()
 $deadline = (Get-Date).AddSeconds(90)

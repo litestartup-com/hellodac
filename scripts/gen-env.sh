@@ -28,7 +28,7 @@ ensure BRAIN_TOKEN "$(openssl rand -hex 24)"
 ensure MANAGER_USERNAME "admin"
 # 尊重 install.sh/环境传入的口令；未提供才随机生成
 ensure MANAGER_INITIAL_PASSWORD "${MANAGER_PASSWORD:-$(openssl rand -hex 8)}"
-ensure DSH_NODE_IMAGE "ohdsh/dsh-node:0.1.2-rc.1"
+ensure DSH_NODE_IMAGE "hellodac/dac-node:0.1.2-rc.1"
 # 债务 D5:版本号唯一真相源 = package.json(与 build 的 inject-version 同源)
 ensure MANAGER_VERSION "$(node -p "require('./package.json').version" 2>/dev/null || echo 0.0.0)"
 # 债务 H1：manager 容器经 group_add 加入宿主 docker 组才能访问 docker.sock。

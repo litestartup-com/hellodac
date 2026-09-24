@@ -89,7 +89,7 @@ const main = async (): Promise<void> => {
     if (dirTargets.length > 0) {
       console.log('these node home directories will be wiped and restored:')
       for (const target of dirTargets) console.log(`  - ${target}`)
-      if (process.env.OHDSH_RESTORE_YES !== '1') {
+      if (process.env.DAC_RESTORE_YES !== '1') {
         const rl = createInterface({ input: process.stdin, output: process.stdout })
         const answer = await rl.question('Continue? Type yes to proceed, anything else cancels: ')
         rl.close()

@@ -119,7 +119,7 @@ export const backupNow = async (
   // 债务 R2：明文快照绝不进备份介质——先落系统临时目录，加密成
   // <file>.enc 才进备份目录；中途崩溃也不会在备份介质上留下明文。
   mkdirSync(dir, { recursive: true })
-  const tmpDir = mkdtempSync(join(tmpdir(), 'ohdsh-bak-'))
+  const tmpDir = mkdtempSync(join(tmpdir(), 'dac-bak-'))
   let snapshot: SnapshotInfo
   try {
     const plain = await snapshotDb(dbPath, tmpDir)

@@ -180,7 +180,7 @@ const provisionBody = z.object({
   dsh_version: z.string().min(1).optional(),
   /**
    * 向导总是带着 agent（节点 = agent 节点，创建即配工作区）；字段都可省，
-   * 缺省 = id/名称同节点名、路径 ~/.dsh-ohdsh/workspaces/<节点名>。
+   * 缺省 = id/名称同节点名、路径 ~/.dac/workspaces/<节点名>。
    */
   agent: z
     .object({
@@ -195,8 +195,8 @@ const provisionBody = z.object({
 })
 
 const userHome = (): string => process.env.USERPROFILE ?? process.env.HOME ?? '.'
-/** 节点目录根；测试可用 DSH_OHDSH_NODES_HOME 覆盖。 */
-const nodesHome = (): string => process.env.DSH_OHDSH_NODES_HOME ?? `${userHome()}/.dsh-ohdsh`
+/** 节点目录根；测试可用 DSH_DAC_NODES_HOME 覆盖。 */
+const nodesHome = (): string => process.env.DSH_DAC_NODES_HOME ?? `${userHome()}/.dac`
 
 const usedPorts = (config: AppConfig): Set<number> => {
   const ports = new Set<number>([config.listen.port])
@@ -255,11 +255,11 @@ interface ProvisionDeps {
  * （install.sh 已把宿主路径钉成真实绝对路径），新节点沿用同一前缀。
  */
 const deriveHostWorkspacePath = (config: AppConfig, nodeId: string, workspacePath: string | undefined): string => {
-  const containerPath = workspacePath ?? `/opt/ohdsh/workspaces/${nodeId}`
+  const containerPath = workspacePath ?? `/opt/dac/workspaces/${nodeId}`
   for (const ep of Object.values(config.endpoints)) {
     if (ep.spawn?.runner !== 'docker' || ep.spawn.docker === null) continue
     for (const [host, mounted] of Object.entries(ep.spawn.docker.hostVolumes)) {
-      if (mounted.startsWith('/opt/ohdsh/workspaces/')) {
+      if (mounted.startsWith('/opt/dac/workspaces/')) {
         const tail = mounted.slice(mounted.lastIndexOf('/'))
         if (host.endsWith(tail)) return host.slice(0, -tail.length) + '/' + nodeId
         return host
@@ -316,9 +316,9 @@ export const registerProvisionRoutes = (
     // 容器形态部署不支持宿主机进程节点（线上实测：manager 在容器内，拉不起
     // 宿主进程、容器镜像里也没有全局 DSH bin——用户选 process 得到的是
     // 「找不到 bin.js」的误导性报错）。判据 = 镜像内置的部署形态标记
-    // （images/manager/Dockerfile ENV OHDSH_DEPLOY_FORM=container）；裸机
+    // （images/manager/Dockerfile ENV DAC_DEPLOY_FORM=container）；裸机
     // 部署（含挂 docker.sock 的混合部署）无此标记，显式 process 照常放行。
-    if (body.runner === 'process' && process.env.OHDSH_DEPLOY_FORM === 'container') {
+    if (body.runner === 'process' && process.env.DAC_DEPLOY_FORM === 'container') {
       return reply.code(400).send({ error: 'host_process_unavailable', detail: 'a container deployment cannot host a host-process node (the manager runs in a container and cannot spawn host processes) — pick the container runtime' })
     }
     // 能力四（舰队 M1-7）：选了主机 = agent 远端宿主机进程形态；与 docker 互斥，
@@ -341,7 +341,7 @@ export const registerProvisionRoutes = (
     const versionWarning = pair !== null && pair.status === 'pending'
     const workspaceDefault = wantProcess
       ? join(nodesHome(), 'workspaces', body.name)
-      : `/opt/ohdsh/workspaces/${body.name}`
+      : `/opt/dac/workspaces/${body.name}`
     const agentSpec =
       body.agent === undefined
         ? null
@@ -394,12 +394,12 @@ export const registerProvisionRoutes = (
         const hostKey = deriveHostWorkspacePath(config, body.name, agentSpec?.workspace)
 
         const dockerSpec = {
-          // 能力二：显式钉版 = 镜像 tag 按版本约定 ohdsh/dsh-node:<版本>；缺省跟随 .env DSH_NODE_IMAGE
-          image: pinnedDsh === undefined ? (process.env.DSH_NODE_IMAGE ?? `ohdsh/dsh-node:${defaultDshVersion()}`) : `ohdsh/dsh-node:${dshVersion}`,
-          network: 'ohdsh-hive',
+          // 能力二：显式钉版 = 镜像 tag 按版本约定 hellodac/dac-node:<版本>；缺省跟随 .env DSH_NODE_IMAGE
+          image: pinnedDsh === undefined ? (process.env.DSH_NODE_IMAGE ?? `hellodac/dac-node:${defaultDshVersion()}`) : `hellodac/dac-node:${dshVersion}`,
+          network: 'dac-hive',
           port,
           host_volumes: { [hostKey]: agentSpec?.workspace ?? workspaceDefault },
-          named_volumes: { [`ohdsh-${body.name}`]: '/data' },
+          named_volumes: { [`dac-${body.name}`]: '/data' },
         }
 
         // 流水线 2:DB 先行(债务 H2/R9)
@@ -488,7 +488,7 @@ export const registerProvisionRoutes = (
         // convergeNodes 拉起(docker 分支无 install 延迟)。
         await reconcile(new Set([body.name]))
         return reply.code(201).send({
-          node: { id: body.name, port, home: `ohdsh-${body.name}` },
+          node: { id: body.name, port, home: `dac-${body.name}` },
           workspace: agentSpec === null ? null : { id: agentSpec.id, path: agentSpec.workspace },
           workspaceWarning,
           ...(versionWarning ? { versionWarning: true } : {}),

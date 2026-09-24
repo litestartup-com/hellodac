@@ -12,7 +12,7 @@
  *    段不动）；
  * 3. 全局 DSH：bin.js 所在 prefix 目录 npm install @deepseek-ai/dsh@<target>
  *    （版本已对则跳过；隔离安装的新节点无此项）；
- * 4. .env：DSH_NODE_IMAGE → ohdsh/dsh-node:<target>（容器部署换镜像 tag），
+ * 4. .env：DSH_NODE_IMAGE → hellodac/dac-node:<target>（容器部署换镜像 tag），
  *    GW_KEY_* 同步写回新钥匙（process 节点）。
  *
  * 不碰 manager.config.yaml 的接线形态（归 upgrade-012.mjs）；节点 spawn 钉版
@@ -70,7 +70,7 @@ if (!force && !dryRun) {
   for (const p of BUSY_PORTS) if (await portBusy(p)) busy.push(p)
   if (busy.length > 0) {
     console.error(`upgrade-node-version: 端口 ${busy.join(', ')} 被占用——生产栈还在运行，升级会 EPERM 半途而废。`)
-    console.error('先停栈：schtasks /end /tn OhdshManager（或 systemctl stop 对应服务），等节点进程退出后重跑本脚本。')
+    console.error('先停栈：schtasks /end /tn DacManager（或 systemctl stop 对应服务），等节点进程退出后重跑本脚本。')
     process.exit(1)
   }
 }
@@ -164,10 +164,10 @@ for (const [id, ep] of Object.entries(cfg.endpoints ?? {})) {
     const envLines = envOriginal.split(/\r?\n/)
     let touched = false
     for (let i = 0; i < envLines.length; i += 1) {
-      const m = /^(DSH_NODE_IMAGE=ohdsh\/dsh-node:)([^\s]+)$/.exec(envLines[i])
+      const m = /^(DSH_NODE_IMAGE=hellodac\/dac-node:)([^\s]+)$/.exec(envLines[i])
       if (m !== null && m[2] !== TARGET) {
         envLines[i] = `${m[1]}${TARGET}`
-        actions.push(`.env: DSH_NODE_IMAGE → ohdsh/dsh-node:${TARGET}`)
+        actions.push(`.env: DSH_NODE_IMAGE → hellodac/dac-node:${TARGET}`)
         touched = true
       }
     }
@@ -210,6 +210,6 @@ if (actions.length === 0) console.log(`  （无变化——已是 ${TARGET} 接�
 for (const a of actions) console.log('  - ' + a)
 if (!dryRun && actions.length > 0) {
   console.log('')
-  console.log('下一步：重启 manager 栈（schtasks /run /tn OhdshManager 或 systemctl start），等待节点探活；')
+  console.log('下一步：重启 manager 栈（schtasks /run /tn DacManager 或 systemctl start），等待节点探活；')
   console.log('节点页「对齐版本」可对单个节点补对齐（重播种 + 重装 + 重启）。')
 }

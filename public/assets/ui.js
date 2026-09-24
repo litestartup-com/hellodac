@@ -230,10 +230,29 @@ export const when = (ms) =>
 
 // ---- 蜂群2计划 P3：CSRF 双提交 ----
 
-/** 登录时服务端种下的 CSRF cookie（非 httpOnly，前端可读）。@returns {string} */
-export const csrfToken = () => {
-  const match = document.cookie.match(/(?:^|;\s*)ohdsh_csrf=([^;]+)/)
+/**
+ * 读指定名字的 cookie。
+ * @param {string} name cookie 名
+ * @returns {string} cookie 值，缺省为空串
+ */
+const cookieValue = (name) => {
+  const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${name}=([^;]+)`))
   return match === null ? '' : decodeURIComponent(match[1])
+}
+
+/**
+ * 登录时服务端种下的 CSRF cookie（非 httpOnly，前端可读）。
+ *
+ * 【B2 更名过渡兼容】更名把 cookie 名从 `ohdsh_csrf` 改成 `dac_csrf`，但前端
+ * 静态资源是**按请求从磁盘读**的，后端却在已构建的 `dist` 里——更名 sweep 一落地，
+ * 新前端就会立刻对旧后端失效（写操作全 403）。所以两种名字都读，新名优先：
+ * 旧后端只种旧名 → 回退命中；新后端首次 403 会补发新名 cookie → 自动切到新名。
+ * 生产 cutover（B6）后删除旧名回退，并同步移除 scripts/release-check.mjs 的过渡白名单。
+ * @returns {string}
+ */
+export const csrfToken = () => {
+  const current = cookieValue('dac_csrf')
+  return current !== '' ? current : cookieValue('ohdsh_csrf')
 }
 
 /**

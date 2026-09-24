@@ -14,8 +14,8 @@
 import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 
-const BASE = process.env.OHDSH_E2E_BASE ?? 'http://127.0.0.1'
-const USERNAME = process.env.OHDSH_E2E_USER ?? 'admin'
+const BASE = process.env.DAC_E2E_BASE ?? 'http://127.0.0.1'
+const USERNAME = process.env.DAC_E2E_USER ?? 'admin'
 const NEW_PASSWORD = 'compose-e2e-pass-1234'
 
 const env = readFileSync('.env', 'utf8')
@@ -52,8 +52,8 @@ const login = async (password) => {
   })
   const setCookie = response.headers.getSetCookie()
   const cookie = setCookie.map((c) => c.split(';')[0]).join('; ')
-  const csrfLine = setCookie.find((c) => c.startsWith('ohdsh_csrf='))
-  const csrf = csrfLine === undefined ? '' : (csrfLine.split(';')[0] ?? '').slice('ohdsh_csrf='.length)
+  const csrfLine = setCookie.find((c) => c.startsWith('dac_csrf='))
+  const csrf = csrfLine === undefined ? '' : (csrfLine.split(';')[0] ?? '').slice('dac_csrf='.length)
   return { status: response.status, body: await json(response), cookie, csrf }
 }
 
@@ -111,8 +111,8 @@ const main = async () => {
   check('首登强制改密成功', changed.status === 200, `got ${changed.status}`)
   const setCookie = changed.headers.getSetCookie()
   const cookie = setCookie.map((c) => c.split(';')[0]).join('; ')
-  const csrfLine = setCookie.find((c) => c.startsWith('ohdsh_csrf='))
-  const csrf = csrfLine === undefined ? '' : (csrfLine.split(';')[0] ?? '').slice('ohdsh_csrf='.length)
+  const csrfLine = setCookie.find((c) => c.startsWith('dac_csrf='))
+  const csrf = csrfLine === undefined ? '' : (csrfLine.split(';')[0] ?? '').slice('dac_csrf='.length)
   check('改密后换发会话', cookie !== '' && cookie !== first.cookie)
   const headers = { cookie, 'x-csrf-token': csrf }
 
@@ -177,7 +177,7 @@ const main = async () => {
       const r = await fetch(`${BASE}/api/nodes`, { headers })
       const body = await json(r)
       const worker = (body.nodes ?? []).find((n) => n.id === 'worker')
-      const container = docker(['ps', '-q', '--filter', 'label=com.ohdsh.node=worker'])
+      const container = docker(['ps', '-q', '--filter', 'label=com.dac.node=worker'])
       return worker !== undefined && worker.state === 'cold' && container.out === ''
     },
     60_000,

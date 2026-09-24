@@ -43,7 +43,7 @@ export const registerNodesRoutes = (
     const gatewayRef = ep.spawn?.gatewayRef ?? (resolvePair(version)?.gateway ?? GATEWAY_REF)
     const dshHome = ep.spawn?.env['DSH_HOME']
     // profile 目录名 = spawn.args 里 --profile 指定的名字（端点 id 只是配置键，
-    // 线上实踩：端点 id 'personal' 而 profile 名 'ohdsh-personal'，按 id 拼目录
+    // 线上实踩：端点 id 'personal' 而 profile 名 'dac-personal'，按 id 拼目录
     // 会重播种进幽灵目录、真节点纹丝不动）；无 --profile 才回退端点 id。
     const args = ep.spawn?.args ?? []
     const profileIdx = args.indexOf('--profile')
@@ -152,8 +152,8 @@ export const registerNodesRoutes = (
     const dockerMode = Object.values(config.endpoints).some((e) => e.spawn?.runner === 'docker')
     // 能力二：向导版本下拉的数据源（矩阵是唯一真相源，前端不硬编码版本清单）
     const supportedDsh = SUPPORTED_DSH.map((p) => ({ dsh: p.dsh, status: p.status }))
-    // 部署形态标记（镜像 ENV OHDSH_DEPLOY_FORM）：容器形态前端禁用「宿主机进程」
-    const containerForm = process.env.OHDSH_DEPLOY_FORM === 'container'
+    // 部署形态标记（镜像 ENV DAC_DEPLOY_FORM）：容器形态前端禁用「宿主机进程」
+    const containerForm = process.env.DAC_DEPLOY_FORM === 'container'
     // UI 收尾 C-P1.5：本机信息（拓扑「本机卡」+ 机器列表「本机行」数据源；
     // manager 宿主不经 node-agent，机器目录里没有它，这里显式给出）。
     const hostOs = process.platform
@@ -438,7 +438,7 @@ export const registerNodesRoutes = (
       if (spawn.runner === 'docker') {
         const dockerSpec = spawn.docker
         if (dockerSpec === null) return reply.code(409).send({ error: 'invalid_spawn', detail: 'this docker runner has no docker section, so its image cannot be switched' })
-        const image = `ohdsh/dsh-node:${target}`
+        const image = `hellodac/dac-node:${target}`
         try {
           await withConfigLock(() => mutateYamlFile(configPath, (doc) => doc.setIn(['endpoints', id, 'spawn', 'docker', 'image'], image)))
         } catch (error) {

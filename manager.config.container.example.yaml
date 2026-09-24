@@ -2,7 +2,7 @@
 # 复制为 manager.config.yaml 使用；install.sh（P5）会自动生成。
 #
 # 注意：
-# - manager 容器内与宿主机共享同一绝对路径 /opt/ohdsh/workspaces（compose 挂载），
+# - manager 容器内与宿主机共享同一绝对路径 /opt/dac/workspaces（compose 挂载），
 #   这样 manager 发给 dockerd 的 bind mount 路径在宿主机上真实存在；
 # - 主脑无 spawn：compose 声明（脊柱，非托管——只读管控）；
 # - personal 是第一个工蜂：docker runner，由 manager 经 docker.sock 拉起。
@@ -38,28 +38,28 @@ endpoints:
       runner: docker
       ready_timeout_ms: 30000
       docker:
-        image: ohdsh/dsh-node:0.1.2-rc.1
+        image: hellodac/dac-node:0.1.2-rc.1
         # 与 compose 里显式命名的网络一致（manager 在宿主机 dockerd 侧挂网）
-        network: ohdsh-hive
+        network: dac-hive
         port: 3081
         host_volumes:
           # 左=宿主机路径（install.sh 会替换为安装目录真实路径）；右=节点容器内路径，
           # 必须与 agents.workspace 同串——manager 把 workspace 作为 cwd 发给节点
-          /opt/ohdsh/workspaces/personal: /opt/ohdsh/workspaces/personal
+          /opt/dac/workspaces/personal: /opt/dac/workspaces/personal
         named_volumes:
-          ohdsh-personal: /data
+          dac-personal: /data
 
 agents:
   brain:
     name: Brain
     endpoint: brain
-    workspace: /opt/ohdsh/workspaces/brain
+    workspace: /opt/dac/workspaces/brain
     preset: standard
     sandbox_mode: workspace-write
   personal:
     name: Personal
     endpoint: personal
-    workspace: /opt/ohdsh/workspaces/personal
+    workspace: /opt/dac/workspaces/personal
     preset: standard
     sandbox_mode: workspace-write
 
@@ -79,7 +79,7 @@ database:
 # 在这里声明后随自动备份一起打包加密）。
 backup:
   docker_volumes:
-    - ohdsh-brain
+    - dac-brain
 
 pricing:
   peak_windows_utc:

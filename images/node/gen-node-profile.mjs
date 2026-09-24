@@ -9,7 +9,7 @@ import { join } from 'node:path'
 const DSH_VERSION = process.env.DSH_VERSION ?? '0.1.2-rc.1'
 const GATEWAY_REF = process.env.GATEWAY_REF ?? 'github:litestartup-com/dsh-api-gateway#b592b4f'
 const NPM_REGISTRY = process.env.NPM_REGISTRY ?? 'https://registry.npmjs.org'
-const out = process.env.PROFILE_DIR ?? '/opt/ohdsh-profile'
+const out = process.env.PROFILE_DIR ?? '/opt/dac-profile'
 /** 锁目录：构建期由 Dockerfile 拷进上下文（LOCK_DIR），仓库侧刷新时指到 profile-lock/。 */
 const LOCK_DIR = process.env.LOCK_DIR ?? join(import.meta.dirname, 'profile-lock')
 // 与 src/dsh-matrix.ts 的 needsLegacyPeerDeps 保持一致（check-docs.mjs 常驻断言）：
@@ -55,7 +55,7 @@ mkdirSync(out, { recursive: true })
 
 writeFileSync(`${out}/package.json`, JSON.stringify(
   {
-    name: 'dsh-profile-ohdsh-node',
+    name: 'dsh-profile-dac-node',
     private: true,
     dsh: {
       profile: {

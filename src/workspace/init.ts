@@ -98,7 +98,7 @@ export const ensureWorkspaceGit = (
     try {
       git(workspacePath, ['config', 'user.name'])
     } catch {
-      git(workspacePath, ['config', 'user.name', 'dsh-agent-manager'])
+      git(workspacePath, ['config', 'user.name', 'DAC'])
       git(workspacePath, ['config', 'user.email', 'agent@localhost'])
     }
     writeGitignore(workspacePath)
@@ -180,7 +180,7 @@ export const initWorkspace = ({ workspacePath, preset, useGit = true }: InitOpti
       try {
         git(root, ['config', 'user.name'])
       } catch {
-        git(root, ['config', 'user.name', 'dsh-agent-manager'])
+        git(root, ['config', 'user.name', 'DAC'])
         git(root, ['config', 'user.email', 'agent@localhost'])
       }
     }

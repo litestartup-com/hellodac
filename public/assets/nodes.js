@@ -266,7 +266,7 @@ $('f-node-name').addEventListener('input', () => {
   if (!advancedDirty.has('f-agent-id')) $('f-agent-id').value = name
   if (!advancedDirty.has('f-agent-name')) $('f-agent-name').value = name
   if (!advancedDirty.has('f-agent-workspace')) {
-    const base = dockerMode ? '/opt/ohdsh/workspaces' : '~/.dsh-ohdsh/workspaces'
+    const base = dockerMode ? '/opt/dac/workspaces' : '~/.dac/workspaces'
     $('f-agent-workspace').value = name === '' ? '' : `${base}/${name}`
   }
 })

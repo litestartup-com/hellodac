@@ -43,7 +43,7 @@ const load = async () => {
     setHtml(
       'repo-note',
       data.repo === null
-        ? `<strong>${esc(t('skills.repoMissing'))}</strong> <code>${esc('~/.dsh-ohdsh/skills')}</code> ${esc(t('skills.repoMissingNote'))}`
+        ? `<strong>${esc(t('skills.repoMissing'))}</strong> <code>${esc('~/.dac/skills')}</code> ${esc(t('skills.repoMissingNote'))}`
         : `<strong>${esc(t('skills.repoLabel'))}</strong> <code>${esc(data.repo.path)}</code> ${versionChip(data.repo.version)} · ${esc(t('skills.repoNote'))}`,
     )
 

@@ -7,7 +7,7 @@
  *   sandbox_key_ref 也为空 → 该端点无法迁移，列出并退出码 2（大声失败）。
  *
  * 附带 .env 镜像标签迁移（gen-env 幂等不覆盖旧值 → 老部署标签必须显式升）：
- * - DSH_NODE_IMAGE=ohdsh/dsh-node:0.1.1-rc.2 → 0.1.2-rc.1；
+ * - DSH_NODE_IMAGE=hellodac/dac-node:0.1.1-rc.2 → 0.1.2-rc.1；
  * - MANAGER_VERSION=1.0.1 / 1.0.2 → 1.0.3。
  * .env 备份：首次改动前拷为 .env.pre-012.bak（已存在不覆盖）。
  *
@@ -36,7 +36,7 @@ if (existsSync(envPath)) {
   const envOriginal = readFileSync(envPath, 'utf8')
   const envLines = envOriginal.split(/\r?\n/)
   for (let i = 0; i < envLines.length; i += 1) {
-    if (envLines[i] === 'DSH_NODE_IMAGE=ohdsh/dsh-node:0.1.1-rc.2') { envLines[i] = 'DSH_NODE_IMAGE=ohdsh/dsh-node:0.1.2-rc.1'; envChanged = true }
+    if (envLines[i] === 'DSH_NODE_IMAGE=hellodac/dac-node:0.1.1-rc.2') { envLines[i] = 'DSH_NODE_IMAGE=hellodac/dac-node:0.1.2-rc.1'; envChanged = true }
     if (envLines[i] === 'MANAGER_VERSION=1.0.1') { envLines[i] = 'MANAGER_VERSION=1.0.3'; envChanged = true }
     if (envLines[i] === 'MANAGER_VERSION=1.0.2') { envLines[i] = 'MANAGER_VERSION=1.0.3'; envChanged = true }
   }

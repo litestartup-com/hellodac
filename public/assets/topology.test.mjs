@@ -38,7 +38,7 @@ const node = (over = {}) => ({
 
 test('UI 收尾 C: 形态 tag——远端/容器/宿主机/外管', () => {
   assert.equal(formTag(node({ host: 'agent-abc' })), 'remote agent')
-  assert.equal(formTag(node({ image: 'ohdsh:0.1.5' })), 'container node')
+  assert.equal(formTag(node({ image: 'dac:0.1.5' })), 'container node')
   assert.equal(formTag(node({})), 'host process')
   assert.equal(formTag(node({ managed: false })), 'external')
 })

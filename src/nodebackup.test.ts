@@ -15,15 +15,15 @@ test('蜂群2计划 P4: collectNodeHomes 收集三种形态（process 目录 / d
   const config = {
     endpoints: {
       personal: { spawn: { runner: 'process', env: { DSH_HOME: '/homes/personal' } } },
-      product: { spawn: { runner: 'docker', docker: { namedVolumes: { 'ohdsh-product': '/data' } } } },
+      product: { spawn: { runner: 'docker', docker: { namedVolumes: { 'dac-product': '/data' } } } },
       brain: { spawn: null },
     },
-    backupDockerVolumes: ['ohdsh-brain'],
+    backupDockerVolumes: ['dac-brain'],
   } as unknown as AppConfig
   assert.deepEqual(collectNodeHomes(config), [
     { nodeId: 'personal', kind: 'dir', home: '/homes/personal' },
-    { nodeId: 'product', kind: 'docker', home: 'ohdsh-product' },
-    { nodeId: 'ohdsh-brain', kind: 'docker', home: 'ohdsh-brain' },
+    { nodeId: 'product', kind: 'docker', home: 'dac-product' },
+    { nodeId: 'dac-brain', kind: 'docker', home: 'dac-brain' },
   ])
 })
 
@@ -121,13 +121,13 @@ test('债务 R10 回归: docker 卷形态打包/恢复经 runToolIo 流式传输
       },
     } as unknown as DockerRunner
 
-    const entry: NodeHomeEntry = { nodeId: 'personal', kind: 'docker', home: 'ohdsh-personal' }
+    const entry: NodeHomeEntry = { nodeId: 'personal', kind: 'docker', home: 'dac-personal' }
     const packed = await packNodeHomes([entry], backupDir, SECRET, stubRunner)
     assert.equal(packed.length, 1)
     const archive = packed[0] ?? ''
 
     assert.equal(calls[0]?.cmd.slice(0, 3).join(' '), 'tar czf -', '打包必须打到 stdout 流（-），而不是容器内备份路径')
-    assert.deepEqual(calls[0]?.binds, [{ from: 'ohdsh-personal', to: '/data' }], '只绑命名卷——备份目录不做宿主路径 bind（ENOENT 根因）')
+    assert.deepEqual(calls[0]?.binds, [{ from: 'dac-personal', to: '/data' }], '只绑命名卷——备份目录不做宿主路径 bind（ENOENT 根因）')
     assert.ok(calls[0]?.io.stdout !== undefined && calls[0].io.stdout !== '', 'stdout 必须落到 manager 侧的临时文件')
 
     // 卷内容被改 → restore 流回卷 → 内容还原

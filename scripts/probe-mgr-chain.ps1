@@ -3,7 +3,7 @@
 $ErrorActionPreference = 'Stop'
 $repo = 'C:\Users\Administrator\Documents\deepseek-workspace\dsh-agent-manager'
 $key = ((Get-Content "$repo\.env" | Where-Object { $_ -like 'GW_KEY_A=*' }) -replace '^GW_KEY_A=', '')
-$tmp = Join-Path $env:TEMP ("ohdsh-mgr-probe-" + [guid]::NewGuid().ToString('N').Substring(0,8))
+$tmp = Join-Path $env:TEMP ("dac-mgr-probe-" + [guid]::NewGuid().ToString('N').Substring(0,8))
 New-Item -ItemType Directory -Path (Join-Path $tmp 'data') -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $tmp 'workspaces') -Force | Out-Null
 $port = 18999
@@ -52,13 +52,13 @@ try {
   'manager 已起'
 
   $login = Invoke-RestMethod -Uri "$base/api/login" -Method Post -ContentType 'application/json' -Body (@{ username = 'admin'; password = 'probe-pass-123' } | ConvertTo-Json) -SessionVariable sess -TimeoutSec 10
-  $csrf = $sess.Cookies.GetCookies("$base")['ohdsh_csrf'].Value
+  $csrf = $sess.Cookies.GetCookies("$base")['dac_csrf'].Value
   $authHeaders = @{ 'x-csrf-token' = $csrf }
   '已登录'
 
   '--- 首登改密 ---'
   $pw = Invoke-RestMethod -Uri "$base/api/account/password" -Method Post -Headers $authHeaders -ContentType 'application/json' -Body (@{ currentPassword = 'probe-pass-123'; newPassword = 'probe-pass-456' } | ConvertTo-Json) -WebSession $sess -TimeoutSec 10
-  $csrf = $sess.Cookies.GetCookies("$base")['ohdsh_csrf'].Value
+  $csrf = $sess.Cookies.GetCookies("$base")['dac_csrf'].Value
   $authHeaders = @{ 'x-csrf-token' = $csrf }
   "改密回执: $($pw | ConvertTo-Json -Compress)"
 

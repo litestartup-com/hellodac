@@ -17,7 +17,7 @@ const fail = (message: string): never => {
   process.exit(1)
 }
 
-const root = mkdtempSync(join(tmpdir(), 'ohdsh-drill-'))
+const root = mkdtempSync(join(tmpdir(), 'dac-drill-'))
 const dataDir = join(root, 'data')
 const backupDir = join(dataDir, 'backups')
 const dbPath = join(dataDir, 'manager.db')

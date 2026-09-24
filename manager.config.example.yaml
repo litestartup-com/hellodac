@@ -1,4 +1,4 @@
-# dsh-agent-manager 配置模板。复制为 manager.config.yaml 后填写真实值。
+# DAC 配置模板。复制为 manager.config.yaml 后填写真实值。
 # manager.config.yaml 已被 .gitignore 排除（个人配置不进 git）。
 
 listen:
@@ -24,7 +24,7 @@ endpoints:
     #   args: ["C:/nvm4w/nodejs/node_modules/@deepseek-ai/dsh/lib/bin.js", "--profile", "web", "--no-open"]
     #   ready_timeout_ms: 30000
     #   # 蜂群 v1.1：节点独立 DSH_HOME（会话/settings/附件互不可见），setup 自动生成：
-    #   env: { DSH_HOME: "C:/Users/you/.dsh-ohdsh/ohdsh-personal" }
+    #   env: { DSH_HOME: "C:/Users/you/.dac/dac-personal" }
     #   # CLI `npm run nodes -- up` 独立拉起时用 detached + log_file（进程独立存活、
     #   # 日志落文件、pidfile 供跨进程 down）；manager 常驻启动保持默认 false：
     #   detached: true

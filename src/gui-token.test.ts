@@ -4,7 +4,7 @@ import { captureGuiToken, guiOpenUrl, guiDirectUrl } from './gui-token.js'
 
 test('债务 P1 回归: 0.1.5 token 行捕获(启动行含 ?token=)', () => {
   const logs = [
-    'profile seeded into /data/profiles/ohdsh-node (seed 25f00fc3)',
+    'profile seeded into /data/profiles/dac-node (seed 25f00fc3)',
     'dsh web: http://127.0.0.1:3080/?token=BMJaU1Hgo6ZMqG8ak-exj31Hy9i0KPFq3H424qcESyg (LAN: http://172.17.0.2:3080/?token=BMJaU1Hgo6ZMqG8ak-exj31Hy9i0KPFq3H424qcESyg)',
   ].join('\n')
   assert.deepEqual(captureGuiToken(logs), { found: true, token: 'BMJaU1Hgo6ZMqG8ak-exj31Hy9i0KPFq3H424qcESyg', url: 'http://127.0.0.1:3080/' })

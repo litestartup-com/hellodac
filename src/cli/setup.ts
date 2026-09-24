@@ -316,9 +316,9 @@ export const buildManagerConfig = (options: {
 
 export const parseArgs = (argv: string[]): { options: SetupOptions; help: boolean; explicit: { personalWorkspace: boolean; brainWorkspace: boolean } } => {
   const user = process.env.USERPROFILE ?? process.env.HOME ?? '.'
-  const nodesHome = `${user}/.dsh-ohdsh`
+  const nodesHome = `${user}/.dac`
   const defaults: SetupOptions = {
-    // 2026-09-05：默认工作区放在仓库外（~/.dsh-ohdsh 下）——放在仓库里会被
+    // 2026-09-05：默认工作区放在仓库外（~/.dac 下）——放在仓库里会被
     // 外层 git 收养，agent 运行没有独立审计留痕（主脑工作区实测踩坑）。
     personalWorkspace: `${nodesHome}/workspaces/personal`,
     brainWorkspace: `${nodesHome}/brain-workspace`,
@@ -369,7 +369,7 @@ export const parseArgs = (argv: string[]): { options: SetupOptions; help: boolea
 const usage = (): void => {
   console.log('usage: npm run setup -- [--workspace PATH] [--brain-workspace PATH] [--ports 3081,3082] [--dsh-bin PATH] [--gateway-local PATH] [--nodes-home PATH] [--no-install] [--force] [--skip-version-check]')
   console.log('  --gateway-local  use a local dsh-api-gateway checkout as a file: dependency (offline install; defaults to GitHub)')
-  console.log('  --nodes-home     root for node directories (one DSH_HOME per node; default ~/.dsh-ohdsh)')
+  console.log('  --nodes-home     root for node directories (one DSH_HOME per node; default ~/.dac)')
 }
 
 // ---------------------------------------------------------------------------
@@ -480,8 +480,8 @@ const initWorkspaces = (options: SetupOptions): void => {
 const installNodeProfiles = (options: SetupOptions, dshBin: string): Map<string, string> => {
   console.log('[2/4] creating node directories and profiles…')
   const specs: ProfileSpec[] = [
-    { name: 'ohdsh-personal', port: options.personalPort },
-    { name: 'ohdsh-brain', port: options.brainPort },
+    { name: 'dac-personal', port: options.personalPort },
+    { name: 'dac-brain', port: options.brainPort },
   ]
   const gatewayDep =
     options.gatewayLocal === null
@@ -536,8 +536,8 @@ const writeSecrets = async (
   console.log('[3/4] generating secrets…')
   // 每个节点自己的 settings.yaml 里一把独立的 gateway 密钥；manager 分 ref 引用。
   // 债务 E10:ensureNodeProfiles 已保证两 home 必在 map,显式收窄替代 `!`
-  const personalHome = nodeHomes.get('ohdsh-personal')
-  const brainHome = nodeHomes.get('ohdsh-brain')
+  const personalHome = nodeHomes.get('dac-personal')
+  const brainHome = nodeHomes.get('dac-brain')
   if (personalHome === undefined || brainHome === undefined) {
     console.error('internal error: node homes were not registered — ensureNodeProfiles did not run as expected.')
     process.exit(2)
@@ -563,8 +563,8 @@ const writeManagerConfig = async (
     personalPort: options.personalPort,
     brainPort: options.brainPort,
     dshBin,
-    personalProfile: 'ohdsh-personal',
-    brainProfile: 'ohdsh-brain',
+    personalProfile: 'dac-personal',
+    brainProfile: 'dac-brain',
     personalHome,
     brainHome,
     brainToken: envValues.BRAIN_TOKEN ?? '',

@@ -66,7 +66,7 @@ const fake = (options: { imageExists?: boolean; leftovers?: Array<{ Id: string }
       },
       inspect: async () => {
         if (options.inspectThrows === true) throw new Error('no such container')
-        return { Config: { Image: options.inspectImage ?? 'ohdsh/dsh-node:0.1.2-rc.1' } }
+        return { Config: { Image: options.inspectImage ?? 'hellodac/dac-node:0.1.2-rc.1' } }
       },
     }),
   }
@@ -86,12 +86,12 @@ const dockerSpec = (): ResolvedSpawnSpec => ({
   runner: 'docker',
   host: null,
   docker: {
-    image: 'ohdsh/dsh-node:0.1.1-rc.2',
+    image: 'hellodac/dac-node:0.1.1-rc.2',
     containerName: null,
     network: 'hive',
     port: 3081,
-    hostVolumes: { '/opt/ohdsh/workspaces/personal': '/workspace' },
-    namedVolumes: { 'ohdsh-personal': '/data' },
+    hostVolumes: { '/opt/dac/workspaces/personal': '/workspace' },
+    namedVolumes: { 'dac-personal': '/data' },
   },
 })
 
@@ -113,14 +113,14 @@ test('蜂群2计划 P2b: start 创建容器（名称/标签/命令/环境/挂载
   assert.deepEqual(f.state.removed, ['stale-1'], '同名残留容器被强制清理')
   const created = f.state.created[0]
   assert.ok(created !== undefined)
-  assert.equal(created.name, 'ohdsh-node-personal')
-  assert.equal(created.Image, 'ohdsh/dsh-node:0.1.1-rc.2')
+  assert.equal(created.name, 'dac-node-personal')
+  assert.equal(created.Image, 'hellodac/dac-node:0.1.1-rc.2')
   assert.deepEqual(created.Cmd, ['--port', '3081', '--trusted-host', 'node-personal', 'node-personal:3081'])
-  assert.deepEqual(created.Labels, { 'com.ohdsh.managed': 'true', 'com.ohdsh.node': 'personal' })
+  assert.deepEqual(created.Labels, { 'com.dac.managed': 'true', 'com.dac.node': 'personal' })
   assert.deepEqual(created.Env, ['DSH_HOME=/data', 'GW_KEY=apigw-x'])
   const host = created.HostConfig as { NetworkMode: string; Binds: string[]; RestartPolicy: { Name: string }; PortBindings?: Record<string, unknown> }
   assert.equal(host.NetworkMode, 'hive')
-  assert.deepEqual(host.Binds, ['/opt/ohdsh/workspaces/personal:/workspace', 'ohdsh-personal:/data'])
+  assert.deepEqual(host.Binds, ['/opt/dac/workspaces/personal:/workspace', 'dac-personal:/data'])
   assert.deepEqual(host.RestartPolicy, { Name: 'unless-stopped' })
   // 能力三 v1：节点 GUI 端口只发布到宿主机 loopback（SSH 隧道目标；绝不进公网面）
   assert.deepEqual(host.PortBindings, { '3081/tcp': [{ HostIp: '127.0.0.1', HostPort: '3081' }] }, 'GUI 端口必须只绑 127.0.0.1')
@@ -143,7 +143,7 @@ test('蜂群2计划 P2b: stop = stop + remove；logs 收集容器输出', async 
 test('节点版本展示: containerImage 返回容器的镜像标签，查不到返回 null', async () => {
   const f = fake()
   const runner = new DockerRunner({ docker: f.docker })
-  assert.equal(await runner.containerImage('cid-1'), 'ohdsh/dsh-node:0.1.2-rc.1')
+  assert.equal(await runner.containerImage('cid-1'), 'hellodac/dac-node:0.1.2-rc.1')
   const gone = fake({ inspectThrows: true })
   const goneRunner = new DockerRunner({ docker: gone.docker })
   assert.equal(await goneRunner.containerImage('cid-missing'), null, '容器已消失按未知处理')
@@ -151,8 +151,8 @@ test('节点版本展示: containerImage 返回容器的镜像标签，查不到
 
 test('蜂群2计划 P2b: listManaged 只回 managed 标签容器并归一化字段', async () => {
   const listed = [
-    { Id: 'abc', Names: ['/ohdsh-node-personal'], Labels: { 'com.ohdsh.managed': 'true', 'com.ohdsh.node': 'personal' }, State: 'running' },
-    { Id: 'def', Names: ['/ohdsh-node-product'], Labels: { 'com.ohdsh.managed': 'true', 'com.ohdsh.node': 'product' }, State: 'exited' },
+    { Id: 'abc', Names: ['/dac-node-personal'], Labels: { 'com.dac.managed': 'true', 'com.dac.node': 'personal' }, State: 'running' },
+    { Id: 'def', Names: ['/dac-node-product'], Labels: { 'com.dac.managed': 'true', 'com.dac.node': 'product' }, State: 'exited' },
   ]
   const f = fake()
   const original = (f.docker as unknown as { listContainers: () => Promise<unknown> }).listContainers
@@ -160,8 +160,8 @@ test('蜂群2计划 P2b: listManaged 只回 managed 标签容器并归一化字�
   const runner = new DockerRunner({ docker: f.docker })
   const result = await runner.listManaged()
   assert.deepEqual(result, [
-    { id: 'abc', name: 'ohdsh-node-personal', labels: { 'com.ohdsh.managed': 'true', 'com.ohdsh.node': 'personal' }, state: 'running' },
-    { id: 'def', name: 'ohdsh-node-product', labels: { 'com.ohdsh.managed': 'true', 'com.ohdsh.node': 'product' }, state: 'exited' },
+    { id: 'abc', name: 'dac-node-personal', labels: { 'com.dac.managed': 'true', 'com.dac.node': 'personal' }, state: 'running' },
+    { id: 'def', name: 'dac-node-product', labels: { 'com.dac.managed': 'true', 'com.dac.node': 'product' }, state: 'exited' },
   ])
   void original
 })
@@ -246,12 +246,12 @@ test('债务 R10 回归: runToolIo 经 attach 流式传输——stdout 落文件
     await new DockerRunner({ docker: f.docker }).runToolIo(
       'alpine:3.20',
       ['tar', 'czf', '-', '-C', '/data', '.'],
-      [{ from: 'ohdsh-personal', to: '/data' }],
+      [{ from: 'dac-personal', to: '/data' }],
       { stdout: outFile },
     )
     assert.equal(readFileSync(outFile, 'utf8'), 'tar-bytes-here', 'stdout 帧必须完整落到文件')
     const created = f.state.created[0] as { HostConfig: { Binds: string[] }; AttachStdout: boolean; AttachStdin: boolean | undefined }
-    assert.deepEqual(created.HostConfig.Binds, ['ohdsh-personal:/data'], '只绑卷——备份目录不再作为宿主路径 bind（ENOENT 根因）')
+    assert.deepEqual(created.HostConfig.Binds, ['dac-personal:/data'], '只绑卷——备份目录不再作为宿主路径 bind（ENOENT 根因）')
     assert.equal(created.AttachStdout, true)
     assert.notEqual(created.AttachStdin, true, '无 stdin 时不挂 stdin')
     assert.equal(f.state.removed, 1, '工具容器用完即删')
@@ -278,7 +278,7 @@ test('债务 R10 回归: runToolIo stdin 从文件喂给工具容器（restore �
     await new DockerRunner({ docker: f.docker }).runToolIo(
       'alpine:3.20',
       ['tar', 'xzf', '-', '-C', '/data'],
-      [{ from: 'ohdsh-personal', to: '/data' }],
+      [{ from: 'dac-personal', to: '/data' }],
       { stdin: inFile },
     )
     assert.equal(Buffer.concat(f.state.stdinWritten).toString('utf8'), 'tarball-bytes', 'stdin 必须原样喂进 attach 流')

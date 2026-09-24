@@ -28,7 +28,7 @@ export interface AgentSkills {
   skills: SkillInfo[]
 }
 
-const SKILLS_REPO = `${process.env.USERPROFILE ?? process.env.HOME ?? '.'}/.dsh-ohdsh/skills`
+const SKILLS_REPO = `${process.env.USERPROFILE ?? process.env.HOME ?? '.'}/.dac/skills`
 
 const scanSkills = async (workspacePath: string): Promise<SkillInfo[]> => {
   const root = join(workspacePath, '.skills')

@@ -2,7 +2,7 @@
  * DockerRunner — 蜂群2计划 P2b：manager 经 docker.sock 管理本机节点容器。
  *
  * 一个 DSH 节点容器 = 镜像（构建期冻结依赖）+ 命名卷（节点 home）+ bind mount
- * （工作区）。所有容器打 `com.ohdsh.managed=true` 标签：manager 只碰自己拉的
+ * （工作区）。所有容器打 `com.dac.managed=true` 标签：manager 只碰自己拉的
  * 容器，对账（认领在跑 / 补拉缺失）也以标签为界。
  *
  * 构造函数可注入 docker 实例（测试用假实现），生产走 /var/run/docker.sock。
@@ -13,8 +13,8 @@ import { pipeline } from 'node:stream/promises'
 import Dockerode from 'dockerode'
 import type { ResolvedSpawnSpec } from '../config.js'
 
-export const MANAGED_LABEL = 'com.ohdsh.managed'
-export const NODE_LABEL = 'com.ohdsh.node'
+export const MANAGED_LABEL = 'com.dac.managed'
+export const NODE_LABEL = 'com.dac.node'
 
 export interface ManagedContainerInfo {
   id: string
@@ -71,7 +71,7 @@ export class DockerRunner {
   async start(spec: ResolvedSpawnSpec, nodeId: string, env: Record<string, string>): Promise<string> {
     const d = spec.docker
     if (d === null) throw new Error('a docker runner needs a docker section')
-    const name = d.containerName ?? `ohdsh-node-${nodeId}`
+    const name = d.containerName ?? `dac-node-${nodeId}`
 
     const leftovers = await this.docker.listContainers({ all: true, filters: { name: [name] } }).catch(() => [])
     for (const c of leftovers) {

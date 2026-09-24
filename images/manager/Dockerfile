@@ -1,4 +1,4 @@
-# ohdsh/manager — 蜂群2计划 P2：控制面镜像（构建期 install+build，运行时零安装）
+# hellodac/dac-manager — 蜂群2计划 P2：控制面镜像（构建期 install+build，运行时零安装）
 #
 # 依赖 docker.sock（宿主机挂载）管理工蜂容器；git/curl 供工作区快照与 agent 工具。
 FROM node:22-bookworm-slim AS deps
@@ -25,7 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # 部署形态标记：容器形态 manager 无法拉起宿主机进程节点（provision 据此
 # 显性拒绝 runner=process，向导同步禁用该选项；裸机部署无此变量 = 不受限）。
-ENV NODE_ENV=production TZ=Asia/Shanghai OHDSH_DEPLOY_FORM=container
+ENV NODE_ENV=production TZ=Asia/Shanghai DAC_DEPLOY_FORM=container
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
@@ -40,8 +40,8 @@ COPY templates ./templates
 # 注入宿主 docker 组 GID（镜像内不需要存在同名组）。/app/data 的宿主侧属主
 # 由 install.sh 按 HOST_UID 放行（compose 里是 bind mount，以宿主权限为准）。
 RUN mkdir -p /app/data \
-    && (getent group 1000 >/dev/null || groupadd -g 1000 ohdsh) \
-    && (getent passwd 1000 >/dev/null || useradd -u 1000 -g 1000 -s /bin/sh ohdsh) \
+    && (getent group 1000 >/dev/null || groupadd -g 1000 dac) \
+    && (getent passwd 1000 >/dev/null || useradd -u 1000 -g 1000 -s /bin/sh dac) \
     && chown -R 1000:1000 /app/data \
     # 真相文件原子写（<file>.tmp + rename）要求文件所在目录可写：.env /
     # manager.config.yaml 的 .tmp 落在 /app（bind 挂的是文件本身，父目录仍是

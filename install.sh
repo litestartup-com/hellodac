@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Oh! dsh — one-command install (Ubuntu 24, single-host container form:
+# DAC — one-command install (Ubuntu 24, single-host container form:
 # nginx + manager + 主脑 spine; the 个人 worker is created by the manager).
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.1.1/install.sh -o install.sh && bash install.sh
-#   # one-liner for the impatient: curl -fsSL https://raw.githubusercontent.com/litestartup-com/dsh-agent-manager/v1.1.1/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.0.0/install.sh -o install.sh && bash install.sh
+#   # one-liner for the impatient: curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.0.0/install.sh | bash
 #
 # Idempotent: Docker present → skipped; .env existing → never overwritten.
 # Non-interactive: DEEPSEEK_API_KEY / MANAGER_PASSWORD / MANAGER_PORT / APP_DOMAIN /
-# TLS_MODE / OHDSH_VERSION can be preset via environment; only the missing ones prompt.
+# TLS_MODE / DAC_VERSION can be preset via environment; only the missing ones prompt.
 # Plan-only pass: DRY_RUN=1 bash install.sh
 #
 # Note: output is intentionally English — a minimal server locale (LANG=C)
@@ -17,15 +17,15 @@ set -euo pipefail
 
 # 安装目录 = 执行本脚本时所在的目录（cd 到哪装到哪；APP_DIR 环境变量可覆盖）。
 APP_DIR="${APP_DIR:-.}"
-OHDSH_VERSION="${OHDSH_VERSION:-v1.1.1}"
-RELEASE_BASE="https://github.com/litestartup-com/dsh-agent-manager/releases/download/${OHDSH_VERSION}"
+DAC_VERSION="${DAC_VERSION:-v1.0.0}"
+RELEASE_BASE="https://github.com/litestartup-com/hellodac/releases/download/${DAC_VERSION}"
 MANAGER_PORT="${MANAGER_PORT:-8080}"
 DRY_RUN="${DRY_RUN:-0}"
 YES="${YES:-0}"
 APP_DOMAIN="${APP_DOMAIN:-}"
 TLS_MODE="${TLS_MODE:-}"
-SSL_CERT_PATH="${SSL_CERT_PATH:-/etc/ssl/ohdsh/cert.pem}"
-SSL_KEY_PATH="${SSL_KEY_PATH:-/etc/ssl/ohdsh/key.pem}"
+SSL_CERT_PATH="${SSL_CERT_PATH:-/etc/ssl/dac/cert.pem}"
+SSL_KEY_PATH="${SSL_KEY_PATH:-/etc/ssl/dac/key.pem}"
 DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY:-}"
 MANAGER_PASSWORD="${MANAGER_PASSWORD:-}"
 
@@ -40,7 +40,7 @@ confirm() {
 }
 
 # ---- plan first (计划先行) ----
-log "plan: Docker (skip if present) → download release ${OHDSH_VERSION} → .env (never overwrite) → compose up"
+log "plan: Docker (skip if present) → download release ${DAC_VERSION} → .env (never overwrite) → compose up"
 log "install dir: $(pwd)"
 confirm "Continue?" || { log "aborted."; exit 0; }
 
@@ -80,20 +80,20 @@ fi
 if [ -f "$APP_DIR/docker-compose.yml" ]; then
   log "skip (exists): $APP_DIR"
 else
-  log "Downloading release bundle ${OHDSH_VERSION}..."
+  log "Downloading release bundle ${DAC_VERSION}..."
   run mkdir -p "$APP_DIR"
   if [ "$DRY_RUN" = "1" ]; then
-    log "DRY: curl ${RELEASE_BASE}/ohdsh-compose.zip"
-  elif curl -fsSL "${RELEASE_BASE}/ohdsh-compose.zip" -o /tmp/ohdsh-compose.zip 2>/dev/null; then
-    unzip -q -o /tmp/ohdsh-compose.zip -d "$APP_DIR"
-    rm -f /tmp/ohdsh-compose.zip
+    log "DRY: curl ${RELEASE_BASE}/dac-compose.zip"
+  elif curl -fsSL "${RELEASE_BASE}/dac-compose.zip" -o /tmp/dac-compose.zip 2>/dev/null; then
+    unzip -q -o /tmp/dac-compose.zip -d "$APP_DIR"
+    rm -f /tmp/dac-compose.zip
     log "bundle unpacked."
   else
     # 发布包尚不存在（tag 未打）或下载失败：回退到源码克隆。
     # 绝不 rm -rf 安装目录（APP_DIR=. 时会删掉用户当前目录本身）——克隆进临时目录再搬入。
     log "release bundle unavailable — falling back to git clone (master)"
     TMP_CLONE="$(mktemp -d)"
-    run git clone --depth 1 https://github.com/litestartup-com/dsh-agent-manager.git "$TMP_CLONE"
+    run git clone --depth 1 https://github.com/litestartup-com/hellodac.git "$TMP_CLONE"
     run cp -a "$TMP_CLONE"/. "$APP_DIR"/
     run rm -rf "$TMP_CLONE"
   fi

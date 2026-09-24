@@ -189,7 +189,7 @@ test('蜂群2计划 P2b: docker runner 节点的日志走 docker logs', async ()
     ...managedSpawn,
     runner: 'docker' as const,
     host: null,
-    docker: { image: 'ohdsh/dsh-node:0.1.1-rc.2', containerName: null, network: 'hive', port: 3081, hostVolumes: {}, namedVolumes: {} },
+    docker: { image: 'hellodac/dac-node:0.1.1-rc.2', containerName: null, network: 'hive', port: 3081, hostVolumes: {}, namedVolumes: {} },
   }
   config.endpoints['A']!.spawn = dockerSpawn
   const calls = { start: 0, stop: 0, restart: 0 }
@@ -342,7 +342,7 @@ test('P1 回归: POST /api/nodes/:id/version 容器分支——镜像 tag 落盘
     ...managedSpawn,
     runner: 'docker' as const,
     host: null,
-    docker: { image: 'ohdsh/dsh-node:0.1.2-rc.1', containerName: null, network: 'ohdsh-hive', port: 3081, hostVolumes: {}, namedVolumes: {} },
+    docker: { image: 'hellodac/dac-node:0.1.2-rc.1', containerName: null, network: 'dac-hive', port: 3081, hostVolumes: {}, namedVolumes: {} },
   }
   config.endpoints['A']!.spawn = dockerSpawn as never
   const calls = { start: 0, stop: 0, restart: 0 }
@@ -355,9 +355,9 @@ test('P1 回归: POST /api/nodes/:id/version 容器分支——镜像 tag 落盘
 
   const res = await app.inject({ method: 'POST', url: '/api/nodes/A/version', payload: { dsh_version: '0.1.5-rc.2' } })
   assert.equal(res.statusCode, 202, JSON.stringify(res.body))
-  assert.equal((res.json() as { image: string }).image, 'ohdsh/dsh-node:0.1.5-rc.2')
-  assert.equal((config.endpoints['A']?.spawn as unknown as { docker: { image: string } } | null)?.docker.image, 'ohdsh/dsh-node:0.1.5-rc.2', '内存镜像 tag 热加载')
-  assert.match(readFileSync(configPath, 'utf8'), /image: ohdsh\/dsh-node:0.1.5-rc.2/, '真相源落盘镜像 tag')
+  assert.equal((res.json() as { image: string }).image, 'hellodac/dac-node:0.1.5-rc.2')
+  assert.equal((config.endpoints['A']?.spawn as unknown as { docker: { image: string } } | null)?.docker.image, 'hellodac/dac-node:0.1.5-rc.2', '内存镜像 tag 热加载')
+  assert.match(readFileSync(configPath, 'utf8'), /image: hellodac\/dac-node:0.1.5-rc.2/, '真相源落盘镜像 tag')
   assert.equal(calls.restart, 1, '立即重建（不等对账周期）')
   assert.ok(audits.includes('node_version_change'))
 })

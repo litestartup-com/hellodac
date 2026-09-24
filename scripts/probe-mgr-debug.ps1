@@ -1,7 +1,7 @@
 # 调试：前台启动临时 manager（cwd=$tmp），15 秒后杀，打印输出。
 $repo = 'C:\Users\Administrator\Documents\deepseek-workspace\dsh-agent-manager'
 $key = ((Get-Content "$repo\.env" | Where-Object { $_ -like 'GW_KEY_A=*' }) -replace '^GW_KEY_A=', '')
-$tmp = Join-Path $env:TEMP 'ohdsh-mgr-boot-test'
+$tmp = Join-Path $env:TEMP 'dac-mgr-boot-test'
 New-Item -ItemType Directory -Path (Join-Path $tmp 'data') -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $tmp 'workspaces') -Force | Out-Null
 @"

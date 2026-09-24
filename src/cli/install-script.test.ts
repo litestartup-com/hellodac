@@ -34,9 +34,9 @@ test('install.ps1 starts with a UTF-8 BOM so Windows PowerShell 5.1 can parse it
  */
 test('install.ps1 falls back to codeload zip when git clone fails', () => {
   const text = new TextDecoder('utf-8', { fatal: true }).decode(readFileSync(join(root, 'install.ps1')))
-  assert.match(text, /codeload\.github\.com\/litestartup-com\/dsh-agent-manager\/zip\/refs\/heads\/master/)
+  assert.match(text, /codeload\.github\.com\/litestartup-com\/hellodac\/zip\/refs\/heads\/master/)
   assert.match(text, /Expand-Archive/)
-  assert.match(text, /git clone https:\/\/github\.com\/litestartup-com\/dsh-agent-manager\.git/)
+  assert.match(text, /git clone https:\/\/github\.com\/litestartup-com\/hellodac\.git/)
 })
 
 /**

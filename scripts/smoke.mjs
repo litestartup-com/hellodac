@@ -103,7 +103,7 @@ const main = async () => {
 
   const setCookie = login.headers.getSetCookie()
   const cookie = setCookie.map((c) => c.split(';')[0]).join('; ')
-  const csrf = cookieOf(setCookie, 'ohdsh_csrf')
+  const csrf = cookieOf(setCookie, 'dac_csrf')
   const attrs = setCookie.join(' ')
   check('cookie is HttpOnly', attrs.includes('HttpOnly'))
   check('cookie is SameSite=Lax', /SameSite=Lax/i.test(attrs))

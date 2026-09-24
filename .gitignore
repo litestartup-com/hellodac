@@ -49,3 +49,9 @@ deploy/nginx/default.conf
 
 # M1 试点残留（工作区 + 生成物，绝不入库）
 .m1-pilot/
+
+# 每机启动器 = `npm run service install` 用本机路径生成的派生品（见 src/cli/service.ts
+# 的 windowsLauncher），不进 git。旧名那份是 2026-09-24 更名前的产物，仅留在生产机上
+# 供计划任务 OhdshManager 用到 cutover，切换完成后删除。
+scripts/dac-start.cmd
+scripts/ohdsh-start.cmd

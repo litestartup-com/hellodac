@@ -6,7 +6,7 @@
  * 散写 URL 的代价是改域名时要满仓 grep，而且总有一处漏掉——正是 UI.md 里
  * 「单一真相源」那条的由来。
  *
- * 注意：这里是**产品品牌**，不是代码标识符。把 `ohdsh` 换成 `dac` 的机械
+ * 注意：这里是**产品品牌**，不是代码标识符。把 `dac` 换成 `dac` 的机械
  * 更名（B2）走的是另一条路径（包名/路径/env/cookie），两者互不替代。
  */
 export interface Brand {
@@ -31,7 +31,7 @@ export const BRAND: Brand = {
   fullName: 'Dispatched Agent Cluster',
   tagline: 'One Manager. A Fleet of Agents.',
   sub: 'agent fleet control plane',
-  repoUrl: 'https://github.com/litestartup/hellodac',
+  repoUrl: 'https://github.com/litestartup-com/hellodac',
   homepage: 'https://hellodac.com',
   mark: 'D',
 }

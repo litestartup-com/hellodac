@@ -11,7 +11,7 @@ import { recordAudit } from '../audit.js'
 import { withConfigLock } from '../config-store.js'
 
 /** 蜂群2计划 P3：CSRF 双提交 cookie（非 httpOnly，前端读出来放进 X-CSRF-Token）。 */
-export const CSRF_COOKIE = 'ohdsh_csrf'
+export const CSRF_COOKIE = 'dac_csrf'
 
 /**
  * CSRF 门（P6 自愈版）：非 GET 请求必须带与 cookie 一致的 X-CSRF-Token。

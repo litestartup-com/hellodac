@@ -16,7 +16,7 @@ if (!existsSync(dist)) {
   process.exit(1)
 }
 
-const PORT = Number(process.env.OHDSH_BOOT_PORT ?? 18999)
+const PORT = Number(process.env.DAC_BOOT_PORT ?? 18999)
 const PASSWORD = 'initial-pass-123'
 const NEW_PASSWORD = 'fresh-pass-1234'
 const base = `http://127.0.0.1:${PORT}`
@@ -36,7 +36,7 @@ const json = async (response) => {
   }
 }
 
-const work = mkdtempSync(join(tmpdir(), 'ohdsh-fresh-'))
+const work = mkdtempSync(join(tmpdir(), 'dac-fresh-'))
 const child = spawn(process.execPath, [dist], {
   cwd: work,
   env: {
@@ -120,8 +120,8 @@ const main = async () => {
 
     const setCookie = login.headers.getSetCookie()
     const cookie = setCookie.map((c) => c.split(';')[0]).join('; ')
-    const csrfLine = setCookie.find((c) => c.startsWith('ohdsh_csrf='))
-    const csrf = csrfLine === undefined ? '' : csrfLine.split(';')[0]?.slice('ohdsh_csrf='.length)
+    const csrfLine = setCookie.find((c) => c.startsWith('dac_csrf='))
+    const csrf = csrfLine === undefined ? '' : csrfLine.split(';')[0]?.slice('dac_csrf='.length)
     check('CSRF cookie issued', csrf !== '')
     const headers = { cookie, ...(csrf === '' ? {} : { 'x-csrf-token': csrf }) }
 
@@ -148,8 +148,8 @@ const main = async () => {
     // P1-5：改密吊销旧会话 + 换发当前会话（浏览器靠 Set-Cookie 自动续上）
     const changedCookies = changed.headers.getSetCookie()
     const cookie2 = changedCookies.map((c) => c.split(';')[0]).join('; ')
-    const csrf2Line = changedCookies.find((c) => c.startsWith('ohdsh_csrf='))
-    const csrf2 = csrf2Line === undefined ? '' : csrf2Line.split(';')[0]?.slice('ohdsh_csrf='.length)
+    const csrf2Line = changedCookies.find((c) => c.startsWith('dac_csrf='))
+    const csrf2 = csrf2Line === undefined ? '' : csrf2Line.split(';')[0]?.slice('dac_csrf='.length)
     check('password change reissues the session', cookie2 !== '' && cookie2 !== cookie)
     const staleSession = await fetch(`${base}/api/status`, { headers: { cookie } })
     check('old session is revoked after password change', staleSession.status === 401, `got ${staleSession.status}`)

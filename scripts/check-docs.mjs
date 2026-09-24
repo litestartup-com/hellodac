@@ -49,8 +49,8 @@ try {
   const example = parseYaml(readFileSync(join(root, 'manager.config.container.example.yaml'), 'utf8'))
   if (example?.endpoints?.brain?.sandbox_key_ref !== 'GW_KEY_B') failures.push('容器示例配置: brain 缺少 sandbox_key_ref=GW_KEY_B')
   if (example?.endpoints?.personal?.spawn?.runner !== 'docker') failures.push('容器示例配置: personal 应为 docker runner')
-  if (!Array.isArray(example?.backup?.docker_volumes) || !example.backup.docker_volumes.includes('ohdsh-brain')) {
-    failures.push('容器示例配置: backup.docker_volumes 应含 ohdsh-brain')
+  if (!Array.isArray(example?.backup?.docker_volumes) || !example.backup.docker_volumes.includes('dac-brain')) {
+    failures.push('容器示例配置: backup.docker_volumes 应含 dac-brain')
   }
 } catch (error) {
   failures.push(`部署文件校验失败: ${error instanceof Error ? error.message : String(error)}`)
@@ -109,7 +109,7 @@ try {
     ['images/node/Dockerfile', /ARG DSH_VERSION=([^\s]+)/, defaultDsh],
     ['images/node/Dockerfile', /ARG GATEWAY_REF=([^\s]+)/, gatewayRef],
     ['scripts/upgrade-node-version.mjs', /GATEWAY_REF = '([^']+)'/, gatewayRef],
-    ['scripts/make-release.mjs', /nodeImage = process\.env\.DSH_NODE_IMAGE \?\? 'ohdsh\/dsh-node:([^']+)'/, defaultDsh],
+    ['scripts/make-release.mjs', /nodeImage = process\.env\.DSH_NODE_IMAGE \?\? 'hellodac\/dac-node:([^']+)'/, defaultDsh],
   ]
   for (const [file, re, expected] of pinChecks) {
     const content = readFileSync(join(root, file), 'utf8')

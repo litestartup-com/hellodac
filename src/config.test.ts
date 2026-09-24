@@ -214,7 +214,7 @@ test('能力四回归: runner=agent + host 解析——舰队远端节点形态�
       A: {
         url: 'http://10.0.0.7:3081',
         driver: 'apiproxy',
-        spawn: { managed: true, runner: 'agent', host: 'agent-abc123', env: { DSH_HOME: '/home/ohdsh-node/.dsh-ohdsh/ops01' } },
+        spawn: { managed: true, runner: 'agent', host: 'agent-abc123', env: { DSH_HOME: '/home/dac-node/.dac/ops01' } },
       },
     },
   }))
@@ -339,11 +339,11 @@ test('蜂群2计划 P2: spawn.runner defaults to process; docker runner resolves
           managed: true,
           runner: 'docker',
           docker: {
-            image: 'ohdsh/dsh-node:0.1.1-rc.2',
+            image: 'hellodac/dac-node:0.1.1-rc.2',
             network: 'hive',
             port: 3081,
-            host_volumes: { '/opt/ohdsh/workspaces/personal': '/workspace' },
-            named_volumes: { 'ohdsh-personal': '/data' },
+            host_volumes: { '/opt/dac/workspaces/personal': '/workspace' },
+            named_volumes: { 'dac-personal': '/data' },
           },
         },
       },
@@ -353,12 +353,12 @@ test('蜂群2计划 P2: spawn.runner defaults to process; docker runner resolves
   assert.ok(spawn !== null && spawn !== undefined)
   assert.equal(spawn.runner, 'docker')
   assert.equal(spawn.command, '', 'docker runner 不需要 command')
-  assert.equal(spawn.docker?.image, 'ohdsh/dsh-node:0.1.1-rc.2')
+  assert.equal(spawn.docker?.image, 'hellodac/dac-node:0.1.1-rc.2')
   assert.equal(spawn.docker?.containerName, null)
   assert.equal(spawn.docker?.network, 'hive')
   assert.equal(spawn.docker?.port, 3081)
-  assert.deepEqual(spawn.docker?.hostVolumes, { '/opt/ohdsh/workspaces/personal': '/workspace' })
-  assert.deepEqual(spawn.docker?.namedVolumes, { 'ohdsh-personal': '/data' })
+  assert.deepEqual(spawn.docker?.hostVolumes, { '/opt/dac/workspaces/personal': '/workspace' })
+  assert.deepEqual(spawn.docker?.namedVolumes, { 'dac-personal': '/data' })
 })
 
 test('蜂群2计划 P2: runner=docker without docker block fails loud', () => {
@@ -395,11 +395,11 @@ test('蜂群2计划 P5: 随仓发布的容器示例配置必须始终通过 sche
     assert.ok(brain !== undefined && personal !== undefined)
     assert.equal(brain.spawn, null, '主脑由 compose 声明（脊柱，非托管）')
     assert.equal(personal.spawn?.runner, 'docker')
-    assert.equal(personal.spawn?.docker?.image, 'ohdsh/dsh-node:0.1.2-rc.1')
-    assert.equal(personal.spawn?.docker?.network, 'ohdsh-hive', '与 compose 显式网络名一致')
+    assert.equal(personal.spawn?.docker?.image, 'hellodac/dac-node:0.1.2-rc.1')
+    assert.equal(personal.spawn?.docker?.network, 'dac-hive', '与 compose 显式网络名一致')
     // 工作区路径两套视角统一：节点容器内路径 = manager 视角路径（EACCES mkdir 根因回归）
-    assert.equal(personal.spawn?.docker?.hostVolumes['/opt/ohdsh/workspaces/personal'], '/opt/ohdsh/workspaces/personal')
-    assert.deepEqual(cfg.backupDockerVolumes, ['ohdsh-brain'], '脊柱主脑卷进备份声明')
+    assert.equal(personal.spawn?.docker?.hostVolumes['/opt/dac/workspaces/personal'], '/opt/dac/workspaces/personal')
+    assert.deepEqual(cfg.backupDockerVolumes, ['dac-brain'], '脊柱主脑卷进备份声明')
     assert.equal(cfg.backupAuto, false, '自动备份默认关闭（线上小盘教训）')
     assert.equal(cfg.agents['brain']?.sandboxMode, 'workspace-write')
   })

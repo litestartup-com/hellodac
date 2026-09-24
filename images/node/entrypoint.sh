@@ -11,13 +11,13 @@ rm -f "$DSH_HOME/.credentials.yaml.lock"
 
 # 1) 播种/升级 profile：卷里没有，或播种版本与镜像不一致 → 重新复制（本地，零网络）
 SEED_CUR=""
-SEED_NEW="$(cat /opt/ohdsh-profile/.seed-version 2>/dev/null || echo unknown)"
-[ -f "$DSH_HOME/profiles/ohdsh-node/.seed-version" ] && SEED_CUR="$(cat "$DSH_HOME/profiles/ohdsh-node/.seed-version")"
-if [ ! -d "$DSH_HOME/profiles/ohdsh-node" ] || [ "$SEED_CUR" != "$SEED_NEW" ]; then
-  rm -rf "$DSH_HOME/profiles/ohdsh-node"
+SEED_NEW="$(cat /opt/dac-profile/.seed-version 2>/dev/null || echo unknown)"
+[ -f "$DSH_HOME/profiles/dac-node/.seed-version" ] && SEED_CUR="$(cat "$DSH_HOME/profiles/dac-node/.seed-version")"
+if [ ! -d "$DSH_HOME/profiles/dac-node" ] || [ "$SEED_CUR" != "$SEED_NEW" ]; then
+  rm -rf "$DSH_HOME/profiles/dac-node"
   mkdir -p "$DSH_HOME/profiles"
-  cp -a /opt/ohdsh-profile "$DSH_HOME/profiles/ohdsh-node"
-  echo "[entrypoint] profile seeded into $DSH_HOME/profiles/ohdsh-node (seed ${SEED_NEW:0:8})"
+  cp -a /opt/dac-profile "$DSH_HOME/profiles/dac-node"
+  echo "[entrypoint] profile seeded into $DSH_HOME/profiles/dac-node (seed ${SEED_NEW:0:8})"
 fi
 
 # 2) gateway 静态密钥：环境变量是真相（A 清单：派生文件不可手改）。
@@ -57,4 +57,4 @@ fi
 # 4) 模型凭据：DEEPSEEK_API_KEY 环境变量在 DSH 凭据分层里优先级最高，无需写文件
 
 # 5) 启动：端口等参数透传给 web app（manager 侧 docker run 命令带 --port N）
-exec dsh --profile ohdsh-node --no-open "$@"
+exec dsh --profile dac-node --no-open "$@"

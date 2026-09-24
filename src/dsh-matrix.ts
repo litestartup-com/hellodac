@@ -26,7 +26,7 @@ export interface DshPair {
 }
 
 /**
- * 0.1.2 线（切主路）：facade 插件包名 = ohdsh-api-facade（ohdsh- 前缀约定）。
+ * 0.1.2 线（切主路）：facade 插件包名 = ohdsh-api-facade（dac- 前缀约定）。
  * 仓库 URL 仍是 litestartup-com/dsh-api-gateway（钉版链暂不动），引用钉
  * next-012 分支的最新 commit。
  */
@@ -35,7 +35,7 @@ export const GATEWAY_REF = 'github:litestartup-com/dsh-api-gateway#b592b4f'
 
 export const SUPPORTED_DSH: DshPair[] = [
   { dsh: '0.1.2-rc.1', gateway: GATEWAY_REF, status: 'verified' },
-  // P3 smoke（2026-09-20，服务器 192.168.33.11 smoke15 节点）：0.1.5-rc.2 宿主 +
+  // P3 smoke（2026-09-20，内网试点服务器 smoke15 节点）：0.1.5-rc.2 宿主 +
   // facade b592b4f 全链通过——host.describe 合成版本 / session.create /
   // session.prompt 真实回合 / mux 帧流（user→assistant→turn/end）。事实卡
   // dsh-facts.md §9/§10：安装需 --legacy-peer-deps（facade peer 区间未覆盖

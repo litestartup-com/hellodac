@@ -282,7 +282,7 @@ export class NodeSupervisor {
     }
   }
 
-  /** 节点容器当前使用的镜像标签（如 ohdsh/dsh-node:0.1.2-rc.1）；非 docker 形态或查不到返回 null。 */
+  /** 节点容器当前使用的镜像标签（如 hellodac/dac-node:0.1.2-rc.1）；非 docker 形态或查不到返回 null。 */
   async containerImage(): Promise<string | null> {
     if (this.deps.docker === undefined || this.containerId === null) return null
     return this.deps.docker.containerImage(this.containerId)

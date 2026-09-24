@@ -656,7 +656,7 @@ const renderHead = () => {
   // transcript); the title still belongs in the tab and in the narrow-screen
   // app bar, which is the only place a title appears there.
   const title = chatTitle()
-  document.title = `${title} · ${state.agent.name} · Oh! dsh`
+  document.title = `${title} · ${state.agent.name} · DAC`
   window.dispatchEvent(new CustomEvent('shell:title', { detail: title }))
 }
 
