@@ -1,0 +1,47 @@
+<div class="wrap">
+  <div class="page-head">
+    <h1 class="grow">{{t:spend.title}}</h1>
+    <select id="month" class="pill-select" aria-label="{{t:spend.month}}"></select>
+  </div>
+
+  <div id="banners" role="alert"></div>
+
+  <section class="totals">
+    <div class="total-card">
+      <span class="total-label">{{t:spend.total}}</span>
+      <span id="total-cost" class="total-value">—</span>
+      <span id="total-note" class="muted small"></span>
+    </div>
+    <div class="total-card">
+      <span class="total-label">{{t:spend.peakShare}}</span>
+      <span id="peak-share" class="total-value">—</span>
+      <span id="peak-note" class="muted small"></span>
+    </div>
+    <div class="total-card">
+      <span class="total-label">token</span>
+      <span id="total-tokens" class="total-value">—</span>
+      <span id="runs-note" class="muted small"></span>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><h2>{{t:spend.daily}}</h2></div>
+    <div class="card">
+      <div id="chart" class="chart"></div>
+      <div class="chart-legend muted small">
+        <span><i class="swatch off"></i>{{t:spend.offPeak}}</span>
+        <span><i class="swatch on"></i>{{t:spend.peak}}</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><h2>{{t:spend.byAgent}}</h2></div>
+    <div class="card"><div id="by-agent" class="list"></div></div>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><h2>{{t:spend.byModel}}</h2></div>
+    <div class="card"><div id="by-model" class="list"></div></div>
+  </section>
+</div>

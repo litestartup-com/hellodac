@@ -1,0 +1,44 @@
+# nginx 默认形态模板（HTTP 直连，无域名/无 TLS）。
+# 这是模板，不是运行时配置：运行时文件 deploy/nginx/default.conf 由 install.sh
+# 生成（无域名 → 复制本文件；域名 → 从 tls-*.conf 模板 sed 生成），且被
+# .gitignore 排除——线上 install.sh 重跑会改写它，绝不能进 git（否则 git pull
+# 永远报 modified，2026-09-07 实测坑）。
+# 手动使用（跳过 install.sh）：cp deploy/nginx/default.conf.example deploy/nginx/default.conf
+server {
+    listen 80;
+    server_name _;
+
+    client_max_body_size 20m;
+
+    location / {
+        proxy_pass http://manager:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # SSE 与 mux 长连接
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+
+    # 债务 H1：主脑内部 API 只放行私网。主脑节点经 manager:8080 内网直连不走这里；
+    # 这是 token 之外的第二道门——公网请求（含经 Cloudflare 反代的）一律 403。
+    location /api/internal/ {
+        allow 127.0.0.1;
+        allow 10.0.0.0/8;
+        allow 172.16.0.0/12;
+        allow 192.168.0.0/16;
+        deny all;
+        proxy_pass http://manager:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+        proxy_cache off;
+    }
+}

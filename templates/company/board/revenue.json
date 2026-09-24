@@ -1,0 +1,22 @@
+{
+  "label": "回款",
+  "order": 2,
+  "blocks": [
+    {
+      "type": "progress",
+      "title": "回款完成度",
+      "items": [{ "label": "示例：本季度", "value": 0, "max": 100, "note": "尚未记录", "tone": "muted" }]
+    },
+    {
+      "type": "table",
+      "title": "回款计划",
+      "columns": ["客户", "合同", "应收", "到期日", "状态"],
+      "rows": []
+    },
+    {
+      "type": "bars",
+      "title": "近 6 个月收入",
+      "items": []
+    }
+  ]
+}

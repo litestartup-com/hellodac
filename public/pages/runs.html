@@ -1,0 +1,41 @@
+<div class="wrap">
+  <div class="page-head">
+    <h1 class="grow">{{t:runs.title}}</h1>
+    <button id="runs-refresh" class="btn-quiet btn-sm" type="button">{{t:common.refresh}}</button>
+    <span id="runs-updated" class="muted small"></span>
+  </div>
+
+  <!-- UI 收尾 A：全局任务流从 /nodes 迁出，独立成页并升级——工作区/状态
+       筛选 + startedAt 游标分页。主脑派活也在这里留痕。 -->
+  <section class="section">
+    <div class="section-head">
+      <h2>{{t:runs.all}}</h2>
+      <span class="muted small">{{t:runs.allHint}}</span>
+    </div>
+    <div class="card">
+      <div class="field-row" style="padding: 2px 0 14px">
+        <label class="field" style="flex: 0 1 280px">
+          <span class="field-label">{{t:runs.filter.agent}}</span>
+          <select id="f-run-agent" class="text-input pill-select">
+            <option value="">{{t:runs.filter.all}}</option>
+          </select>
+        </label>
+        <label class="field" style="flex: 0 1 160px">
+          <span class="field-label">{{t:runs.filter.state}}</span>
+          <select id="f-run-state" class="text-input pill-select">
+            <option value="">{{t:runs.filter.all}}</option>
+            <option value="pending">{{t:runs.state.pending}}</option>
+            <option value="running">{{t:runs.state.running}}</option>
+            <option value="done">{{t:runs.state.done}}</option>
+            <option value="failed">{{t:runs.state.failed}}</option>
+            <option value="missed">{{t:runs.state.missed}}</option>
+          </select>
+        </label>
+      </div>
+      <div id="runs-list" class="nodes-list"><p class="muted small">{{t:common.loading}}</p></div>
+      <div class="form-actions" style="padding: 14px 0 2px">
+        <button id="runs-more" class="btn-quiet btn-sm" type="button" hidden>{{t:runs.more}}</button>
+      </div>
+    </div>
+  </section>
+</div>

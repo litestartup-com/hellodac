@@ -1,0 +1,63 @@
+{
+  "name": "dac",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "DAC (hellodac.com) -- dsh agents manager: personal / small-team AI middle platform on top of DeepSeek Harness and dsh-api-gateway",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "build": "node scripts/inject-version.mjs && tsc -p tsconfig.json && node scripts/copy-locales.mjs",
+    "preversion": "node scripts/inject-version.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.scripts.json && tsc -p tsconfig.public.json",
+    "nodes": "tsx src/cli/node.ts",
+    "setup": "tsx src/cli/setup.ts",
+    "backup": "tsx src/cli/backup.ts",
+    "restore": "tsx src/cli/backup.ts restore",
+    "drill": "tsx scripts/dr-drill.ts",
+    "release:bundle": "node scripts/make-release.mjs",
+    "backfill-cost": "tsx src/cli/backfill-cost.ts",
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "test:coverage": "tsx --test --experimental-test-coverage --test-coverage-include=src/** --test-coverage-exclude=**/*.test.ts --test-coverage-lines=80 --test-coverage-branches=70 --test-coverage-functions=75 \"src/**/*.test.ts\"",
+    "test:web": "node --test \"public/assets/*.test.mjs\"",
+    "lint": "eslint src scripts",
+    "smoke": "node scripts/smoke.mjs",
+    "service": "tsx src/cli/service.ts",
+    "update": "tsx src/cli/update.ts",
+    "i18n:check": "node scripts/check-i18n-keys.mjs",
+    "lock:profile": "node images/node/gen-node-profile.mjs --lock-only",
+    "release:check": "node scripts/release-check.mjs"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "^1.4.0",
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/helmet": "^13.1.1",
+    "@fastify/rate-limit": "^10.2.2",
+    "@fastify/static": "^10.1.3",
+    "@node-rs/argon2": "^2.0.2",
+    "better-sqlite3": "^13.0.3",
+    "croner": "^9.0.0",
+    "dockerode": "^4.0.12",
+    "dotenv": "^16.4.7",
+    "drizzle-orm": "^0.45.2",
+    "eventsource-parser": "^3.0.0",
+    "fastify": "^5.2.0",
+    "simple-git": "^3.27.0",
+    "yaml": "^2.6.1",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/dockerode": "^4.0.1",
+    "@types/node": "^22.10.5",
+    "eslint": "^9.39.5",
+    "pino-pretty": "^13.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.69.0"
+  }
+}

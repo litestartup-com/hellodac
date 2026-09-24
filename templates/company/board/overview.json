@@ -1,0 +1,28 @@
+{
+  "label": "总览",
+  "order": 1,
+  "blocks": [
+    {
+      "type": "kpi",
+      "title": "经营概况",
+      "items": [
+        { "label": "本月收入", "value": "—", "sub": "尚未记录", "tone": "muted" },
+        { "label": "待回款", "value": "—", "sub": "尚未记录", "tone": "muted" },
+        { "label": "在执行合同", "value": "—", "sub": "尚未记录", "tone": "muted" }
+      ]
+    },
+    {
+      "type": "list",
+      "title": "本周重点",
+      "items": [
+        { "text": "初始化生成的示例，第一次更新后会被替换", "tone": "muted" }
+      ]
+    },
+    {
+      "type": "note",
+      "title": "怎么用",
+      "text": "对这个 agent 说一句话，例如「某某客户合同签了 12 万，分三期」。它会写进合同和回款文档，并更新大盘。",
+      "tone": "info"
+    }
+  ]
+}

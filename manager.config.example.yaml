@@ -1,0 +1,81 @@
+# DAC 配置模板。复制为 manager.config.yaml 后填写真实值。
+# manager.config.yaml 已被 .gitignore 排除（个人配置不进 git）。
+
+listen:
+  host: 127.0.0.1        # 上公网前改成 0.0.0.0，并确认前面有 TLS 终止
+  port: 8080
+
+# DSH 端点。方案 A（loopback 直连）与方案 B（跨机经 dsh-api-gateway 代理）二选一或并存。
+endpoints:
+  A:
+    url: http://127.0.0.1:3080
+    driver: apiproxy     # 方案 A：直连 DSH 原生 /api（loopback，无需密钥）
+    prefix: /api
+    key_ref: ''
+    # 蜂群 P0：按会话沙箱模式路由（dsh-api-gateway 的 POST /sessions/{id}/sandbox-mode）。
+    # 需要它的 agent 要声明 sandbox_mode；不声明就不走这条路。
+    sandbox_base: http://127.0.0.1:3080/api-gw/v1
+    sandbox_key_ref: GW_KEY_A   # 与 DSH gateway 的 apiKeys 一致
+    # 蜂群 P1：让 manager 托管该节点的进程（拉起/停止/崩溃自愈）。默认不托管——
+    # 你手动起的 DSH 不会被 manager 抢管。托管节点需要自己的 profile 与端口：
+    # spawn:
+    #   managed: true
+    #   command: node
+    #   args: ["C:/nvm4w/nodejs/node_modules/@deepseek-ai/dsh/lib/bin.js", "--profile", "web", "--no-open"]
+    #   ready_timeout_ms: 30000
+    #   # 蜂群 v1.1：节点独立 DSH_HOME（会话/settings/附件互不可见），setup 自动生成：
+    #   env: { DSH_HOME: "C:/Users/you/.dac/dac-personal" }
+    #   # CLI `npm run nodes -- up` 独立拉起时用 detached + log_file（进程独立存活、
+    #   # 日志落文件、pidfile 供跨进程 down）；manager 常驻启动保持默认 false：
+    #   detached: true
+    #   log_file: ./data/nodes/web.log
+  # 方案 B（跨机 / 容器节点）示例：
+  # B:
+  #   url: http://<host>:3080
+  #   driver: apiproxy
+  #   prefix: /api-gw/v1/proxy
+  #   key_ref: GW_KEY_B
+
+agents:
+  personal:
+    name: 个人
+    endpoint: A
+    workspace: C:/path/to/your/workspace   # ← 改成你的真实工作区路径
+    public: false
+    # 蜂群 P0：会话用哪个 agent preset（可用值见 DSH 的 agentPreset.list：
+    # standard 默认 / code / minimal / cordis）。缺省 = DSH 部署默认。
+    preset: standard
+    # 蜂群 P0：按会话沙箱模式（读-only 只读 / workspace-write 可写工作区）。
+    # 缺省 = 不覆盖，沿用 DSH 部署默认。
+    sandbox_mode: workspace-write
+    # 债务 E12：该工作区的治理规则（note-data 校验外置化，可选）。
+    # 缺省 = 只做通用的凭证检查，不继承任何特定工作区的业务规则。
+    # 例（note-kaka 用户可启用）：
+    # validate:
+    #   windows:
+    #     - { path: trade.history, max: 8, archive: E03.10.01-交易大盘.md }
+    #     - { path: weekly.weeks, max: 26, archive: G-日志/00-2026年周报 }
+    #     - { path: weekly.logs, max: 10, archive: G01.08-2026年/0X月份 }
+    #   forbid_amount_fields: true
+    #   acct_flow_max_age_months: 1
+
+runner:
+  timeout_minutes: 15
+  silence_timeout_minutes: 5
+  max_consecutive_failures: 3
+  daily_budget_usd: 2.0
+
+database:
+  path: ./data/manager.db
+
+pricing:
+  peak_windows_utc:
+    - { start: '01:00', end: '04:00' }
+    - { start: '06:00', end: '10:00' }
+  models:
+    deepseek-v4-pro:
+      off_peak: { input: 0.66, output: 1.98, cache_read: 0.022 }
+      peak: { input: 1.32, output: 3.96, cache_read: 0.044 }
+    deepseek-v4-flash:
+      off_peak: { input: 0.22, output: 0.66, cache_read: 0.007 }
+      peak: { input: 0.44, output: 1.32, cache_read: 0.014 }

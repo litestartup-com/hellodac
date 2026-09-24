@@ -1,0 +1,13 @@
+node_modules
+dist
+.git
+data
+logs
+notes
+workspaces
+.env
+manager.config.yaml
+*.db
+*.db-wal
+*.db-shm
+docker

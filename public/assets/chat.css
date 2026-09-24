@@ -1,0 +1,1930 @@
+/* The conversation page.
+ *
+ * Layout rule that drives everything here: the page is exactly the viewport
+ * height and only the transcript scrolls. A composer that scrolls away with the
+ * messages would take the agent identity with it, and that line is the one thing
+ * this UI adds over DSH -- see UI.md §0.
+ *
+ * Visual rule: copied from DSH's own conversation view (dsh-client-ui-
+ * conversation: ConversationRoot / ChatView / MessageItem / InputBar modules),
+ * so manager and DSH read as one system:
+ *
+ *   - white sheet, one centered 748px column, 16px gaps
+ *   - assistant text 16px/28 in near-black; your words in a soft deepseek-blue
+ *     bubble (#edf3fe), radius 22, max ~525px
+ *   - composer = floating white card, radius 22, hairline border, soft shadow,
+ *     free text area (no inner well), toolbar row underneath, 34px blue send
+ *
+ * The palette values below are DSH's own (light theme): #4176e6 send, #0f1115
+ * ink, rgba(0,0,0,.1) hairlines.
+ */
+
+.content-flush:has(.chat-log) {
+  /* DSH web 主题 token 接线（dsw-theme.css，0.1.2-rc.1 编译产物整段提取）：
+     视觉与 DSH 完全同源，不再硬编码近似值。--chat-* 别名保留给下方规则
+     零散引用，值一律取自 token。 */
+  --chat-bg: var(--dsw-alias-bg-base);
+  --chat-text: var(--dsw-alias-label-primary);
+  --chat-text-2: var(--dsw-alias-label-secondary);
+  --chat-text-3: var(--dsw-alias-label-tertiary);
+  --chat-caption: var(--dsw-alias-label-caption);
+  --chat-bubble: var(--dsw-specific-bubble);
+  --chat-send: var(--dsw-static-deepseek-500);
+  --chat-send-hover: var(--dsw-static-deepseek-400);
+  --chat-line: var(--dsw-alias-border-l2);
+  --chat-hover: var(--dsw-alias-interactive-bg-hover);
+  --chat-hover-strong: var(--dsw-alias-interactive-bg-hover-accent);
+  --chat-shadow: var(--dsw-shadow-lv2);
+  --chat-col: var(--dsh-chat-content-width);
+  --chat-composer-w: var(--dsh-composer-card-max-width);
+  --chat-input-max-h: 336px;
+  /* DSH 决策卡的琥珀三件套，直接取自 state-warn token。 */
+  --chat-ask-strip: var(--dsw-static-amber-100);
+  --chat-ask-ink: var(--dsw-static-amber-500);
+  --chat-ask-border: var(--dsw-static-amber-400);
+  /* 代码字体栈（DSH 的 --ds-font-family-code），只作用于本页。 */
+  --mono: var(--ds-font-family-code);
+  font-family: var(--dsw-font-family);
+
+  display: flex;
+  flex-direction: column;
+  /* The shell's own height, not the document's: the transcript owns the only
+     scrollbar on the page.
+     `dvh` rather than `vh` because on iOS `vh` is the height with the keyboard
+     *absent*, so with the keyboard up the composer would sit below the fold --
+     exactly the element that must never be off screen. `--topbar-h` is the
+     narrow-screen app bar and 0 while the sidebar is docked. */
+  height: calc(100vh - var(--topbar-h));
+  height: calc(100dvh - var(--topbar-h));
+  min-height: 0;
+  overflow: hidden;
+  background: var(--chat-bg);
+}
+
+/* ---- notices ---- */
+
+.chat-notices {
+  flex: 0 0 auto;
+}
+
+.chat-notices:empty {
+  display: none;
+}
+
+/* A state strip, not a banner: `lost` and busy are the two states that stop
+   work, so they get the full-width treatment. Dormancy lives in the composer
+   hint instead -- it is a note about the next send, not a problem. */
+/* 排队任务 dock（composer 上方）：一行一条，超出省略 */
+.queue-dock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--chat-composer-w);
+  margin: 0 auto 8px;
+  padding: 8px 14px;
+  border: 1px solid var(--chat-line);
+  border-radius: 14px;
+  background: var(--chat-bg);
+}
+
+/* Ongoing Goal 条（DSH web 同款）：一行 = 图标 + 阶段标签 + 目标文字省略 */
+.goal-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--chat-composer-w);
+  margin: 0 auto 8px;
+  padding: 7px 14px;
+  border: 1px solid var(--chat-line);
+  border-radius: 14px;
+  background: var(--chat-bg);
+  font-size: 13px;
+}
+
+.goal-glyph {
+  flex: none;
+  display: inline-flex;
+  color: var(--accent, #3a5ccc);
+}
+
+.goal-label {
+  flex: none;
+  font-weight: 600;
+  color: var(--text, #1f2329);
+  white-space: nowrap;
+}
+
+.goal-objective {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-soft, #5a6472);
+}
+
+.queue-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.queue-badge {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent-soft, #eef3ff);
+  color: var(--accent, #3a5ccc);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.queue-text {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-soft, #5a6472);
+}
+
+.queue-act {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-soft, #5a6472);
+  cursor: pointer;
+}
+
+.queue-act:hover {
+  background: var(--line-soft, #e2e6ee);
+  color: var(--text, #23272f);
+}
+
+.queue-act[data-action="delete"]:hover {
+  color: var(--bad, #c0392b);
+}
+
+.state-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 24px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--chat-line);
+  background: var(--surface-sunken);
+  color: var(--chat-text-3);
+}
+
+.state-strip > span {
+  max-width: var(--chat-col);
+  width: 100%;
+  margin-inline: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.state-strip.warn {
+  background: var(--warn-bg);
+  border-bottom-color: var(--warn-border);
+  color: var(--warn);
+}
+
+.state-strip.info {
+  background: var(--accent-soft, #eef3ff);
+  color: var(--accent, #3a5ccc);
+  border-left-color: var(--accent, #3a5ccc);
+}
+
+.state-strip.bad {
+  background: var(--bad-bg);
+  border-bottom-color: var(--bad-border);
+  color: var(--bad);
+}
+
+.state-strip a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+/* ---- transcript ---- */
+
+.chat-log {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  /* DSH: padding 16px calc(composer-side-clearance + 16px) = 32px sides. */
+  padding: 16px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  /* DSH 的细滚动条（--dsh-scrollbar-* token），不再隐藏。 */
+  scrollbar-width: thin;
+  scrollbar-color: var(--dsh-scrollbar-thumb) transparent;
+}
+
+.chat-log::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.chat-log::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-log::-webkit-scrollbar-thumb {
+  background: var(--dsh-scrollbar-thumb);
+  border-radius: 4px;
+}
+
+.chat-log::-webkit-scrollbar-thumb:hover {
+  background: var(--dsh-scrollbar-thumb-hover);
+}
+
+/* ---- scroll-to-bottom (DSH ChatView toBottom) ---- */
+
+/* A zero-height sticky slot pinned to the log's bottom edge: its natural
+   position is after the last message, so it floats only while the reader has
+   scrolled up, and sits at the content's end otherwise. Shown/hidden by
+   chat.js depending on distance from the bottom. */
+.to-bottom-slot {
+  z-index: 8;
+  height: 0;
+  position: sticky;
+  bottom: 16px;
+  justify-content: flex-end;
+  display: flex;
+  pointer-events: none;
+  flex: 0 0 auto;
+}
+
+.to-bottom {
+  pointer-events: auto;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--chat-line);
+  border-radius: 100px;
+  background: var(--chat-bg);
+  color: var(--chat-text);
+  box-shadow: var(--chat-shadow);
+  cursor: pointer;
+  justify-content: center;
+  align-items: center;
+  margin-top: -34px;
+  padding: 0;
+  display: flex;
+  transition: background-color var(--motion);
+}
+
+.to-bottom:hover {
+  background: var(--side-hover);
+}
+
+/* Every child of the scroller sits on the same 748px axis -- nothing in the
+   transcript is allowed to be wider than its neighbours, folds included. */
+.chat-log > * {
+  width: 100%;
+  max-width: var(--chat-col);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.chat-empty {
+  margin: auto;
+  text-align: center;
+  color: var(--chat-text-3);
+  font-size: 14px;
+  max-width: 32em;
+  line-height: 1.7;
+  padding: 8px 0 16px;
+}
+
+.chat-empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--surface-sunken);
+  color: var(--chat-text-2);
+  margin-bottom: 12px;
+}
+
+.chat-empty strong {
+  display: block;
+  color: var(--chat-text);
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.chat-empty p {
+  margin: 0;
+}
+
+.chat-empty .small {
+  margin-top: 8px;
+  color: var(--chat-caption);
+}
+
+/* ---- turns ---- */
+
+.turn {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-width: var(--chat-col);
+  width: 100%;
+}
+
+.turn.from-user {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.bubble {
+  border-radius: 22px;
+  padding: 10px 16px;
+  font-size: 16px;
+  line-height: 24px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* DSH's user bubble: deepseek-blue tint, big radius, bounded width. No name
+   row -- alignment and colour are the identity. */
+.from-user .bubble {
+  background: var(--chat-bubble);
+  border-radius: 22px;
+  max-width: min(525px, 82%);
+  color: var(--chat-text);
+}
+
+/* Assistant: ink on the sheet, 16px/28 like DSH's AssistantMarkdown. */
+.from-agent .bubble {
+  background: transparent;
+  padding-left: 0;
+  padding-right: 0;
+  font-size: 16px;
+  line-height: 28px;
+}
+
+/* Who spoke: a round bot mark plus the agent's name -- the one element DSH
+   does not have, because manager is the multi-agent shell and identity is the
+   point (UI.md §0). */
+.turn-who {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--chat-text-3);
+  letter-spacing: 0;
+}
+
+.turn-who .who-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--surface-sunken);
+  color: var(--chat-text-2);
+}
+
+/* The waiting row drops its name once a bubble above it carries one, and an empty
+   label would still hold its line height and open a gap. */
+.turn-who:empty {
+  display: none;
+}
+
+/* The caret only exists while frames are still arriving. */
+.bubble.streaming::after {
+  content: '';
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -0.15em;
+  background: var(--chat-send);
+  animation: caret 1s steps(2) infinite;
+}
+
+@keyframes caret {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bubble.streaming::after {
+    animation: none;
+  }
+}
+
+/* ---- waiting on a turn ---- */
+
+/* Between sending and the first token there can be many seconds of nothing: the
+   gateway is waking a process, the agent is reading files. With an empty screen
+   that reads as a hang, and the reaction is to refresh or cancel work that was
+   fine -- so this row exists to say, continuously, that the wait is progress.
+   Three things carry that: a moving glyph, words that change as the phase does,
+   and a clock. The clock is the load-bearing one; an animation alone could be a
+   frozen loop, but a number that keeps rising cannot be. */
+.wait-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--chat-caption);
+  min-height: 22px;
+}
+
+.wait-dots {
+  display: inline-flex;
+  gap: 3px;
+  flex: 0 0 auto;
+}
+
+.wait-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--chat-send);
+  animation: wait-dot 1.3s ease-in-out infinite;
+}
+
+/* Staggered rather than pulsing in unison, which reads as one blinking object
+   instead of something travelling. */
+.wait-dots i:nth-child(2) {
+  animation-delay: 0.18s;
+}
+
+.wait-dots i:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
+@keyframes wait-dot {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+/* Tabular figures because the digits change every second: proportional ones make
+   the row twitch sideways as 1s becomes 2s, which is a second animation nobody
+   asked for. */
+.wait-time {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  background: var(--surface-sunken);
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+}
+
+.wait-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.waiting.slow .wait-time {
+  color: var(--chat-text-2);
+}
+
+/* The clock alone still tells the whole story, so nothing is lost by holding the
+   dots still for anyone who asked for less movement. */
+@media (prefers-reduced-motion: reduce) {
+  .wait-dots i {
+    animation: none;
+    opacity: 0.55;
+  }
+}
+
+/* DSH 的 running 态流光条（turnStatus shimmer：@keyframes 1.8s linear，
+   --dsw-state-ongoing 语义），挂在等待行下方。 */
+.wait-shimmer {
+  height: 2px;
+  border-radius: 1px;
+  overflow: hidden;
+  background: var(--chat-hover);
+}
+
+.wait-shimmer::after {
+  content: '';
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, var(--dsw-static-deepseek-400), transparent);
+  background-size: 200% 100%;
+  animation: wait-shimmer 1.8s linear infinite;
+}
+
+@keyframes wait-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wait-shimmer::after {
+    animation: none;
+    background: var(--dsw-static-deepseek-300);
+  }
+}
+
+/* ---- asks: what the agent is blocked on ---- */
+
+/* Copied from DSH's decision cards (ApprovalPanel / PlanReviewPanel): a white
+   card with an amber strip on top -- "this is waiting on you" -- the question
+   or request in the body, and the actions pinned to the bottom-right. Both the
+   question card and the approval card share this grammar. */
+.asks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: var(--chat-col);
+  margin-inline: auto;
+}
+
+.ask {
+  width: 100%;
+  border: 1px solid var(--chat-ask-border);
+  background: var(--chat-bg);
+  box-shadow: var(--chat-shadow);
+  border-radius: 20px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.ask-strip {
+  background: var(--chat-ask-strip);
+  color: var(--chat-ask-ink);
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+  display: flex;
+}
+
+.ask-dot {
+  background: var(--chat-ask-ink);
+  border-radius: 50%;
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+}
+
+.ask-body {
+  flex: auto;
+  min-height: 0;
+  max-height: var(--chat-input-max-h);
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 16px 6px;
+  display: flex;
+  overflow-y: auto;
+}
+
+.ask-headline {
+  color: var(--chat-text);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 24px;
+}
+
+.ask-q {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ask-q-head {
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--chat-caption);
+}
+
+.ask-q-text {
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--chat-text);
+}
+
+.ask-q-detail {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--chat-text-2);
+}
+
+.ask-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Full-width rows rather than inline chips: an option carries a description, and
+   a description that wraps mid-row is unreadable at a glance. */
+.ask-opt {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  padding: 9px 12px;
+  border: 1px solid var(--chat-line);
+  border-radius: 10px;
+  background: var(--surface-sunken);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  transition:
+    border-color var(--motion),
+    background-color var(--motion);
+}
+
+.ask-opt:hover {
+  border-color: var(--chat-send);
+}
+
+.ask-opt.on {
+  border-color: var(--chat-send);
+  box-shadow: inset 0 0 0 1px var(--chat-send);
+}
+
+.ask-opt-label {
+  font-size: 13.5px;
+}
+
+.ask-opt-desc {
+  font-size: 11.5px;
+  color: var(--chat-caption);
+}
+
+.ask-custom {
+  padding: 9px 12px;
+  border: 1px solid var(--chat-line);
+  border-radius: 10px;
+  background: var(--surface-sunken);
+  color: var(--chat-text);
+  font: inherit;
+  font-size: 13.5px;
+  transition:
+    border-color var(--motion),
+    box-shadow var(--motion);
+}
+
+.ask-custom:focus {
+  outline: none;
+  border-color: var(--chat-send);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.ask-actions {
+  flex-shrink: 0;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px 14px;
+  display: flex;
+}
+
+.ask-error {
+  color: var(--bad);
+  font-size: 12px;
+  margin-right: auto;
+}
+
+.ask-actions button {
+  padding: 7px 14px;
+  border-radius: var(--r);
+  border: 1px solid var(--chat-line);
+  background: var(--surface);
+  color: var(--chat-text-2);
+  font: 500 13px/1 var(--font);
+  cursor: pointer;
+  transition:
+    background-color var(--motion),
+    border-color var(--motion),
+    color var(--motion);
+}
+
+.ask-actions button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  color: var(--chat-text);
+}
+
+.ask-send,
+.ask-allow {
+  border-color: var(--chat-send);
+  background: var(--chat-send);
+  color: #fff;
+}
+
+.ask-send:hover:not(:disabled),
+.ask-allow:hover:not(:disabled) {
+  background: var(--chat-send-hover);
+  border-color: var(--chat-send-hover);
+  color: #fff;
+}
+
+/* DSH's reject treatment: quiet until hovered, then the danger colours. Skip
+   ("不答") stays neutral -- it is a dismissal, not a refusal. */
+.ask-reject:hover:not(:disabled) {
+  background: var(--bad-bg);
+  border-color: transparent;
+  color: var(--bad);
+}
+
+.ask-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Kept on screen after sending rather than hidden: the gateway's own resolved
+   frame removes the card, and until it arrives the answer is still in flight. */
+.ask.sent {
+  opacity: 0.6;
+}
+
+@media (max-width: 720px) {
+  .ask {
+    border-radius: 16px;
+  }
+
+  .ask-body {
+    padding: 10px 12px 4px;
+  }
+
+  .ask-actions {
+    padding: 8px 12px 10px;
+  }
+}
+
+/* ---- rendered markdown ---- */
+
+/* `pre-wrap` is right for plain text and wrong here: md.js emits real block
+   elements, so keeping it would add the source newlines on top of the margins
+   and double every gap. */
+.prose {
+  white-space: normal;
+  /* DSH 排版 token：正文 16/28（AssistantMarkdown 同款）。 */
+  font: var(--dsw-font-markdown-base);
+}
+
+/* First and last margins are dropped so a bubble is not padded twice — once by
+   the bubble, once by the paragraph inside it. */
+.prose > :first-child {
+  margin-top: 0;
+}
+
+.prose > :last-child {
+  margin-bottom: 0;
+}
+
+.prose p {
+  margin: 0 0 0.75em;
+}
+
+/* DSH 标题阶梯：h1 24/34、h2 22/32、h3 20/30、h4 16/28（--dsw-font-markdown-*）。 */
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4,
+.prose h5,
+.prose h6 {
+  margin: 1.1em 0 0.5em;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.prose h1 {
+  font: var(--dsw-font-markdown-h1);
+}
+
+.prose h2 {
+  font: var(--dsw-font-markdown-h2);
+}
+
+.prose h3 {
+  font: var(--dsw-font-markdown-h3);
+}
+
+.prose h4 {
+  font: var(--dsw-font-markdown-h4);
+}
+
+.prose h5,
+.prose h6 {
+  font: var(--dsw-font-markdown-h4);
+  color: var(--chat-text-3);
+}
+
+.prose ul,
+.prose ol {
+  margin: 0 0 0.75em;
+  padding-left: 1.5em;
+}
+
+.prose li {
+  margin: 0.15em 0;
+}
+
+.prose li > p {
+  margin: 0;
+}
+
+.prose blockquote {
+  margin: 0 0 0.75em;
+  padding: 0.1em 0 0.1em 0.9em;
+  border-left: 2px solid var(--chat-line);
+  color: var(--chat-text-3);
+}
+
+.prose code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  background: var(--dsw-alias-markdown-inline-code);
+  border: 1px solid var(--chat-line);
+  border-radius: var(--r-sm);
+  padding: 0.1em 0.34em;
+  overflow-wrap: anywhere;
+}
+
+/* ---- code blocks: DSH's md-code-block grammar (stable class) ---- */
+
+/* DSH 的 CodeBlock：外层 md-code-block（稳定类名），顶部 banner（语言名 + 复制按钮），
+   下面是代码本体。banner 底色与代码区同源 token。 */
+.md-code-block {
+  margin: 0 0 0.75em;
+  background: var(--dsw-alias-markdown-code-block);
+  border: 1px solid var(--chat-line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.md-code-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--dsw-alias-markdown-code-block-banner);
+  border-bottom: 1px solid var(--chat-line);
+  font-size: 12px;
+  color: var(--chat-text-3);
+}
+
+.md-code-lang {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.md-copy {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--chat-text-3);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition:
+    background-color var(--motion),
+    color var(--motion);
+}
+
+.md-copy:hover {
+  background: var(--chat-hover);
+  color: var(--chat-text);
+}
+
+.md-code-block pre {
+  margin: 0;
+  padding: 10px 12px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  /* Code is the one thing that must not be re-wrapped: a broken line changes
+     what it says. Scroll instead. */
+  overflow-x: auto;
+}
+
+.md-code-block pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+  /* DSH 代码块排版 token：13/22。 */
+  font: var(--dsw-font-markdown-code-block);
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+/* Tables: one outer frame, hairline rows, a tinted header. No grid of boxes --
+   a grid of boxes is what a markdown table looks like before it is designed. */
+.prose table {
+  margin: 0 0 0.75em;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--chat-line);
+  border-radius: 10px;
+  /* DSH 表格排版 token：15/25（md-table-wide 同款）。 */
+  font: var(--dsw-font-markdown-table);
+  display: block;
+  overflow: auto;
+}
+
+.prose th,
+.prose td {
+  padding: 7px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--chat-line);
+}
+
+.prose th {
+  background: var(--surface-sunken);
+  font-weight: 600;
+}
+
+/* Round the frame's corners at the cell level: the table's own border is
+   rounded, and the tinted header would otherwise poke out of it. */
+.prose th:first-child {
+  border-top-left-radius: 9px;
+}
+.prose th:last-child {
+  border-top-right-radius: 9px;
+}
+.prose tr:last-child td:first-child {
+  border-bottom-left-radius: 9px;
+}
+.prose tr:last-child td:last-child {
+  border-bottom-right-radius: 9px;
+}
+
+.prose tr:last-child th,
+.prose tr:last-child td {
+  border-bottom: 0;
+}
+
+.prose hr {
+  margin: 1em 0;
+  border: 0;
+  border-top: 1px solid var(--chat-line);
+}
+
+.prose a {
+  color: var(--chat-send);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ---- injected context ---- */
+
+/* Folded by default: this is what the harness told the agent, not part of the
+   conversation. One measured session carried 3.6KB of it against a 46-byte
+   question, so unfolded it simply is the transcript.
+   Width is the column's own: an earlier `align-self: flex-start` here let the
+   fold size against the full scroller and stick out past every neighbour. */
+.context {
+  font-size: 12px;
+  color: var(--chat-text-3);
+  width: 100%;
+}
+
+.context > summary {
+  cursor: pointer;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 0;
+}
+
+.context > summary::-webkit-details-marker {
+  display: none;
+}
+
+.context .chev {
+  transition: transform 0.15s;
+}
+
+.context[open] .chev {
+  transform: rotate(90deg);
+}
+
+.context-item {
+  margin: 4px 0 0 19px;
+  padding: 8px 11px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--chat-line);
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+  line-height: 1.6;
+  /* Long instruction blocks must not be able to push the page taller than the
+     conversation they annotate. */
+  max-height: 22em;
+  overflow-y: auto;
+}
+
+/* ---- tool calls ---- */
+
+/* Folded by default: one turn can make dozens, and expanded they bury the
+   conversation they belong to. */
+.tools {
+  font-size: 12px;
+  color: var(--chat-caption);
+}
+
+.tools > summary {
+  cursor: pointer;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 0;
+}
+
+.tools > summary::-webkit-details-marker {
+  display: none;
+}
+
+.tools .chev {
+  transition: transform 0.15s;
+}
+
+.tools[open] .chev {
+  transform: rotate(90deg);
+}
+
+/* DSH 工具卡（GenericToolCard 语法移植）：variant 徽标 + 单行摘要 +
+   可折叠的参数/代码正文与结果。工具名→variant 分类在 tool-cards.js。 */
+.tool-call {
+  margin: 0 0 6px 19px;
+  border: 1px solid var(--chat-line);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1);
+  overflow: hidden;
+}
+
+.tool-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  min-width: 0;
+}
+
+.tool-variant {
+  flex: 0 0 auto;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--dsw-specific-bubble);
+  color: var(--dsw-static-deepseek-600);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.tool-variant.v-bash {
+  background: var(--dsw-static-neutral-bluish-100);
+  color: var(--dsw-static-neutral-bluish-700);
+}
+
+.tool-variant.v-write,
+.tool-variant.v-edit {
+  background: var(--dsw-static-amber-100);
+  color: var(--dsw-static-amber-600);
+}
+
+.tool-variant.v-code {
+  background: var(--dsw-static-green-100);
+  color: var(--dsw-static-green-900);
+}
+
+.tool-summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--chat-text);
+}
+
+.tool-state {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--chat-caption);
+}
+
+.tool-state.running {
+  color: var(--dsw-static-deepseek-500);
+}
+
+.tool-call.failed .tool-state.bad {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.tool-body,
+.tool-result {
+  border-top: 1px solid var(--chat-line);
+  padding: 6px 12px;
+}
+
+.tool-body > summary,
+.tool-result > summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: 11.5px;
+  color: var(--chat-text-3);
+}
+
+.tool-body > summary::-webkit-details-marker,
+.tool-result > summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-body pre,
+.tool-result pre {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  background: var(--dsw-alias-markdown-code-block);
+  border-radius: 8px;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--chat-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---- written files ---- */
+
+/* The loudest thing in a turn on purpose: writing a file is the only action with
+   a side effect outside this page. */
+.writes {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.write-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--chat-text);
+}
+
+.write-row .pen {
+  color: var(--chat-send);
+  flex: 0 0 auto;
+}
+
+.write-row a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+
+.write-row a:hover {
+  text-decoration-style: solid;
+}
+
+/* ---- turn footer: one meta line + the reply actions ---- */
+
+/* One quiet line per reply (never per tool call): when it ended, duration,
+   throughput and cost on the left; copy / up / down icons on the right. */
+.turn-foot {
+  font-size: 11.5px;
+  color: var(--chat-caption);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 2px;
+  min-width: 0;
+}
+
+.turn-meta {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.turn-actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.turn-act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--chat-caption);
+  cursor: pointer;
+  transition:
+    background-color var(--motion),
+    color var(--motion);
+}
+
+.turn-act:hover {
+  background: var(--chat-hover);
+  color: var(--chat-text-2);
+}
+
+.turn-act.on {
+  color: var(--chat-send);
+  background: var(--chat-hover);
+}
+
+.turn-foot.failed {
+  color: var(--bad);
+}
+
+/* ---- composer (DSH InputBar, copied) ---- */
+
+/* DSH's composer: a floating white card -- radius 22, hairline border, soft
+   shadow, max-width = chat column + 32px. Text sits free on the card (no inner
+   well); the toolbar row underneath carries the agent identity pill on the left
+   and the send button on the right (UI.md §0: identity inside the send's field
+   of view). */
+.composer {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--chat-composer-w);
+  border: 0;
+  background: var(--dsw-specific-input-major);
+  box-shadow: 0 0 0 1px var(--chat-line), var(--dsw-shadow-lv2);
+  border-radius: 22px;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 10px;
+  font-size: 16px;
+  line-height: 24px;
+  display: flex;
+  position: relative;
+  margin: 0 auto 12px;
+  transition: box-shadow var(--motion), background-color var(--motion);
+}
+
+.composer:focus-within {
+  box-shadow: 0 0 0 1px var(--dsw-static-deepseek-400), var(--dsw-shadow-lv2);
+}
+
+.composer > * {
+  width: 100%;
+}
+
+.composer-row {
+  display: flex;
+  align-items: flex-end;
+  min-width: 0;
+}
+
+/* Free text on the card, like DSH: transparent, 16/24, placeholder in caption
+   grey, caret in DSH blue. */
+.composer-input {
+  flex: 1 1 auto;
+  resize: none;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--chat-text);
+  min-height: 52px;
+  padding: 4px 12px 0 16px;
+  font: 400 15px/24px var(--dsw-font-family);
+  letter-spacing: 0.005em;
+  max-height: var(--chat-input-max-h);
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  caret-color: var(--chat-send);
+}
+
+.composer-input::placeholder {
+  color: var(--chat-caption);
+}
+
+.composer-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* DSH's bottom row, copied: padding 2px 8px 6px, space-between with three
+   groups -- tools left, modes middle, trailing right (margin-left auto). The
+   send button is the trailing group's last child, i.e. always the far right
+   of the operations area. New features slot into `.composer-tools` or
+   `.composer-modes` without layout changes. */
+.composer-bar {
+  flex-wrap: nowrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 2px 8px 6px;
+  border-top: 1px solid var(--chat-line);
+  display: flex;
+  container-type: inline-size;
+}
+
+.composer-tools,
+.composer-modes,
+.composer-trailing {
+  align-items: center;
+  min-width: 0;
+  display: flex;
+}
+
+.composer-tools {
+  gap: 10px;
+  /* 身份区主动占满可用宽度：路径才有空间收缩省略，尾部按钮永不换行错位 */
+  flex: 1 1 auto;
+}
+
+.composer-modes {
+  gap: 4px;
+}
+
+.composer-select-wrap {
+  min-width: 0;
+}
+
+.composer-select {
+  max-width: 220px;
+  max-width: min(220px, 36cqw);
+  height: 28px;
+  padding: 0 22px 0 8px;
+  /* 可见药丸：细边 + 浅底，与 composer 其它控件同源 token；透明无边框会被
+     读成「原生控件」。 */
+  border: 1px solid var(--chat-line);
+  border-radius: 999px;
+  outline: none;
+  background-color: var(--dsw-alias-bg-layer-1);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%2381858C' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  color: var(--chat-text-2);
+  font: 500 13px/20px var(--dsw-font-family);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: background-color var(--motion), color var(--motion), border-color var(--motion);
+}
+
+.composer-select:hover:not(:disabled) {
+  background-color: var(--chat-hover);
+  border-color: var(--chat-send);
+  color: var(--chat-text);
+}
+
+.composer-select:focus-visible {
+  border-color: var(--chat-send);
+  box-shadow: 0 0 0 3px var(--dsw-static-deepseek-100);
+}
+
+.composer-select:disabled {
+  color: var(--chat-caption);
+  border-color: transparent;
+  background-color: transparent;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+/* 按钮化的 composer 下拉：label 排版与 select 一致（文字左对齐）。 */
+.composer-select .composer-select-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+
+/* 自绘选项面板（原生 <option> 列表不可样式化，DSH web 同款 token 风格）：
+   surface 卡片 + 圆角 + lv3 阴影 + 悬停行 + 选中勾。挂在 body，向上展开。 */
+.composer-options-panel {
+  position: fixed;
+  z-index: 70;
+  min-width: 190px;
+  max-width: min(300px, calc(100vw - 16px));
+  max-height: 40vh;
+  overflow-y: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--dsw-specific-menu);
+  border: 1px solid var(--chat-line);
+  border-radius: 12px;
+  box-shadow: var(--dsw-shadow-lv3);
+}
+
+.composer-options-panel[hidden] {
+  display: none;
+}
+
+.composer-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  font: 500 13px/20px var(--dsw-font-family);
+  color: var(--chat-text-2);
+  cursor: pointer;
+  white-space: nowrap;
+  outline: none;
+}
+
+.composer-option > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.composer-option:hover,
+.composer-option:focus-visible {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--chat-text);
+}
+
+.composer-option.selected {
+  color: var(--chat-send);
+  font-weight: 600;
+}
+
+/* 全量访问档：红色示警；节点未开锁时锁定置灰（不可点，靠文案说明）。 */
+.composer-option.danger {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.composer-option.danger.selected {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.composer-option.locked {
+  color: var(--chat-caption);
+  cursor: default;
+}
+
+.composer-option.locked:hover,
+.composer-option.locked:focus-visible {
+  background: transparent;
+  color: var(--chat-caption);
+}
+
+.composer-option .check {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--chat-send);
+}
+
+#composer-access {
+  max-width: 128px;
+}
+
+.composer-model {
+  max-width: 200px;
+  max-width: min(200px, 28cqw);
+}
+
+.composer-effort {
+  max-width: 108px;
+}
+
+.composer-context-wrap {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.composer-context {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: conic-gradient(var(--dsw-static-deepseek-500) calc(var(--context-ratio, 0) * 1turn), var(--chat-hover) 0);
+  box-shadow: inset 0 0 0 4px var(--dsw-specific-input-major);
+  color: var(--chat-text-2);
+  font: 500 9px/1 var(--dsw-font-family);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.composer-context:hover,
+.composer-context[aria-expanded="true"] {
+  box-shadow: inset 0 0 0 4px var(--dsw-specific-input-major), 0 0 0 2px var(--dsw-static-deepseek-200);
+}
+
+.composer-context-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  width: 264px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--dsw-specific-menu);
+  box-shadow: var(--dsw-shadow-lv3);
+  color: var(--chat-text-2);
+  font: 12px/20px var(--dsw-font-family);
+}
+
+.composer-context-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.composer-context-head strong {
+  color: var(--chat-text);
+  font-weight: 500;
+}
+
+.composer-context-summary {
+  margin-left: auto;
+  color: var(--chat-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.composer-context-bar {
+  display: flex;
+  gap: 1px;
+  height: 4px;
+  margin: 10px 0 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--chat-hover);
+}
+
+.composer-context-bar i {
+  display: block;
+  min-width: 2px;
+  height: 100%;
+}
+
+#composer-context-system { background: var(--dsw-static-neutral-bluish-400); }
+#composer-context-tools { background: rgb(167, 139, 250); }
+#composer-context-messages { background: var(--dsw-static-blue-450); }
+
+.composer-context-breakdown {
+  color: var(--chat-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.composer-trailing {
+  position: relative;
+  flex: none;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.composer-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.composer-settings {
+  display: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--chat-text-2);
+  cursor: pointer;
+}
+
+.composer-settings:hover,
+.composer-settings[aria-expanded="true"] {
+  background: var(--chat-hover);
+  color: var(--chat-text);
+}
+
+.composer-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--chat-hover);
+  color: var(--chat-text-2);
+  font-size: 12px;
+  font-weight: 600;
+  flex: 0 0 auto;
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-path {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--chat-caption);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.composer-hint {
+  max-width: 148px;
+  margin: 0 4px;
+  overflow: hidden;
+  color: var(--chat-caption);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-hint:empty {
+  display: none;
+}
+
+.composer-hint a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+/* DSH's send and manager's stop use the same 34px circular control seat. */
+.composer-send {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  min-width: 34px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 12.5px;
+  transition: background-color 0.1s;
+}
+
+/* 方案 C（2026-09-11）：发送/停止同一槽位叠放，busy 时只显示其一，位置不跳。 */
+.composer-slot {
+  position: relative;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+}
+
+.composer-slot .composer-send {
+  position: absolute;
+  inset: 0;
+}
+
+/* 排队发送：回合运行中浮现的 ghost 小按钮，与主槽同尺寸（箭头）。 */
+.composer-queue {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--chat-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--chat-send);
+  cursor: pointer;
+  transform: translateY(-2px);
+  transition: border-color 0.1s, background-color 0.1s;
+}
+
+.composer-queue:hover {
+  border-color: var(--dsw-static-deepseek-400);
+  background: var(--dsw-alias-button-info-fill);
+  color: #fff;
+}
+
+.composer-send.btn-primary,
+.composer-send.btn-quiet {
+  width: 34px;
+  min-width: 34px;
+  padding: 0;
+  border-radius: 999px;
+  background: var(--dsw-alias-button-info-fill);
+  color: #fff;
+  box-shadow: none;
+  transform: translateY(-2px);
+}
+
+.composer-send.btn-quiet {
+  border: 0;
+}
+
+.composer-send.btn-primary:hover:not(:disabled),
+.composer-send.btn-quiet:hover:not(:disabled) {
+  background: var(--dsw-alias-button-info-hover);
+}
+
+.composer-send.btn-primary:disabled {
+  opacity: 0.4;
+  cursor: default;
+  background: var(--chat-send);
+}
+
+@container (max-width: 680px) {
+  .composer-path,
+  .composer-effort,
+  .composer-hint {
+    display: none;
+  }
+
+  .composer-model {
+    max-width: 164px;
+  }
+}
+
+@container (max-width: 480px) {
+  .composer-tools {
+    flex: 1 1 0;
+  }
+
+  .composer-agent {
+    max-width: 132px;
+  }
+
+  .composer-controls {
+    display: none;
+  }
+
+  .composer-settings {
+    display: grid;
+  }
+
+  .composer-bar.settings-open .composer-controls {
+    position: absolute;
+    right: 42px;
+    bottom: 42px;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    width: min(264px, calc(100vw - 32px));
+    padding: 8px;
+    border-radius: 16px;
+    background: var(--dsw-specific-menu);
+    box-shadow: var(--dsw-shadow-lv3);
+  }
+
+  .composer-bar.settings-open .composer-modes {
+    display: flex;
+  }
+
+  .composer-bar.settings-open .composer-select-wrap,
+  .composer-bar.settings-open .composer-context-wrap {
+    width: 100%;
+  }
+
+  .composer-bar.settings-open .composer-select {
+    width: 100%;
+    max-width: none;
+    text-align: left;
+  }
+
+  .composer-bar.settings-open .composer-context-wrap {
+    justify-content: flex-start;
+  }
+
+  .composer-bar.settings-open .composer-context {
+    width: 100%;
+    justify-content: flex-start;
+    padding-left: 10px;
+    box-shadow: none;
+    background: var(--chat-hover);
+    border-radius: 10px;
+    font-size: 13px;
+  }
+
+  .composer-bar.settings-open .composer-context-popover {
+    position: static;
+    display: flex;
+    width: 100%;
+    margin-top: 4px;
+    box-shadow: none;
+    background: transparent;
+  }
+
+  .composer-hint {
+    display: none;
+  }
+}
+
+/* ---- narrow ---- */
+
+@media (max-width: 720px) {
+  .chat-log {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .composer {
+    max-width: calc(100% - 24px);
+    margin-bottom: 8px;
+  }
+
+  .state-strip {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  /* The path is the first thing to go when there is no room -- but the agent
+     pill never is. */
+  .composer-path {
+    display: none;
+  }
+}
+
+/* ── 蜂群 P2/P3：delegation 帧（主脑派工记录） ──────────── */
+
+.chat-delegations {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0 14px;
+  border-bottom: 1px solid var(--border, #eaeaec);
+}
+.delegation {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--surface-sunken, #f1f1f3);
+  font-size: 13.5px;
+}
+.delegation.ok { border-left: 3px solid var(--ok, #15803d); }
+.delegation.bad { border-left: 3px solid var(--bad, #c53a3a); }
+.delegation.warn { border-left: 3px solid var(--warn, #a86413); }
+.delegation.muted { border-left: 3px solid var(--muted, #9aa0ac); }
+.delegation-icon { font-weight: 700; min-width: 18px; text-align: center; }
+.delegation.ok .delegation-icon { color: var(--ok, #15803d); }
+.delegation.bad .delegation-icon { color: var(--bad, #c53a3a); }
+.delegation.warn .delegation-icon { color: var(--warn, #a86413); }
+.delegation-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.delegation-head { font-weight: 600; }
+.delegation-body { color: var(--text-2, #5d6370); overflow-wrap: anywhere; }

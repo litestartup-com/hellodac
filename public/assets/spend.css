@@ -1,0 +1,107 @@
+/* Spend page. Shares the tokens in style.css; only the layout here is new. */
+
+/* The page header and the wider column both moved to style.css when the shell
+   became shared -- they were never specific to spend. */
+
+.totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.total-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 18px;
+  background: var(--surface);
+  border: 0;
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-1);
+}
+.total-label {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.total-value {
+  font-size: 26px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* Bars are drawn as stacked flex columns rather than a canvas: a month is at
+   most 31 columns, and this keeps the page dependency-free and printable. */
+.chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 128px;
+  padding: 4px 0 0;
+}
+.bar {
+  flex: 1;
+  min-width: 4px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  height: 100%;
+  border-radius: 3px 3px 0 0;
+  overflow: hidden;
+}
+.bar-seg {
+  width: 100%;
+}
+.bar-seg.on {
+  background: var(--warn);
+}
+.bar-seg.off {
+  background: var(--accent);
+}
+.bar-seg.none {
+  background: var(--border-strong);
+}
+.chart-empty {
+  color: var(--muted);
+  font-size: 13px;
+  align-self: center;
+  margin: auto;
+}
+.chart-legend {
+  display: flex;
+  gap: 14px;
+  margin-top: 10px;
+}
+.swatch {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  margin-right: 5px;
+}
+.swatch.on {
+  background: var(--warn);
+}
+.swatch.off {
+  background: var(--accent);
+}
+
+.spend-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.spend-row .name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.spend-row .figure {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.spend-row .figure.unknown {
+  color: var(--muted);
+}

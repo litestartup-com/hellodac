@@ -1,0 +1,93 @@
+# 蜂群2计划 P2：脊柱 compose —— nginx + manager + 主脑。
+# 工蜂（个人与向导新增节点）由 manager 经 docker.sock 动态拉起（P2b 对账）。
+#
+# 用法：
+#   bash scripts/gen-env.sh           # 生成 .env（幂等，已有值不覆盖；填 DEEPSEEK_API_KEY）
+#   cp manager.config.container.example.yaml manager.config.yaml
+#   docker compose up -d --build
+#
+# 主脑 = 脊柱（compose 声明，非托管：up/down 409，状态/日志只读）。
+name: dac
+
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: dac-nginx
+    ports:
+      - "80:80"
+      # TLS 模式（origin-ca/letsencrypt）用；HTTP 直连时不占用也无妨
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      # TLS 证书（origin-ca/letsencrypt 模式由 install.sh 生成配置；目录自动创建）
+      - ./ssl:/etc/ssl/dac:ro
+    depends_on:
+      - manager
+    networks: [hive]
+
+  manager:
+    build:
+      context: .
+      dockerfile: images/manager/Dockerfile
+    image: hellodac/dac-manager:${MANAGER_VERSION:-1.0.0}
+    container_name: dac-manager
+    env_file: .env
+    # 债务 H1：manager 非 root 运行（与 node-brain 同款 HOST_UID 约定）；
+    # docker.sock 经 group_add 注入宿主 docker 组 GID 访问（DOCKER_GID 由
+    # gen-env.sh 探测写入 .env）。真相文件/data 目录的宿主属主由 install.sh
+    # 按同一 HOST_UID 放行。
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    group_add:
+      - "${DOCKER_GID:?DOCKER_GID missing in .env — run: bash scripts/gen-env.sh}"
+    volumes:
+      # rw：向导新增节点会写回 manager.config.yaml 与 .env（文件即真相）
+      - ./.env:/app/.env
+      - ./manager.config.yaml:/app/manager.config.yaml
+      - ./data:/app/data
+      # 工蜂生命周期：manager 经宿主机 dockerd 管理本机节点容器（Portainer 同款模式）
+      - /var/run/docker.sock:/var/run/docker.sock
+      # 工作区在宿主机与容器内走同一绝对路径（/opt/dac/workspaces），
+      # 这样 manager 发给 dockerd 的 bind mount 路径在宿主机上真实存在。
+      - ./workspaces:/opt/dac/workspaces
+    depends_on:
+      - node-brain
+    restart: unless-stopped
+    networks: [hive]
+
+  node-brain:
+    build:
+      context: images/node
+      dockerfile: Dockerfile
+    image: ${DSH_NODE_IMAGE:-hellodac/dac-node:0.1.2-rc.1}
+    container_name: dac-node-brain
+    # 能力三 v1：GUI 端口只发布到宿主机 loopback（SSH 隧道目标；绝不进公网面）
+    ports:
+      - "127.0.0.1:3082:3082"
+    # 与宿主机部署用户同 uid：工作区 bind mount 两边读写一致（v0.1 同款约定）
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    # 0.1.2：--trusted-host 已删（CLI 无此参数，传了直接启动失败）；
+    # /api 面不再用，manager 走 facade（/api-gw/v1/proxy + GW_KEY 鉴权）。
+    command: ["--port", "3082"]
+    environment:
+      DSH_HOME: /data
+      GW_KEY: ${GW_KEY_B}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      BRAIN_TOKEN: ${BRAIN_TOKEN}
+      # 主脑技能手册调 manager 内部 API 用（容器里 127.0.0.1 是节点自己）
+      MANAGER_URL: "http://manager:8080"
+    volumes:
+      - dac-brain:/data
+      # 挂在与 manager 视角相同的绝对路径：manager 给节点的 workspace cwd 就是这个路径，
+      # 节点容器内必须存在同串路径（否则 session.create EACCES mkdir /opt）
+      - ./workspaces/brain:/opt/dac/workspaces/brain
+    restart: unless-stopped
+    networks: [hive]
+
+volumes:
+  dac-brain:
+
+networks:
+  # 显式命名：manager 的 docker runner 在宿主机 dockerd 侧创建工蜂容器时按此名
+  # 挂网（compose 默认会加项目名前缀 dac_hive，配置里写 hive 会 404 no such network）
+  hive:
+    name: dac-hive

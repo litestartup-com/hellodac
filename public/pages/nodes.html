@@ -1,0 +1,217 @@
+<div class="wrap">
+  <div class="page-head">
+    <h1 class="grow">{{t:nodes.title}}</h1>
+    <!-- 三视图（DAC v1.0.0）：拓扑看全局、节点管个体、机器管接入。
+         以前一页堆两个列表 + 向导 + 访问编辑器 + 日志抽屉，读起来像文档。 -->
+    <div class="view-switch" role="group" aria-label="{{t:nodes.view.label}}">
+      <button id="view-topo" class="btn-quiet btn-sm" type="button">{{t:nodes.view.topology}}</button>
+      <button id="view-nodes" class="btn-quiet btn-sm" type="button">{{t:nodes.view.nodes}}</button>
+      <button id="view-machines" class="btn-quiet btn-sm" type="button">{{t:nodes.view.machines}}</button>
+    </div>
+    <button id="new-node" class="btn btn-sm" type="button">
+      <svg width="14" height="14"><use href="#i-add" /></svg>
+      {{t:nodes.new}}
+    </button>
+    <span id="nodes-refresh" class="muted small"></span>
+  </div>
+
+  <div id="banners" role="alert"></div>
+
+  <!-- ── 拓扑视图：manager → 机器 → 节点，点卡片跳对应视图 ───────────── -->
+  <section id="topology-section" class="section">
+    <div class="card topo-card">
+      <div id="topology"><p class="muted small">{{t:common.loading}}</p></div>
+    </div>
+  </section>
+
+  <!-- ── 节点视图：全部节点 + 日志抽屉 ─────────────────────────────── -->
+  <section id="nodes-view" class="section" hidden>
+    <div class="section-head">
+      <h2>{{t:nodes.all}}</h2>
+      <span id="nodes-count" class="muted small"></span>
+    </div>
+    <div class="card">
+      <div id="nodes-list" class="nodes-list"><p class="muted small">{{t:common.loading}}</p></div>
+    </div>
+    <div id="node-logs" class="node-logs-wrap" hidden>
+      <div class="node-logs-head">
+        <span id="node-logs-title" class="grow"></span>
+        <button type="button" class="btn-quiet btn-sm" id="node-logs-refresh">{{t:common.refresh}}</button>
+        <button type="button" class="btn-quiet btn-sm" id="node-logs-close" aria-label="{{t:common.close}}">×</button>
+      </div>
+      <pre id="node-logs-body" class="node-logs-body">{{t:common.loading}}</pre>
+    </div>
+  </section>
+
+  <!-- ── 机器视图：node-agent 接入目录 ─────────────────────────────── -->
+  <section id="machines-view" class="section" hidden>
+    <div class="section-head">
+      <h2>{{t:nodes.view.machines}}</h2>
+      <span class="muted small">{{t:nodes.machines.hint}}</span>
+      <button id="add-machine" class="btn btn-sm" type="button">{{t:nodes.addMachine}}</button>
+    </div>
+    <div class="card">
+      <div id="machines-list" class="nodes-list"><p class="muted small">{{t:common.loading}}</p></div>
+      <div id="join-box" class="node-logs-wrap" hidden>
+        <div class="node-logs-head">
+          <span class="grow">{{t:nodes.join.title}}</span>
+          <button type="button" class="btn-quiet btn-sm" id="join-copy">{{t:common.copy}}</button>
+          <button type="button" class="btn-quiet btn-sm" id="join-close">{{t:common.close}}</button>
+        </div>
+        <code id="join-command" class="node-gui-cmd"></code>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 抽屉：新增节点向导 ────────────────────────────────────────── -->
+  <div id="node-editor" class="panel" hidden>
+    <div class="panel-backdrop" data-close="1"></div>
+    <aside class="panel-body panel-wide" role="dialog" aria-modal="true" aria-labelledby="node-editor-title">
+      <header class="panel-head">
+        <h2 id="node-editor-title">{{t:nodes.form.title}}</h2>
+        <button class="icon-btn" type="button" data-close="1" aria-label="{{t:common.close}}">
+          <svg width="16" height="16" aria-hidden="true"><use href="#i-close" /></svg>
+        </button>
+      </header>
+      <div class="panel-content">
+        <form id="node-form" novalidate>
+          <div class="field-row">
+            <label class="field">
+              <span class="field-label">{{t:nodes.form.name}}</span>
+              <input id="f-node-name" class="text-input mono" maxlength="32" placeholder="product" required />
+              <span class="field-hint muted small">{{t:nodes.form.nameHint}}</span>
+            </label>
+            <label class="field">
+              <span class="field-label">{{t:nodes.form.port}}</span>
+              <input id="f-node-port" class="text-input mono" type="number" min="1024" max="65535" placeholder="{{t:nodes.form.portPlaceholder}}" />
+            </label>
+          </div>
+          <div class="field-row">
+            <label class="field">
+              <span class="field-label">{{t:nodes.form.runner}}</span>
+              <select id="f-node-runner" class="text-input pill-select">
+                <option value="auto">{{t:nodes.form.runnerAuto}}</option>
+                <option value="docker">{{t:nodes.form.runnerDocker}}</option>
+                <option value="process">{{t:nodes.form.runnerProcess}}</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="field-label">{{t:nodes.form.version}}</span>
+              <select id="f-node-version" class="text-input pill-select">
+                <option value="">{{t:nodes.form.versionDefault}}</option>
+              </select>
+            </label>
+          </div>
+          <div class="field-row">
+            <label class="field">
+              <span class="field-label">{{t:nodes.form.host}}</span>
+              <select id="f-node-host" class="text-input pill-select">
+                <option value="">{{t:nodes.form.hostLocal}}</option>
+              </select>
+              <span class="field-hint muted small">{{t:nodes.form.hostHint}}</span>
+            </label>
+            <label class="field">
+              <span class="field-label">{{t:nodes.form.url}}</span>
+              <input id="f-node-url" class="text-input mono" maxlength="128" placeholder="http://10.0.0.7:3081" />
+              <span class="field-hint muted small">{{t:nodes.form.urlHint}}</span>
+            </label>
+          </div>
+
+          <details class="node-advanced">
+            <summary>{{t:nodes.form.advanced}}</summary>
+            <div class="node-advanced-body">
+              <div class="field-row">
+                <label class="field">
+                  <span class="field-label">{{t:nodes.form.workspaceId}}</span>
+                  <input id="f-agent-id" class="text-input mono" maxlength="32" placeholder="{{t:nodes.form.autoNodeName}}" />
+                </label>
+                <label class="field">
+                  <span class="field-label">{{t:nodes.form.workspaceName}}</span>
+                  <input id="f-agent-name" class="text-input" maxlength="80" placeholder="{{t:nodes.form.autoNodeName}}" />
+                </label>
+              </div>
+              <label class="field">
+                <span class="field-label">{{t:nodes.form.workspacePath}}</span>
+                <input id="f-agent-workspace" class="text-input mono" placeholder="{{t:nodes.form.workspacePathPlaceholder}}" />
+                <span class="field-hint muted small">{{t:nodes.form.workspacePathHint}}</span>
+              </label>
+              <div class="field-row">
+                <label class="field">
+                  <span class="field-label">preset</span>
+                  <input id="f-agent-preset" class="text-input mono" placeholder="standard" />
+                </label>
+                <label class="field">
+                  <span class="field-label">{{t:nodes.form.sandbox}}</span>
+                  <select id="f-agent-sandbox" class="text-input pill-select">
+                    <option value="workspace-write">{{t:nodes.form.sandboxWorkspace}}</option>
+                    <option value="read-only">{{t:nodes.form.sandboxReadonly}}</option>
+                    <option value="danger-full-access">{{t:nodes.form.sandboxDanger}}</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+          </details>
+
+          <div id="f-warn"></div>
+          <div class="form-actions">
+            <span class="muted small">{{t:nodes.form.note}}</span>
+            <button type="button" id="f-cancel" class="btn-quiet btn-sm">{{t:common.cancel}}</button>
+            <button type="submit" id="f-save" class="btn btn-sm">{{t:common.create}}</button>
+          </div>
+        </form>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ── 抽屉：节点原生访问配置（SSH 隧道元数据；私钥永不进 manager） ── -->
+  <div id="node-access-editor" class="panel" hidden>
+    <div class="panel-backdrop" data-close="1"></div>
+    <aside class="panel-body panel-wide" role="dialog" aria-modal="true" aria-labelledby="f-acc-title">
+      <header class="panel-head">
+        <h2 id="f-acc-title">{{t:nodes.access.title}}</h2>
+        <button class="icon-btn" type="button" data-close="1" aria-label="{{t:common.close}}">
+          <svg width="16" height="16" aria-hidden="true"><use href="#i-close" /></svg>
+        </button>
+      </header>
+      <div class="panel-content">
+        <form id="node-access-form" novalidate>
+          <div class="field-row">
+            <label class="field">
+              <span class="field-label">{{t:nodes.access.user}}</span>
+              <input id="f-acc-user" class="text-input mono" maxlength="64" placeholder="ubuntu" />
+            </label>
+            <label class="field">
+              <span class="field-label">{{t:nodes.access.host}}</span>
+              <input id="f-acc-host" class="text-input mono" maxlength="128" placeholder="10.0.0.5" />
+            </label>
+          </div>
+          <div class="field-row">
+            <label class="field">
+              <span class="field-label">{{t:nodes.access.sshPort}}</span>
+              <input id="f-acc-sshport" class="text-input mono" type="number" min="1" max="65535" placeholder="22" />
+            </label>
+            <label class="field">
+              <span class="field-label">{{t:nodes.access.guiPort}}</span>
+              <input id="f-acc-gui" class="text-input mono" type="number" min="1" max="65535" placeholder="3080" />
+            </label>
+            <label class="field">
+              <span class="field-label">{{t:nodes.access.localPort}}</span>
+              <input id="f-acc-local" class="text-input mono" type="number" min="1024" max="65535" placeholder="3088" />
+            </label>
+          </div>
+          <label class="field">
+            <span class="field-label">{{t:nodes.access.key}}</span>
+            <input id="f-acc-key" class="text-input mono" maxlength="256" placeholder="C:\Users\you\.ssh\id_ed25519" />
+          </label>
+          <p class="muted small">{{t:nodes.access.hint}}</p>
+          <div id="f-acc-warn"></div>
+          <div class="form-actions">
+            <button type="button" id="f-acc-cancel" class="btn-quiet btn-sm">{{t:common.cancel}}</button>
+            <button type="button" id="f-acc-clear" class="btn-quiet btn-sm">{{t:nodes.access.clear}}</button>
+            <button type="submit" id="f-acc-save" class="btn btn-sm">{{t:common.save}}</button>
+          </div>
+        </form>
+      </div>
+    </aside>
+  </div>
+</div>

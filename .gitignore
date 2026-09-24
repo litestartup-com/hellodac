@@ -1,0 +1,63 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# 配置备份是派生品，不进 git
+manager.config.backup.yaml
+
+# 密钥与本地配置：绝不进 git
+.env
+.env.local
+# 个人配置（真实路径），公开模板见 manager.config.example.yaml
+manager.config.yaml
+
+# 运行时数据（SQLite 库、日志）
+data/
+*.db
+*.db-wal
+*.db-shm
+logs/
+*.log
+
+# 发布物构建目录
+dist-release/
+
+# 各 agent 的工作区由各自的 git 仓库管理，不进 manager 仓库
+workspaces/
+
+# 文档：公开面只有 README.md / docs/USER-GUIDE.md / CHANGELOG.md / LICENSE。
+# 内部工作文档（设计/计划/路线图/评审/发布流程）在独立的内部设计库，不进本仓库。
+# 本地开发规约与上下文（每次会话先读）也只在本机：
+RULE.md
+CONTEXT.md
+notes/
+docs/MILESTONES.md
+docs/RELEASE.md
+docs/TECH-*.md
+docs/archive/
+
+# 仓库根的 AGENTS.md = 本机 agent 开发纪律（内部口径：含设计库路径、本机习惯），
+# 属「本地规约」一类，不进公开仓（2026-09-24 用户拍板）。对外纪律见 CONTRIBUTING.md。
+# **必须锚定根目录**：templates/{brain,company,personal,product}/AGENTS.md 是要随
+# 工作区播种的模板，那份必须留在 git 里，不能被这条规则连带忽略。
+/AGENTS.md
+
+# PowerShell 5.1 ModuleAnalysisCache（在本目录跑 PS5.1 脚本时产生）
+Microsoft/
+
+# nginx 运行时配置 = install.sh 生成的派生品（真相源是 *.conf.example 与 tls-*.conf 模板）
+deploy/nginx/default.conf
+
+# upgrade-012 回滚备份（含 .env，绝不入库）
+*.pre-012.bak
+
+*.pre-mig.bak
+
+# M1 试点残留（工作区 + 生成物，绝不入库）
+.m1-pilot/
+
+# 每机启动器 = `npm run service install` 用本机路径生成的派生品（见 src/cli/service.ts
+# 的 windowsLauncher），不进 git。旧名那份是 2026-09-24 更名前的产物，仅留在生产机上
+# 供计划任务 OhdshManager 用到 cutover，切换完成后删除。
+scripts/dac-start.cmd
+scripts/ohdsh-start.cmd

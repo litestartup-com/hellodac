@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DAC — Dispatched Agent Cluster</title>
+    <meta name="description" content="One Manager. A Fleet of Agents. An MIT open-source control plane for managing and exposing fleets of containerized agent nodes across multiple servers." />
+    <meta property="og:title" content="DAC — Dispatched Agent Cluster" />
+    <meta property="og:description" content="One Manager. A Fleet of Agents. MIT open-source control plane for agent fleets." />
+    <meta property="og:type" content="website" />
+    <!-- 落地页是单文件、零依赖：不引 CDN、不引字体服务（隐私 + 离线可用）。
+         迁仓后由 GitHub Pages 从这个目录发布，CNAME = hellodac.com。 -->
+    <style>
+      :root {
+        --bg: #fbfbfa;
+        --surface: #ffffff;
+        --text: #16181d;
+        --text-2: #5b6070;
+        --border: #e6e6e2;
+        --accent: #16181d;
+        --ok: #15803d;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #101114;
+          --surface: #17181c;
+          --text: #f2f2ef;
+          --text-2: #a4a8b4;
+          --border: #2a2c33;
+          --accent: #f2f2ef;
+          --ok: #4ade80;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+      .wrap { max-width: 880px; margin: 0 auto; padding: 64px 24px 96px; }
+      header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+      .mark {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 34px; height: 34px; border-radius: 10px;
+        background: var(--accent); color: var(--bg); font-weight: 700;
+      }
+      h1 { font-size: 30px; margin: 0; letter-spacing: -0.02em; }
+      .tagline { font-size: 18px; color: var(--text-2); margin: 18px 0 6px; }
+      .lede { font-size: 17px; color: var(--text); max-width: 62ch; }
+      .links { display: flex; gap: 10px; flex-wrap: wrap; margin: 26px 0 8px; }
+      .btn {
+        display: inline-block; padding: 10px 16px; border-radius: 12px;
+        border: 1px solid var(--border); text-decoration: none; color: var(--text);
+        background: var(--surface); font-weight: 600; font-size: 15px;
+      }
+      .btn.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+      h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-2); margin: 44px 0 12px; }
+      ul { padding-left: 20px; margin: 0; }
+      li { margin: 6px 0; }
+      code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13.5px; }
+      pre {
+        background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+        padding: 14px 16px; overflow-x: auto;
+      }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+      .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; }
+      .card h3 { margin: 0 0 6px; font-size: 15px; }
+      .card p { margin: 0; color: var(--text-2); font-size: 14px; }
+      footer { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--border); color: var(--text-2); font-size: 14px; }
+      a { color: inherit; }
+      .ok { color: var(--ok); font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <span class="mark" aria-hidden="true">D</span>
+        <h1>DAC — Dispatched Agent Cluster</h1>
+      </header>
+
+      <p class="tagline">One Manager. A Fleet of Agents.</p>
+      <p class="lede">
+        An MIT open-source control plane for managing and exposing fleets of containerized agent
+        nodes (currently built on DeepSeek Harness) across multiple servers, with unified
+        conversation and API access.
+      </p>
+
+      <div class="links">
+        <a class="btn primary" href="https://github.com/litestartup-com/hellodac">GitHub</a>
+        <a class="btn" href="https://github.com/litestartup-com/hellodac#one-line-install">Install</a>
+        <a class="btn" href="https://github.com/litestartup-com/hellodac/blob/main/README.zh.md">中文文档</a>
+      </div>
+
+      <h2>Quick start</h2>
+      <pre><code># Linux server (containers, recommended)
+curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.0.0/install.sh -o install.sh &amp;&amp; bash install.sh
+
+# Windows (bare metal)
+irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.0.0/install.ps1 -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File .\install.ps1</code></pre>
+
+      <h2>What it gives you</h2>
+      <div class="grid">
+        <div class="card"><h3>Fleet topology</h3><p>One manager, machines joined by a node agent, nodes as container workers or host processes — with a live topology view and heartbeat edges.</p></div>
+        <div class="card"><h3>Unified conversation</h3><p>Talk to every node from one place: streaming, tool cards, approvals, per-session model and access mode.</p></div>
+        <div class="card"><h3>API access</h3><p>Every node is reachable through one gateway prefix, so third-party clients get the same agents the UI has.</p></div>
+        <div class="card"><h3>Operations built in</h3><p>Audit log, cost and budgets, encrypted backups with restore drill, self-update with automatic rollback.</p></div>
+        <div class="card"><h3>Bilingual UI</h3><p>English by default, Chinese one click away; adding a language is one JSON file.</p></div>
+        <div class="card"><h3>Safe by default</h3><p>Loopback-only node ports, approval cards for dangerous operations, agent tokens that rotate with a grace window.</p></div>
+      </div>
+
+      <h2>Status</h2>
+      <p><span class="ok">v1.0.0</span> — the first public release. The container one-liner and the
+      bare-metal path are both exercised by the project's own smoke tests before every release.</p>
+
+      <footer>
+        MIT licensed · Built on <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a>
+        (not affiliated with DeepSeek) · Agent gateway:
+        <a href="https://github.com/litestartup-com/dsh-api-gateway">dsh-api-gateway</a>
+      </footer>
+    </div>
+  </body>
+</html>

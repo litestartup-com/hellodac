@@ -1,0 +1,6 @@
+# Normalise line endings in the repository to LF so a Windows checkout does not
+# rewrite every file and bury real changes in whitespace churn.
+* text=auto eol=lf
+
+# Generated: not worth reviewing in diffs.
+package-lock.json -diff linguist-generated

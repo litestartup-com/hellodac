@@ -1,0 +1,94 @@
+# 蜂群2计划 P2：容器形态（compose 脊柱）示例配置。
+# 复制为 manager.config.yaml 使用；install.sh（P5）会自动生成。
+#
+# 注意：
+# - manager 容器内与宿主机共享同一绝对路径 /opt/dac/workspaces（compose 挂载），
+#   这样 manager 发给 dockerd 的 bind mount 路径在宿主机上真实存在；
+# - 主脑无 spawn：compose 声明（脊柱，非托管——只读管控）；
+# - personal 是第一个工蜂：docker runner，由 manager 经 docker.sock 拉起。
+# - config_version：配置结构版本（P0，hive/plan-config-version-switch）——
+#   新装生成即当前版本，升级由 boot 自动迁移。
+
+config_version: 1
+
+listen:
+  host: 0.0.0.0
+  port: 8080
+
+endpoints:
+  # 0.1.2 切主路接线清单：manager 走 facade（进程内门面 + key 鉴权），
+  # 不再直连宿主 /api（0.1.2 的 /api 是信任栅栏，loopback 也 401）。
+  brain:
+    url: http://node-brain:3082
+    driver: apiproxy
+    prefix: /api-gw/v1/proxy
+    key_ref: GW_KEY_B
+    sandbox_base: http://node-brain:3082/api-gw/v1
+    sandbox_key_ref: GW_KEY_B
+
+  personal:
+    url: http://node-personal:3081
+    driver: apiproxy
+    prefix: /api-gw/v1/proxy
+    key_ref: GW_KEY_A
+    sandbox_base: http://node-personal:3081/api-gw/v1
+    sandbox_key_ref: GW_KEY_A
+    spawn:
+      managed: true
+      runner: docker
+      ready_timeout_ms: 30000
+      docker:
+        image: hellodac/dac-node:0.1.2-rc.1
+        # 与 compose 里显式命名的网络一致（manager 在宿主机 dockerd 侧挂网）
+        network: dac-hive
+        port: 3081
+        host_volumes:
+          # 左=宿主机路径（install.sh 会替换为安装目录真实路径）；右=节点容器内路径，
+          # 必须与 agents.workspace 同串——manager 把 workspace 作为 cwd 发给节点
+          /opt/dac/workspaces/personal: /opt/dac/workspaces/personal
+        named_volumes:
+          dac-personal: /data
+
+agents:
+  brain:
+    name: Brain
+    endpoint: brain
+    workspace: /opt/dac/workspaces/brain
+    preset: standard
+    sandbox_mode: workspace-write
+  personal:
+    name: Personal
+    endpoint: personal
+    workspace: /opt/dac/workspaces/personal
+    preset: standard
+    sandbox_mode: workspace-write
+
+runner:
+  timeout_minutes: 15
+  silence_timeout_minutes: 5
+  max_consecutive_failures: 3
+  daily_budget_usd: 2.0
+
+brain:
+  daily_budget_usd: 1.0
+
+database:
+  path: ./data/manager.db
+
+# 蜂群2计划 P4：额外纳入备份的 docker 命名卷（compose 脊柱的主脑卷无 spawn 段，
+# 在这里声明后随自动备份一起打包加密）。
+backup:
+  docker_volumes:
+    - dac-brain
+
+pricing:
+  peak_windows_utc:
+    - { start: '01:00', end: '04:00' }
+    - { start: '06:00', end: '10:00' }
+  models:
+    deepseek-v4-pro:
+      off_peak: { input: 0.66, output: 1.98, cache_read: 0.022 }
+      peak: { input: 1.32, output: 3.96, cache_read: 0.044 }
+    deepseek-v4-flash:
+      off_peak: { input: 0.22, output: 0.66, cache_read: 0.007 }
+      peak: { input: 0.44, output: 1.32, cache_read: 0.014 }

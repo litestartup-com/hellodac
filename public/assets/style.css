@@ -1,0 +1,2853 @@
+/* Design tokens.
+ *
+ * The visual language follows the product-grade AI UIs (manus.im, Anthropic,
+ * ChatGPT): a light calm surface, depth from soft shadows
+ * instead of borders, one saturated accent reserved for the primary action, and
+ * a single visual focus per screen. DSH DNA stays where it costs nothing:
+ * hairline separators for dense data lists, monospace for code and paths.
+ *
+ * Every colour, radius and space value in the app comes from here. Nothing below
+ * this block hard-codes a hex value (the few semantic dot colours are the one
+ * sanctioned exception), so retuning the palette is one edit.
+ */
+
+:root {
+  /* Surfaces, lightest to most raised. */
+  --bg: #f7f7f8;
+  --surface: #ffffff;
+  --surface-sunken: #f1f1f3;
+  --surface-hover: #f0f0f2;
+
+  /* Borders are for separators, never for card frames. */
+  --border: #eaeaec;
+  --border-strong: #dfdfe2;
+
+  --text: #17181a;
+  --text-1: var(--text); /* alias used by old page sheets; keep resolving */
+  --text-2: #5d6370;
+  --muted: #9aa0ac;
+
+  /* The only saturated colour. Used for the primary action and links. */
+  --accent: #4a7cf7;
+  --accent-hover: #3b6ce8;
+  --accent-fg: #ffffff;
+  --accent-soft: #eef3ff;
+
+  /* Semantic colours each carry a text, tint and border variant so state can be
+   * shown by a whole element rather than only by colouring its text. */
+  --ok: #15803d;
+  --ok-bg: #f0faf3;
+  --ok-border: #c8ecd5;
+  --warn: #a86413;
+  --warn-bg: #fdf8ee;
+  --warn-border: #f3e2bd;
+  --bad: #c53a3a;
+  --bad-bg: #fdf3f3;
+  --bad-border: #f2d4d4;
+
+  --r-sm: 8px;
+  --r: 10px;
+  --r-lg: 16px;
+  --r-xl: 20px;
+  --r-pill: 999px;
+
+  --sh-1: 0 1px 2px rgba(23, 24, 26, 0.04), 0 1px 3px rgba(23, 24, 26, 0.05);
+  --sh-2: 0 2px 6px rgba(23, 24, 26, 0.04), 0 12px 28px rgba(23, 24, 26, 0.07);
+  --sh-3: 0 4px 10px rgba(23, 24, 26, 0.05), 0 20px 56px rgba(23, 24, 26, 0.1);
+  --sh-accent: 0 4px 12px rgba(74, 124, 247, 0.32);
+
+  --sidebar-w: 264px;
+  /* Zero while the sidebar is docked; the narrow-screen block raises it to the
+     app bar's height. The conversation page sizes itself off this, so it never
+     has to know which layout mode is in effect. */
+  --topbar-h: 0px;
+
+  --font:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Roboto,
+    sans-serif;
+  --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+  /* Aliases kept so the board stylesheet can share these tokens verbatim. */
+  --card: var(--surface);
+  --line: var(--border);
+
+  /* DSH's own sidebar palette (dsh-client-ui-sidebar + theme tokens, light):
+     a near-white grey-blue column, grey hovers, and light-blue badges for the
+     few things that need to pop. */
+  --side-bg: #f9fafb;
+  --side-hover: #f1f3f5;
+  --side-active: #ebeef2;
+  --side-accent-bg: #e4edfd;
+  --side-accent-fg: #4176e6;
+
+  /* One motion curve for every interactive transition. */
+  --motion: 150ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Class-based display rules outrank the UA's [hidden] rule, so anything given
+   `display` below would ignore the attribute without this. */
+[hidden] {
+  display: none !important;
+}
+
+html {
+  /* Native form controls and scrollbars should match the light surface. */
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.6 var(--font);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--accent);
+}
+
+code {
+  font: 12px/1.5 var(--mono);
+  color: var(--text-2);
+  background: var(--surface-sunken);
+  border-radius: var(--r-sm);
+  padding: 1px 5px;
+}
+
+/* One focus style everywhere. Keyboard users should never lose the cursor. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.small {
+  font-size: 12px;
+}
+
+.grow {
+  flex: 1;
+}
+
+.ok {
+  color: var(--ok);
+}
+
+.warn {
+  color: var(--warn);
+}
+
+.error {
+  color: var(--bad);
+  font-size: 13px;
+  margin: 6px 0 0;
+}
+
+/* ==========================================================================
+   shell: sidebar + content
+   ========================================================================== */
+
+.shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.sidebar {
+  background: var(--side-bg);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  /* DSH SidebarRoot: padding 6px 12px, spacing owned by the rows themselves. */
+  padding: 6px 12px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+}
+
+/* An anchor, not a heading: it is how you get home from anywhere, which is why
+   no page needs its own 返回 button. DSH's logo row: 60px tall, brand on the
+   left, the rail toggle on the right. */
+.side-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  height: 60px;
+  margin-bottom: 8px;
+  padding: 8px 0 8px 4px;
+  min-width: 0;
+}
+
+.side-top .brand {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  color: var(--text);
+  text-decoration: none;
+  min-width: 0;
+}
+
+.brand-mark {
+  display: flex;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--sh-1);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.brand-text {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brand-sub {
+  display: block;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 1px;
+}
+
+/* The rail toggle: DSH's iconButton -- a 28px circle, ink at rest, grey on
+   hover. Grows to a thumb target in the drawer and to 36px in the rail. */
+.side-collapse {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+/* The sidebar's primary action: DSH's new-session button -- 38px tall, radius
+   12, hairline border, white fill, grey hover. */
+.side-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: 38px;
+  flex: 0 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: none;
+  color: var(--text);
+  font: 500 14px/22px var(--font);
+  padding: 8px 16px;
+  cursor: pointer;
+  /* An anchor now, so it keeps working as 派活 from pages that have no composer. */
+  text-decoration: none;
+  box-sizing: border-box;
+  margin: 0 0 8px;
+  overflow: hidden;
+  transition:
+    background-color var(--motion),
+    border-color var(--motion);
+}
+
+.side-action:hover {
+  border-color: var(--border-strong);
+  background: var(--side-hover);
+  box-shadow: none;
+}
+
+.side-action > svg {
+  color: var(--accent);
+}
+
+.side-section {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 0 8px;
+  margin: 2px 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+/* DSH badge: light-blue pill with blue ink -- reserved for numbers that say
+   something, never for decoration. */
+#agent-count:not(:empty) {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--side-accent-bg);
+  color: var(--side-accent-fg);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.tree {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  flex: 1;
+  margin: 0 -6px;
+  padding: 0 6px;
+}
+
+/* One group per agent: a row that expands, with the agent's conversations under
+   it. The row toggles instead of navigating because conversations are a daily
+   action and the board an occasional one, so the easy click goes to the frequent
+   thing; the board keeps its own button (UI.md §2). */
+.tree-group {
+  display: flex;
+  flex-direction: column;
+}
+
+/* DSH's nav row: radius 12, padding 9/16-9/12 (a ~40px row), 14px ink. */
+.tree-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  color: var(--text-2);
+  text-decoration: none;
+  font-size: 14px;
+  line-height: 22px;
+  min-width: 0;
+  transition: background-color var(--motion);
+}
+
+.tree-item:hover {
+  background: var(--side-hover);
+  color: var(--text);
+}
+
+/* DSH active: grey fill, weight up one notch. One treatment for every nav
+   surface -- no blue fills in the sidebar. */
+.tree-item.on,
+.tree-item.active,
+.side-link.active,
+.side-link.on {
+  background: var(--side-active);
+  color: var(--text);
+  font-weight: 500;
+}
+
+.tree-item .label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* Long agent names give way to the row's action buttons instead of pushing
+     them out of the sidebar. */
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Tiny right-aligned metadata, as DSH does with relative timestamps. */
+.tree-item .meta {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+
+.tree-item .dot {
+  margin-left: auto;
+}
+
+.tree-item .meta + .dot {
+  margin-left: 0;
+}
+
+/* The expanding part of the row. A button, not a link: it changes what the
+   sidebar shows and navigates nowhere, so it must not offer a new tab. */
+.tree-toggle {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tree-toggle .chev {
+  flex: 0 0 auto;
+  display: inline-flex;
+  color: var(--muted);
+  transition: transform 0.14s;
+  margin-right: 1px;
+}
+
+.tree-group.open .tree-toggle .chev {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tree-toggle .chev {
+    transition: none;
+  }
+}
+
+/* The row's action buttons -- the board entry and the new-chat "+". Sized as
+   hit targets rather than bare icons, and carrying the full button reset since
+   new-chat is a <button> now. */
+.tree-side {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  background: none;
+  padding: 0;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.tree-side:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.tree-side:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+.tree-children {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* Indented to the parent's label, and a rule to carry the eye down a long
+     list without needing a box around it. */
+  margin: 2px 0 6px 14px;
+  padding-left: 9px;
+  border-left: 1px solid var(--border);
+}
+
+.tree-child {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 7px 12px;
+  border-radius: 10px;
+  color: var(--text-2);
+  text-decoration: none;
+  font-size: 13px;
+  line-height: 20px;
+  min-width: 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--motion);
+}
+
+.tree-child > svg {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.tree-child .label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-child .meta {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+
+.tree-child:hover {
+  background: var(--side-hover);
+  color: var(--text);
+}
+
+.tree-child.active {
+  background: var(--side-active);
+  color: var(--text);
+  font-weight: 500;
+}
+
+.tree-child.active > svg {
+  color: var(--text-2);
+}
+
+.tree-child.more {
+  color: var(--muted);
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: 0 0 auto;
+}
+
+.dot.ok {
+  background: #22c55e;
+}
+
+.dot.warn {
+  background: #f59e0b;
+}
+
+.dot.bad {
+  background: #ef4444;
+}
+
+/* An agent mid-turn. A pulse rather than a spinner: it is a state, not progress,
+   and there is no percentage to report. */
+.dot.busy {
+  background: #f59e0b;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot.busy {
+    animation: none;
+  }
+}
+
+/* The commit a run produced. Monospace and dim: it is evidence you can go look
+   up, not something to read on every row. */
+.commit {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 1px 5px;
+  margin-right: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-sunken);
+  color: var(--text-2);
+}
+
+.files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 5px;
+}
+.files code {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: var(--r-sm);
+  background: var(--surface-sunken);
+  color: var(--text-2);
+}
+
+/* The board supplies its own full-bleed padding and a sticky header, both of
+   which the standard content inset would break. */
+.content-flush {
+  padding: 0;
+}
+
+/* A month of daily bars, or a cron's full prompt, need more than the home
+   page's reading width. */
+.content.wide .wrap {
+  max-width: 920px;
+}
+
+/* Every page's title row. Replaces the per-page 返回 button, which was a worse
+   version of a frame that never leaves. */
+.page-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.page-head h1 {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.side-link {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  color: var(--text-2);
+  font-size: 14px;
+  line-height: 22px;
+  text-decoration: none;
+  transition: background-color var(--motion);
+}
+
+/* 主导航容器（DAC v1.0.0）：agent 树之下、端点状态之上，常驻两项。 */
+.side-links {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+}
+.side-link:hover {
+  background: var(--side-hover);
+  color: var(--text);
+}
+
+/* Says where you are. The whole point of keeping the frame on every page is
+   lost if the frame looks identical everywhere. One active treatment for every
+   nav surface: sunken, ink, weight. */
+.side-link.active,
+.side-link.on,
+.tree-item.active {
+  background: var(--surface-sunken);
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Standing facts at the foot of the sidebar: endpoint health and session
+   counts. Deliberately informational -- a tiny line, not a banner. */
+.side-endpoints {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 10px;
+  margin-bottom: 2px;
+}
+
+.endpoint-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+  min-width: 0;
+}
+
+.endpoint-line .dot {
+  flex: 0 0 auto;
+}
+
+.side-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding: 12px 4px 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.side-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 0;
+  border-radius: var(--r);
+  color: var(--muted);
+  cursor: pointer;
+  padding: 5px;
+  transition:
+    background-color var(--motion),
+    color var(--motion);
+}
+
+.icon-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text-2);
+}
+
+.content {
+  padding: 26px 36px 26px;
+  min-width: 0;
+}
+
+.wrap {
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+/* ==========================================================================
+   banners
+   ========================================================================== */
+
+.banner {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 13.5px;
+  margin-bottom: 12px;
+  border: 1px solid;
+}
+
+/* The icon is the fastest read of severity, so it must not be the thing that
+   collapses when the message is long. */
+.banner > svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.banner.ok {
+  background: var(--ok-bg);
+  border-color: var(--ok-border);
+  color: var(--ok);
+}
+
+.banner.bad {
+  background: var(--bad-bg);
+  border-color: var(--bad-border);
+  color: var(--bad);
+}
+
+.banner.warn {
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+  color: var(--warn);
+}
+
+.banner strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.banner .body {
+  color: var(--text-2);
+}
+
+/* ==========================================================================
+   hero + composer
+   ========================================================================== */
+
+.hero {
+  text-align: center;
+  padding: 56px 0 12px;
+}
+
+.hero h1 {
+  font-size: 38px;
+  font-weight: 550;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  margin: 0 0 10px;
+  color: var(--text);
+}
+
+.hero p {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 0 0 28px;
+}
+
+/* The task composer. The one high-contrast object on the page: a floating white
+   card without a frame, like the prompt box in manus.im.
+   Every rule below is scoped to .hero on purpose: the chat page also has an
+   element with class .composer (the input footer), and an unscoped rule here
+   would leak its radius, shadow and textarea sizing into the transcript page --
+   which is exactly the "giant white plate at the bottom" bug. */
+.hero .composer {
+  background: var(--surface);
+  border: 0;
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-3);
+  padding: 12px;
+  text-align: left;
+  transition: box-shadow var(--motion);
+}
+
+.hero .composer:focus-within {
+  box-shadow: var(--sh-3), 0 0 0 3px rgba(74, 124, 247, 0.12);
+}
+
+.hero .composer-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.hero .pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  color: var(--text-2);
+  font: 12px/1 var(--font);
+  padding: 0 10px;
+  max-width: 100%;
+}
+
+.hero .pill.info {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent);
+}
+
+.hero .pill.warn {
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+  color: var(--warn);
+}
+
+/* A select styled as a pill: same affordance as DSH's dropdowns, but a real
+   <select> so it stays keyboard and screen-reader friendly. Shared: the spend
+   and crons pages use it bare. */
+.pill-select {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding-right: 12px;
+  max-width: 190px;
+  text-overflow: ellipsis;
+}
+
+.pill-select:focus {
+  outline: none;
+}
+
+.hero .pill:focus-within {
+  border-color: var(--border-strong);
+}
+
+.hero .composer textarea {
+  width: 100%;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: 15px/1.65 var(--font);
+  padding: 10px 8px 6px;
+  resize: none;
+  min-height: 68px;
+  max-height: 40vh;
+}
+
+.hero .composer textarea:focus {
+  outline: none;
+}
+
+.hero .composer textarea::placeholder {
+  color: var(--muted);
+}
+
+.hero .composer-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+/* The identity line: which agent this task writes into, and where. UI.md §0 --
+   it must be inside the same field of view as the send button. */
+.hero .composer-identity {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.hero .composer-identity .who {
+  font-weight: 600;
+  color: var(--text-2);
+  flex: 0 0 auto;
+}
+
+.hero .composer-identity .path {
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+/* Circular blue send button: the single filled element on the home page. */
+.hero .send {
+  margin-left: auto;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-fg);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--sh-accent);
+  transition:
+    background-color var(--motion),
+    box-shadow var(--motion);
+}
+
+.hero .send:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.hero .send:disabled {
+  background: var(--border-strong);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.hero .composer-state {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ---- suggestions inside the composer ---- */
+
+.suggest {
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.suggest-head {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.suggest-title {
+  flex: 1 1 auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.suggest-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px;
+}
+
+.suggest-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--motion),
+    box-shadow var(--motion),
+    transform var(--motion);
+}
+
+.suggest-card:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--sh-2);
+  transform: translateY(-1px);
+}
+
+.suggest-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border-radius: var(--r-sm);
+  background: var(--surface-sunken);
+  color: var(--text-2);
+}
+
+.suggest-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.suggest-name {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.suggest-sub {
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- quick action bar under the composer ---- */
+
+.quickbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px 26px;
+  margin-top: 26px;
+}
+
+.quick-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-2);
+  font-size: 13.5px;
+  text-decoration: none;
+  padding: 6px 2px;
+  border-radius: var(--r-sm);
+  transition: color var(--motion);
+}
+
+.quick-link:hover {
+  color: var(--text);
+}
+
+.quick-link > svg {
+  color: var(--muted);
+}
+
+/* The outcome of a run. Left-aligned inside the centred hero, and only spaced
+   when it actually holds something. */
+#run-result {
+  text-align: left;
+  max-width: 860px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+#run-result:not(:empty) {
+  margin-top: 14px;
+  padding-top: 0;
+}
+
+#run-result .banner {
+  margin-bottom: 0;
+}
+
+/* ==========================================================================
+   sections, cards, rows
+   ========================================================================== */
+
+.section {
+  margin-top: 34px;
+}
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.section-head h2 {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  margin: 0;
+}
+
+/* Cards float: no frame, just depth. */
+.card {
+  background: var(--surface);
+  border: 0;
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-1);
+  padding: 16px 18px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Rows inside a card are separated by a hairline, not by their own borders --
+   stacked bordered boxes read as noise. */
+.list > .row + .row {
+  border-top: 1px solid var(--border);
+}
+
+.row {
+  padding: 12px 2px;
+  min-width: 0;
+}
+
+.list > .row:first-child {
+  padding-top: 4px;
+}
+
+.list > .row:last-child {
+  padding-bottom: 2px;
+}
+
+.row-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.row-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 13.5px;
+}
+
+.detail {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+}
+
+.detail.error {
+  color: var(--bad);
+}
+
+.badge {
+  font-size: 11px;
+  border-radius: var(--r-pill);
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  flex: 0 0 auto;
+}
+
+.badge.ok {
+  background: var(--ok-bg);
+  border-color: var(--ok-border);
+  color: var(--ok);
+}
+
+.badge.warn {
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+  color: var(--warn);
+}
+
+.badge.bad {
+  background: var(--bad-bg);
+  border-color: var(--bad-border);
+  color: var(--bad);
+}
+
+/* ==========================================================================
+   buttons
+   ========================================================================== */
+
+button,
+.btn {
+  font: 500 13px/1 var(--font);
+  border-radius: var(--r);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  padding: 9px 14px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition:
+    background-color var(--motion),
+    border-color var(--motion),
+    box-shadow var(--motion);
+}
+
+button:hover:not(:disabled),
+.btn:hover {
+  border-color: var(--border-strong);
+  background: var(--surface);
+  box-shadow: var(--sh-1);
+}
+
+button:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+
+.btn-primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.btn-quiet {
+  border-color: transparent;
+  background: none;
+  color: var(--text-2);
+}
+
+.btn-quiet:hover {
+  background: var(--surface-hover);
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.btn-sm {
+  font-size: 12px;
+  padding: 6px 10px;
+}
+
+/* ==========================================================================
+   toast
+   ========================================================================== */
+
+/* Shared rather than per page: the board and the chat both use it, and the two
+   copies would drift the way the icon sprite and esc() already did. */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(22px + env(safe-area-inset-bottom));
+  transform: translateX(-50%) translateY(6px);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 10px 16px;
+  font-size: 13px;
+  box-shadow: var(--sh-2);
+  opacity: 0;
+  transition:
+    opacity 0.18s,
+    transform 0.18s;
+  pointer-events: none;
+  z-index: 40;
+}
+
+.toast.on {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    transition: none;
+  }
+}
+
+/* ==========================================================================
+   skeleton loading
+   ========================================================================== */
+
+/* Shown while the first request is in flight, so the page has shape immediately
+   instead of flashing from blank to full. */
+.skeleton {
+  height: 12px;
+  border-radius: var(--r-sm);
+  background: linear-gradient(90deg, var(--surface-sunken), var(--surface-hover), var(--surface-sunken));
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+.skeleton + .skeleton {
+  margin-top: 10px;
+}
+
+.skeleton.w60 {
+  width: 60%;
+}
+
+.skeleton.w40 {
+  width: 40%;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
+
+/* ==========================================================================
+   empty states
+   ========================================================================== */
+
+.empty {
+  text-align: center;
+  padding: 36px 16px 30px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.empty strong {
+  display: block;
+  color: var(--text-2);
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+/* ==========================================================================
+   login
+   ========================================================================== */
+
+.centered {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.narrow {
+  width: 100%;
+  max-width: 360px;
+  box-shadow: var(--sh-2);
+  padding: 30px 26px;
+}
+
+.narrow h1 {
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  margin: 0 0 4px;
+}
+
+.narrow > .muted {
+  font-size: 13px;
+  margin: 0 0 22px;
+}
+
+.narrow label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-2);
+  margin-bottom: 6px;
+}
+
+.narrow input {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  color: var(--text);
+  font: 14px/1.4 var(--font);
+  padding: 11px 12px;
+  margin-bottom: 14px;
+  transition: border-color var(--motion), box-shadow var(--motion);
+}
+
+.narrow input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.narrow button[type='submit'] {
+  width: 100%;
+  justify-content: center;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+  padding: 11px;
+}
+
+.narrow button[type='submit']:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+/* ==========================================================================
+   responsive: one sidebar, three presentations
+   ==========================================================================
+
+   The previous version had a single 900px breakpoint that folded the sidebar
+   into a horizontally scrolling strip and hid `.side-section` / `.side-foot`
+   outright. On a phone that meant the conversation tree laid out sideways and
+   both "new conversation" and "log out" simply did not exist.
+
+   The rule now, which is what every shell of this shape converges on:
+
+     >= 1024px   docked, collapsible to a 60px icon rail
+     <  1024px   fixed app bar + off-canvas drawer, holding the *whole* sidebar
+
+   Both presentations are driven by the same state machine in shell.js, so there
+   is one place where "is the sidebar showing" is decided. `--topbar-h` is 0 on a
+   wide screen, which is what lets the conversation page keep computing its own
+   height as `100dvh - var(--topbar-h)` without knowing which mode it is in. */
+
+.topbar {
+  display: none;
+}
+
+.nav-backdrop {
+  display: none;
+}
+
+.side-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.side-top .brand {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Only ever visible in the rail, where there is no room for the wordmark. */
+.brand-mark {
+  flex: 0 0 auto;
+}
+
+/* The rail's stand-in for an agent name: agents have no icon of their own, and
+   a column of identical chat glyphs would be worse than no rail at all. */
+.rail-badge {
+  display: none;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-sm);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* A conversation row carries two facts, so it is two lines: what it is about,
+   and when it last moved plus how many turns it holds. One line with both would
+   have to truncate the title to fit metadata that is never the reason you are
+   looking. */
+.chat-row {
+  align-items: flex-start;
+}
+
+.chat-row > svg {
+  margin-top: 4px;
+}
+
+.chat-row-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+}
+
+.chat-row-meta {
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The row plus its overflow button. The button is a sibling of the link, not a
+   child: a button inside an anchor is invalid markup, and a click on it would
+   navigate as well.
+
+   Because of that split, the highlight has to live on the wrapper. With it on the
+   link, pointing at a row painted everything except the last 24px, so the row
+   appeared to end before the button and the button read as floating debris. */
+.chat-item {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  border-radius: var(--r-sm);
+  transition: background-color var(--motion);
+}
+
+.chat-item:hover {
+  background: var(--side-hover);
+}
+
+.chat-item.active {
+  background: var(--side-active);
+}
+
+/* The wrapper owns both states now, so the link must not paint its own or the
+   two would stack into a darker patch under the title only. */
+.chat-item > .chat-row:hover,
+.chat-item > .chat-row.active {
+  background: none;
+}
+
+.chat-item > .chat-row {
+  flex: 1 1 auto;
+}
+
+.row-more {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  margin: 2px 1px 2px 0;
+  /* Not decoration: a button's UA padding is 6px per side, which leaves 14px of
+     content box inside 26px, and a 16px icon is a flex item that shrinks by
+     default -- so the glyph was squeezed to zero width while the button itself
+     measured, reported and hit-tested perfectly. Invisible for a completely
+     different reason than the two before it. */
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  /* Visible at rest, in ink rather than in ghost. */
+  color: var(--text-2);
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
+}
+
+/* An icon is the entire content of these buttons, so it must never be the thing
+   that gives way when space is short. */
+.row-more > svg,
+.dot-btn > svg {
+  flex: 0 0 auto;
+}
+
+/* Pressed, hovered and open share one look: while the menu is up, the button it
+   came from has to stay visibly the source of it. */
+.row-more:hover,
+.row-more:focus-visible,
+.row-more[aria-expanded='true'] {
+  background: var(--surface-sunken);
+  color: var(--text);
+}
+
+/* No hover to lean on, so the target is thumb-sized instead. */
+@media (hover: none) {
+  .row-more {
+    width: 40px;
+  }
+}
+
+.row-menu {
+  position: fixed;
+  z-index: 70;
+  min-width: 140px;
+  padding: 5px;
+  background: var(--surface);
+  border: 0;
+  border-radius: 12px;
+  box-shadow: var(--sh-2);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.row-menu button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--text-2);
+  font: 13px/1 var(--font);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--motion);
+}
+
+.row-menu button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+/* The endpoint control: what it is, plus how it is doing.
+
+   A bare 6px dot was both an impossible target and an unreadable one -- a green
+   speck says "something is fine" without saying what, and green is exactly the
+   colour the eye files away as decoration. So the button carries the endpoint
+   glyph, and the dot rides it as a status badge. 24px of hit area around 15px of
+   icon. */
+.dot-btn {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background-color var(--motion);
+}
+
+/* The badge sits on the icon's corner, ringed in the surface colour so it reads
+   as attached to the glyph rather than as a second, unrelated mark. */
+.dot-btn .dot {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  width: 7px;
+  height: 7px;
+  box-shadow: 0 0 0 1.5px var(--bg);
+}
+
+/* Healthy stays in ink: a sidebar of green icons trains the eye to ignore the
+   colour, which is the one thing that has to still register when it turns. */
+.dot-btn.warn {
+  color: var(--warn);
+}
+
+.dot-btn.bad {
+  color: var(--bad);
+}
+
+.tree-item .meta + .dot-btn {
+  margin-left: 0;
+}
+
+.dot-btn:hover {
+  background: var(--surface-hover);
+}
+
+/* ---- agent details drawer ---- */
+
+.panel {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+}
+
+.panel-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(23, 24, 26, 0.32);
+}
+
+.panel-body {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: min(420px, 92vw);
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--sh-2);
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* 宽抽屉（DAC v1.0.0）：节点向导与访问配置表单字段多，420px 太挤。 */
+.panel-body.panel-wide {
+  width: min(640px, 96vw);
+}
+
+.panel-head h2 {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.panel-sub {
+  margin: 20px 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.panel-run {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+}
+
+.panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 20px;
+}
+
+.kv-list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Label above value rather than beside it: the values here are long -- absolute
+   paths, endpoint URLs, error strings -- and a two-column grid would either
+   truncate them or leave the labels ragged. */
+.kv dt {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.kv dd {
+  margin: 2px 0 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.kv dd .dot {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+/* ---- archived conversations ---- */
+
+.arch-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.arch-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 0;
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-1);
+  transition: box-shadow var(--motion);
+}
+
+.arch-row:hover {
+  box-shadow: var(--sh-2);
+}
+
+.arch-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.arch-title {
+  font-size: 13.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arch-meta {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+/* ---- 节点页（/nodes）：节点列表 + 全局任务流 ---- */
+
+.nodes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ---- 集群拓扑（UI 收尾 C）：三列 manager→机器→节点 + SVG 边线 ---- */
+
+/* 三视图切换（DAC v1.0.0）：与 ⋮ 菜单同语言的分段控件。 */
+.view-switch {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.view-switch .on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+  box-shadow: none;
+}
+
+.topo-card {
+  overflow-x: auto;
+}
+
+.topo {
+  position: relative;
+  display: grid;
+  grid-template-columns: 220px minmax(240px, 1fr) minmax(260px, 1fr);
+  gap: 18px;
+  min-width: 720px;
+}
+
+.topo-edges {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.topo-col {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.topo-col-head {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text-2);
+  letter-spacing: 0.02em;
+  padding: 2px 4px;
+}
+
+.topo-item {
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-1);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.topo-item:hover {
+  border-color: var(--accent);
+}
+
+.topo-manager-card {
+  cursor: default;
+}
+
+.topo-manager-card:hover {
+  border-color: var(--border);
+}
+
+.topo-item-off {
+  opacity: 0.62;
+}
+
+.topo-item-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.topo-item-head strong {
+  font-size: 13px;
+}
+
+.topo-item-line {
+  line-height: 1.5;
+}
+
+.topo-fold {
+  margin-top: 2px;
+}
+
+.topo-fold summary {
+  cursor: pointer;
+}
+
+.topo-fold .topo-item {
+  margin-top: 10px;
+}
+
+.topo-edge {
+  stroke-width: 1.75;
+  fill: none;
+}
+
+.topo-edge.on {
+  stroke: var(--ok);
+}
+
+.topo-edge.off {
+  stroke: var(--bad);
+  stroke-dasharray: 5 4;
+}
+
+.node-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--surface);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-1);
+}
+
+/* 本机行（UI 收尾 C-P1.5）：整行可点（跳「全部节点」）。 */
+.node-row[data-local-machine-row] {
+  cursor: pointer;
+}
+
+.node-row[data-local-machine-row]:hover {
+  box-shadow: var(--sh-2);
+}
+
+.node-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.node-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-meta {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+
+.node-detail {
+  margin-top: 2px;
+  color: var(--text-2);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.node-side {
+  flex: 0 0 auto;
+}
+
+/* 能力三 v1：节点行里的「原生 GUI」卡（隧道 / 本机直连 共用）。
+   宽度显式约束——长隧道命令不得用 max-content 撑爆整行挤压节点信息区。 */
+.node-gui {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 330px;
+  max-width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--sh-1);
+}
+
+.node-gui-title {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.node-gui-cmd {
+  display: block;
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 6px 8px;
+  background: var(--surface-sunken);
+  border-radius: var(--r-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 能力二/P1：节点行版本切换下拉 */
+.node-version-select {
+  margin-left: 8px;
+  font: 11.5px var(--mono);
+  color: var(--text-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 2px 6px;
+}
+
+/* 窄容器：卡片下折整行，不再横向挤压 */
+@media (max-width: 1100px) {
+  .node-row {
+    flex-wrap: wrap;
+  }
+
+  .node-gui {
+    width: 100%;
+  }
+}
+
+/* 蜂群 P5.1：节点管控按钮 + 日志抽屉 */
+.node-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.node-logs-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  padding: 10px 14px;
+}
+
+.node-logs-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.node-logs-body {
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #12151a;
+  color: #d7dce3;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.node-link {
+  color: var(--accent);
+  font-size: 12px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.node-link:hover {
+  text-decoration: underline;
+}
+
+/* 共享表单（crons 编辑器与节点向导共用）——原在 crons.css，2026-09-05 迁移 */
+.field-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.field-row .field {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field-label {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.field-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.text-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface);
+  color: var(--text-1);
+  font: inherit;
+  font-size: 13px;
+  transition:
+    border-color var(--motion),
+    box-shadow var(--motion);
+}
+.text-input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.text-input.mono {
+  font-family: var(--mono);
+}
+textarea.text-input {
+  resize: vertical;
+}
+select.text-input {
+  max-width: none;
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.form-actions .muted {
+  margin-right: auto;
+}
+
+/* 通用迷你 pill（run 行的「冲突」徽标等），与主脑卡的「忙」徽章同语言。 */
+.pill-mini {
+  display: inline-flex;
+  align-items: center;
+  height: 15px;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 500;
+}
+.pill-mini.warn {
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  color: var(--warn);
+}
+.pill-mini.muted {
+  background: var(--surface-sunken);
+  color: var(--muted);
+}
+
+/* 技能页（P5.2）：agent 分组 + 版本徽章 */
+.skills-agent {
+  margin-bottom: 16px;
+}
+.skills-agent-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 4px 8px;
+}
+.skills-agent-head .pill-mini {
+  margin-left: auto;
+}
+#repo-note {
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  font-size: 13px;
+}
+
+/* 站内通知（P5.3）：铃铛角标 + 上弹面板 */
+.icon-btn {
+  position: relative;
+}
+.notify-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--danger, #e5484d);
+  color: #fff;
+  font-size: 9.5px;
+  line-height: 14px;
+  text-align: center;
+}
+.notify-panel {
+  position: fixed;
+  width: 320px;
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--sh-2);
+  z-index: 60;
+  overflow: hidden;
+}
+
+/* ⋮ 溢出菜单：底部导航（节点→改密）+ 退出登录。与通知面板同一浮层语言
+   （fixed 定位 + body 挂载 + rect 定位，抽屉/rail 下不裁剪不错位）。 */
+.side-more-menu {
+  position: fixed;
+  width: 224px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--sh-2);
+  z-index: 60;
+}
+
+.side-more-menu[hidden] {
+  display: none;
+}
+
+.side-more-menu .side-link {
+  min-height: 36px;
+  padding: 6px 10px;
+}
+
+.side-more-menu .more-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
+  flex: 0 0 auto;
+}
+
+/* 品牌页脚（DAC v1.0.0）：产品全称 + 口号 + GitHub 入口；安静一行，不与
+   导航项抢注意力。 */
+.side-more-menu .more-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px 2px;
+}
+
+.side-more-menu .more-brand-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.side-more-menu .more-brand .side-link {
+  margin-top: 2px;
+}
+
+/* 语言切换（DAC v1.0.0）：与导航项同语言，✓ 标出当前语言。 */
+.side-more-menu .more-langs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 2px;
+}
+
+/* 退出登录：与导航视觉分离的危险操作（红线 hover，同仓库 danger 惯例）。 */
+.side-more-menu .more-logout {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 14px;
+  line-height: 22px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--motion);
+}
+
+.side-more-menu .more-logout:hover {
+  background: var(--bad-bg);
+  color: var(--bad);
+}
+.notify-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.notify-list {
+  overflow-y: auto;
+}
+.notify-item {
+  display: block;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  text-decoration: none;
+}
+.notify-item:hover {
+  background: var(--side-hover);
+}
+.notify-item.unread {
+  background: var(--accent-soft);
+}
+.notify-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+.notify-body {
+  color: var(--text-2);
+  font-size: 12.5px;
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+.notify-time {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 4px;
+}
+.notify-empty {
+  padding: 14px;
+}
+
+/* 节点向导（P5.5）的勾选项行 */
+.field-check {
+  display: block;
+  margin: 4px 0 12px;
+}
+.checkbox-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+
+/* 向导的高级设置（折叠，默认收起） */
+.node-advanced {
+  margin: 8px 0 14px;
+}
+.node-advanced summary {
+  cursor: pointer;
+  color: var(--text-2);
+  font-size: 13.5px;
+  padding: 4px 0;
+  user-select: none;
+}
+.node-advanced summary:hover {
+  color: var(--text);
+}
+.node-advanced-body {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ---- docked, collapsed to a rail (>= 1024px) ---- */
+
+/* Scoped to the docked width on purpose. `nav-rail` is a remembered preference,
+   so it is still on the body when the window narrows; unscoped, its label-hiding
+   rules would follow the sidebar into the drawer and produce a 300px panel of
+   anonymous icons. */
+@media (min-width: 1024px) {
+  body.nav-rail {
+    --sidebar-w: 60px;
+  }
+
+  /* DSH collapsed: padding 18px 10px 6px, the logo row shrinks to the mark,
+     every labelled row becomes an icon. The toggle stacks under the mark --
+     a 60px rail cannot fit both side by side. */
+  body.nav-rail .sidebar {
+    padding: 18px 10px 6px;
+    align-items: stretch;
+  }
+
+  body.nav-rail .side-top {
+    flex-direction: column;
+    height: auto;
+    gap: 10px;
+    margin-bottom: 12px;
+    padding: 0;
+    align-items: center;
+  }
+
+  body.nav-rail .side-collapse {
+    width: 36px;
+    height: 36px;
+  }
+
+  body.nav-rail .side-action {
+    background: none;
+    border-color: transparent;
+    width: 36px;
+    height: 36px;
+    margin: 0 0 12px;
+    padding: 0;
+  }
+
+  body.nav-rail .side-action:hover {
+    background: var(--side-hover);
+  }
+
+  body.nav-rail .side-action-label {
+    display: none;
+  }
+
+  body.nav-rail .brand-text,
+  body.nav-rail .brand-sub,
+  body.nav-rail .side-section,
+  body.nav-rail .tree-children,
+  body.nav-rail .tree-item .label,
+  body.nav-rail .tree-item .meta,
+  body.nav-rail .tree-side,
+  body.nav-rail .tree-toggle .chev,
+  body.nav-rail .side-link .grow,
+  body.nav-rail #spend-hint,
+  body.nav-rail #archive-hint,
+  body.nav-rail #nodes-hint,
+  body.nav-rail .side-endpoints,
+  body.nav-rail .side-avatar,
+  body.nav-rail #who {
+    display: none;
+  }
+
+  body.nav-rail .rail-badge {
+    display: inline-flex;
+  }
+
+  body.nav-rail .brand,
+  body.nav-rail .tree-item,
+  body.nav-rail .side-link {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  /* rail 态用户名栏只留铃铛与 ⋮ 两个图标（竖排居中）；底部菜单全靠 ⋮ 弹窗。 */
+  body.nav-rail .side-foot {
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 0 0;
+    justify-content: center;
+  }
+
+  /* The health dot loses its `margin-left: auto` here: with the label gone there
+     is nothing to push it away from, and it would otherwise sit against the edge
+     instead of next to the monogram it describes. */
+  body.nav-rail .tree-item .dot,
+  body.nav-rail .dot-btn {
+    margin-left: 0;
+  }
+
+  /* 主脑钉顶不折叠，但 rail 里只剩卡内一个居中的图标；ghost 钮、分隔线、
+     会话列表一并收起，卡本身去阴影融入窄栏。 */
+  body.nav-rail .side-brain-card {
+    box-shadow: none;
+  }
+  body.nav-rail .side-brain-head {
+    justify-content: center;
+    padding: 8px 0;
+  }
+  body.nav-rail .side-brain-btn {
+    flex: 1 1 auto;
+    justify-content: center;
+    margin-right: 0;
+    padding: 0;
+  }
+  body.nav-rail .side-brain-main,
+  body.nav-rail .side-brain-ghost,
+  body.nav-rail .side-brain-div,
+  body.nav-rail .brain-chats {
+    display: none;
+  }
+}
+
+/* ---- app bar + drawer (< 1024px) ---- */
+
+@media (max-width: 1023px) {
+  :root {
+    --topbar-h: 52px;
+  }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    position: fixed;
+    inset: 0 0 auto;
+    height: calc(var(--topbar-h) + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) 8px 0;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    z-index: 40;
+  }
+
+  .topbar-btn {
+    /* 44px is the smallest target a thumb hits reliably; the icon inside stays
+       18px. */
+    width: 44px;
+    height: 44px;
+    color: var(--text-2);
+  }
+
+  .topbar-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    text-align: center;
+    font-size: 14px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+    padding-top: calc(var(--topbar-h) + env(safe-area-inset-top));
+  }
+
+  /* Off-canvas rather than in-flow: the content column keeps the full width, so
+     opening the drawer never reflows the transcript underneath it. */
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 60;
+    width: min(300px, 86vw);
+    height: 100dvh;
+    padding-top: calc(10px + env(safe-area-inset-top));
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+    overflow-y: auto;
+    background: var(--side-bg);
+    border-right: 1px solid var(--border);
+    transform: translateX(-101%);
+    transition: transform 0.22s ease;
+  }
+
+  body.nav-open .sidebar {
+    transform: none;
+    box-shadow: var(--sh-2);
+  }
+
+  .nav-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgba(23, 24, 26, 0.38);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.22s ease;
+  }
+
+  body.nav-open .nav-backdrop {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* Scroll lock while the drawer is open. Without it the page behind keeps
+     scrolling under the finger and the drawer looks broken. */
+  body.nav-open {
+    overflow: hidden;
+  }
+
+  /* Thumb-sized rows, everywhere in the drawer. */
+  .tree-item,
+  .tree-child,
+  .side-link {
+    min-height: 44px;
+  }
+
+  .tree-side {
+    width: 32px;
+    height: 32px;
+  }
+
+  .side-collapse {
+    width: 40px;
+    height: 40px;
+  }
+
+  .content {
+    padding: 18px 14px 44px;
+  }
+
+  .hero {
+    padding: 26px 0 6px;
+  }
+
+  .hero h1 {
+    font-size: 25px;
+  }
+
+  .hero p {
+    margin-bottom: 20px;
+  }
+
+  .suggest-grid {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar,
+  .nav-backdrop,
+  .suggest-card,
+  .side-action,
+  .tree-item,
+  .tree-child,
+  .side-link,
+  .send,
+  .card,
+  .arch-row,
+  .chat-item {
+    transition: none;
+  }
+}
+
+/* ── 蜂群 P3：主脑入口 + 节点区 ─────────────────────────── */
+
+/* 主脑块是一张卡，不是三块并排的按钮：边框只属于卡本身，内部控件
+   全部无边框（ghost），靠悬停底色表态。会话列表长在卡内部，与头部
+   用一条分隔线相接——一个整体，而不是拼起来的三个盒子。 */
+.side-brain-card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--sh-1);
+  overflow: hidden;
+  /* 与下方 AGENTS 区头隔开，卡自己就是一个完整的视觉单元。 */
+  margin-bottom: 10px;
+}
+
+.side-brain-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 7px 6px 7px 10px;
+}
+
+/* 主按钮 = 头部左侧整块（图标 + 名称/副标）。 */
+.side-brain-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-right: 4px;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+.side-brain-btn:hover {
+  background: var(--surface-hover, #f1f3f5);
+}
+
+/* 图标底座：一小块 accent 软底，给主脑一个与树不同的视觉锚点。 */
+.side-brain-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.side-brain-main { display: flex; flex-direction: column; min-width: 0; }
+.side-brain-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 1.35;
+}
+.side-brain-sub { font-size: 11.5px; color: var(--muted); }
+
+/* 「忙」徽章：与 hero 的 warn pill 同一语言，自成一体不依赖 .hero 作用域。 */
+.brain-busy {
+  display: inline-flex;
+  align-items: center;
+  height: 15px;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  color: var(--warn);
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 500;
+}
+
+/* 右侧两个 ghost 钮（chevron / ＋）与两者之间的细分隔线。
+   图标用墨色 --text-2 而不是 --muted：12px 细线图标配浅灰在纯白卡上
+   等于隐形（⋯ 按钮的同一教训，见 .row-more）。 */
+.side-brain-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  /* 全局 button 重置带 9px 14px 的内边距，ghost 必须显式清掉，
+     否则 28px 的盒子里内容区会被 padding 吃光，svg 随之被压成 0。 */
+  padding: 0;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+.side-brain-ghost:hover {
+  background: var(--surface-sunken);
+  color: var(--text);
+}
+.side-brain-ghost svg {
+  flex: 0 0 auto;
+  transition: transform 150ms ease;
+}
+.side-brain-ghost[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+
+.side-brain-div {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--border);
+}
+
+/* 会话列表：分隔线 + 收紧内边距，行圆角跟着卡的圆角走。 */
+.brain-chats {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-top: 1px solid var(--border);
+  padding: 4px;
+}
+.brain-chats .tree-child { border-radius: 8px; }
+.brain-chats .tree-child.more { justify-content: center; }
+
+.brain-empty {
+  padding: 8px 12px 4px;
+}
+
+/* 节点区：异常行是去 /nodes 的链接；「节点 N/N」入口的异常计数用警示色。 */
+.endpoint-line { text-decoration: none; }
+.endpoint-line:hover { color: var(--text); }
+.side-link .warn { color: var(--warn); font-weight: 600; }
+
+.dot.muted { background: var(--muted); }

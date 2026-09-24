@@ -1,0 +1,98 @@
+<!-- The conversation page has no header of its own: DSH's own view leads with
+     the transcript, and the chat's title still reaches the browser tab and the
+     narrow-screen app bar through `shell:title`. Rename/archive live on the
+     sidebar row menu, where they already were. -->
+
+<!-- Session state and concurrency notices. Kept above the transcript rather than
+     next to the composer: `lost` disables sending, so the reason has to be
+     readable without scrolling to the bottom. -->
+<div id="chat-notices" class="chat-notices" aria-live="polite"></div>
+
+<!-- 蜂群 P2/P3：主脑派工记录（delegation 帧）。只有主脑会话有数据，
+     其余会话保持隐藏。 -->
+<div id="chat-delegations" class="chat-delegations" hidden></div>
+
+<div id="chat-log" class="chat-log" aria-live="polite" aria-busy="false">
+  <div class="turn skeleton-turn">
+    <div class="skeleton w40"></div>
+    <div class="skeleton"></div>
+    <div class="skeleton w60"></div>
+  </div>
+</div>
+
+<!-- 排队任务（DSH 式：composer 上方、一行一条、超出省略） -->
+<div id="queue-dock" class="queue-dock" hidden></div>
+<!-- Ongoing Goal（DSH web 同款目标条：agent 长任务的 create_goal 投影，仅显示） -->
+<div id="goal-bar" class="goal-bar" hidden></div>
+<form id="chat-composer" class="composer" autocomplete="off">
+  <div class="composer-row">
+    <textarea
+      id="chat-input"
+      class="composer-input"
+      rows="1"
+      placeholder="{{t:chat.composer.placeholder}}"
+      aria-label="{{t:chat.composer.messageLabel}}"
+      disabled
+    ></textarea>
+  </div>
+  <!-- The bottom operations row, DSH's InputBar pattern: content (the text
+       above) stays free, and this row is split into three slots --
+         tools (left):  agent identity pill + workspace path
+         modes (middle): reserved for future controls (preset/model selectors…)
+         trailing (right): state hint, stop, and the send button, always last.
+       Future features land in `composer-tools` / `composer-modes` without
+       touching the layout. Never hidden, at any width -- UI.md §0 puts the
+       agent identity in the send button's field of view. -->
+  <div id="composer-identity" class="composer-bar">
+    <div class="composer-tools">
+      <span id="composer-agent" class="composer-agent"></span>
+      <span id="composer-path" class="composer-path"></span>
+    </div>
+    <div class="composer-trailing">
+      <div id="composer-controls" class="composer-controls">
+        <div class="composer-modes" id="composer-modes" hidden>
+          <span class="composer-select-wrap">
+            <button type="button" id="composer-access" class="composer-select" aria-haspopup="listbox" aria-expanded="false" disabled>
+              <span class="composer-select-label">{{t:chat.access.readonly}}</span>
+            </button>
+          </span>
+        </div>
+      <span class="composer-select-wrap">
+        <button type="button" id="composer-model" class="composer-select composer-model" aria-haspopup="listbox" aria-expanded="false" disabled>
+          <span class="composer-select-label">{{t:chat.model.default}}</span>
+        </button>
+      </span>
+      <span class="composer-select-wrap">
+        <button type="button" id="composer-effort" class="composer-select composer-effort" aria-haspopup="listbox" aria-expanded="false" disabled hidden>
+          <span class="composer-select-label">{{t:chat.reasoning.default}}</span>
+        </button>
+      </span>
+      <span id="composer-context-wrap" class="composer-context-wrap" hidden>
+        <button id="composer-context" class="composer-context" type="button" aria-label="{{t:chat.context.label}}" aria-expanded="false"></button>
+        <span id="composer-context-popover" class="composer-context-popover" role="dialog" aria-label="{{t:chat.context.label}}" hidden>
+          <span class="composer-context-head"><strong>{{t:chat.context.title}}</strong><span id="composer-context-summary"></span></span>
+          <span class="composer-context-bar"><i id="composer-context-system"></i><i id="composer-context-tools"></i><i id="composer-context-messages"></i></span>
+          <span id="composer-context-breakdown" class="composer-context-breakdown" hidden></span>
+        </span>
+      </span>
+      </div>
+      <button id="composer-settings" class="composer-settings" type="button" aria-label="{{t:chat.settings}}" title="{{t:chat.settings}}" aria-expanded="false" hidden>
+        <svg width="16" height="16" aria-hidden="true"><use href="#i-more-v" /></svg>
+      </button>
+      <span id="composer-hint" class="composer-hint"></span>
+      <button id="chat-queue" class="composer-queue" type="button" aria-label="{{t:chat.queueSend}}" title="{{t:chat.queueSend}}" hidden>
+        <svg width="16" height="16" aria-hidden="true"><use href="#i-up" /></svg>
+      </button>
+      <span class="composer-slot">
+        <button id="chat-stop" class="btn-quiet composer-send" type="button" aria-label="{{t:chat.stopGenerating}}" title="{{t:chat.stopGenerating}}" hidden>
+          <svg width="16" height="16" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" /></svg>
+        </button>
+        <button id="chat-send" class="btn-primary composer-send" type="submit" disabled aria-label="{{t:chat.composer.send}}">
+          <svg width="16" height="16" aria-hidden="true"><use href="#i-up" /></svg>
+        </button>
+      </span>
+    </div>
+  </div>
+</form>
+
+<div id="chat-toast" class="toast" role="status" aria-live="polite"></div>

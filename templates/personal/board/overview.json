@@ -1,0 +1,39 @@
+{
+  "label": "总览",
+  "order": 1,
+  "blocks": [
+    {
+      "type": "kpi",
+      "title": "关键指标",
+      "items": [
+        { "label": "年度目标完成度", "value": "—", "sub": "尚未记录", "tone": "muted" },
+        { "label": "本月目标完成度", "value": "—", "sub": "尚未记录", "tone": "muted" },
+        { "label": "本周", "value": "—", "sub": "尚未记录", "tone": "muted" }
+      ]
+    },
+    {
+      "type": "metrics",
+      "title": "目标进度",
+      "items": [
+        { "name": "示例：体重", "value": "—", "target": "填入目标", "tone": "muted" }
+      ]
+    },
+    {
+      "type": "list",
+      "title": "本周计划",
+      "items": [
+        {
+          "text": "告诉助理你这周想做什么，它会把这块填上",
+          "note": "这是初始化生成的示例内容，第一次更新后会被替换",
+          "tone": "muted"
+        }
+      ]
+    },
+    {
+      "type": "note",
+      "title": "怎么用",
+      "text": "在 manager 上对这个 agent 说一句话，例如「今天午饭 38 块」或「这周要发布产品」。它会写进对应文档，并更新这个大盘。",
+      "tone": "info"
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "label": "记账",
+  "order": 2,
+  "blocks": [
+    {
+      "type": "progress",
+      "title": "本月预算",
+      "items": [
+        { "label": "示例：餐饮", "value": 0, "max": 1000, "note": "尚未记录", "tone": "muted" }
+      ]
+    },
+    {
+      "type": "pie",
+      "title": "支出构成",
+      "items": [{ "label": "尚无数据", "value": 1 }]
+    },
+    {
+      "type": "table",
+      "title": "近期明细",
+      "columns": ["日期", "项目", "金额"],
+      "rows": []
+    }
+  ]
+}

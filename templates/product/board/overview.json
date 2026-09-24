@@ -1,0 +1,26 @@
+{
+  "label": "总览",
+  "order": 1,
+  "blocks": [
+    {
+      "type": "kpi",
+      "title": "核心指标",
+      "items": [
+        { "label": "活跃用户", "value": "—", "sub": "尚未记录", "tone": "muted" },
+        { "label": "次周留存", "value": "—", "sub": "尚未记录", "tone": "muted" },
+        { "label": "付费转化", "value": "—", "sub": "尚未记录", "tone": "muted" }
+      ]
+    },
+    {
+      "type": "list",
+      "title": "本周重点",
+      "items": [{ "text": "初始化生成的示例，第一次更新后会被替换", "tone": "muted" }]
+    },
+    {
+      "type": "note",
+      "title": "怎么用",
+      "text": "对这个 agent 说一句话，例如「这周留存涨到 32%」或「用户反馈导出很慢」。它会写进对应文档，并更新大盘。",
+      "tone": "info"
+    }
+  ]
+}

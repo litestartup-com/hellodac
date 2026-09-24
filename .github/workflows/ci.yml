@@ -1,0 +1,61 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      # P2-2：lint 抓类型系统兜不住的几类真 bug（悬挂 promise / 误用 promise）
+      - run: npm run lint
+      - run: npm test
+      # 债务 C4:覆盖率门禁(2026-09-12 起生效)——只统计生产代码(src,排除测试),
+      # 阈值 lines 80 / branch 70 / funcs 75(基线实测 85.18/78.19/83.08,留余量防误报);
+      # 低于阈值非零退出,CI 即红。C2 补测后逐步抬升。
+      - run: npm run test:coverage
+      # P2-1：前端测试此前从未在 CI 跑过——md.js 的 escape-first 是 XSS 的唯一防线
+      - run: npm run test:web
+      - run: npm run drill
+      - run: npm run build
+      - run: node scripts/fresh-boot-smoke.mjs
+      - run: npm audit --omit=dev --audit-level=high
+      - run: node scripts/check-docs.mjs
+
+  compose-e2e:
+    # 债务 R10(=C5):compose 全栈 E2E(nginx + manager + 脊柱主脑 + 动态工蜂)。
+    # 验证发布门:启动/登录/节点认领/动态开通/停机/恢复保护/下线。
+    # 后续一切容器/部署相关改动的验证前置——不在本 job 绿之前推进生产部署链验证。
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Prepare compose truth files
+        run: |
+          MANAGER_PASSWORD=compose-e2e-init-pass bash scripts/gen-env.sh
+          echo 'DEEPSEEK_API_KEY=sk-dummy-for-e2e' >> .env
+          cp manager.config.container.example.yaml manager.config.yaml
+          cp deploy/nginx/default.conf.example deploy/nginx/default.conf
+      - name: Build and start the stack
+        run: docker compose up -d --build
+      - name: Compose E2E
+        run: node scripts/compose-e2e.mjs
+      - name: Stack logs (on failure)
+        if: failure()
+        run: docker compose logs --no-color --tail 200
+      - name: Teardown
+        if: always()
+        run: docker compose down -v --remove-orphans

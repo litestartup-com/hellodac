@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="{{LOCALE}}">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{t:login.title}} · {{BRAND}}</title>
+    <link rel="stylesheet" href="/assets/style.css" />
+  </head>
+  <body class="centered">
+    <form id="form" class="card narrow" autocomplete="on">
+      <h1>{{BRAND}}</h1>
+      <p class="muted">{{BRAND_FULL}} · {{TAGLINE}}</p>
+
+      <label for="username">{{t:login.username}}</label>
+      <input id="username" name="username" autocomplete="username" required autofocus />
+
+      <label for="password">{{t:login.password}}</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required />
+
+      <button type="submit" id="submit">{{t:login.submit}}</button>
+      <p id="error" class="error" hidden></p>
+    </form>
+
+    <!-- P1-1：脚本外链（CSP script-src 'self' 不放行内联脚本） -->
+    <script src="/assets/login.js" type="module"></script>
+  </body>
+</html>
