@@ -43,6 +43,10 @@ server ──► node (= one DSH agent process + its own DSH_HOME) ──► wor
 - **Brain** = manager-level chief controller: cross-domain planning, work orders, fleet queries; read-only on workspaces, execution is always delegated.
 - **Workspace** = files-as-truth boundary: one git repo per workspace, one commit per run (audit trail).
 
+## Screenshots
+
+![DAC — the nodes page: machines, live topology, and the node list](screenshots/dac-en.png)
+
 ## Features
 
 - **Chat UI**: multi-turn conversation, streaming output, tool-call cards, inline question/authorization answers, context usage, session model selection, and restricted read-only/workspace-write access switching when the endpoint supports it
