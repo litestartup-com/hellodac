@@ -80,3 +80,25 @@ test('nginx runtime default.conf is generated from the example, never tracked', 
   assert.match(example, /location \/api\/internal\//, 'example 模板必须保留 H1 内网 ACL 块')
   assert.match(example, /deny all/, 'example 模板必须保留 deny all')
 })
+
+/**
+ * 事故回归（2026-09-25 ubuntu-focal 失联）：join.sh 必须装 system 级 unit。
+ *
+ * 实测现场：旧版装 systemd **user** unit + `systemctl --user enable --now`，
+ * 但从不 `loginctl enable-linger` —— user manager 只在有登录会话时存在，
+ * 于是主机重启后 agent 根本没起来（`systemctl --user is-enabled` 说 enabled、
+ * 开机日志里却只有别的 UID 的 user manager），节点全灭、manual 才能救。
+ * 更糟的是每次 SSH 登录都会新建一个 root user manager，多个 agent 并存重复
+ * 下发 node.spawn → EADDRINUSE。修法 = system unit（不依赖登录会话）+ 清理
+ * 旧 user unit。
+ */
+test('join.sh installs a systemd system unit, not a session-scoped user unit', () => {
+  const text = readFileSync(join(root, 'public/assets/agent/join.sh'), 'utf8')
+  assert.match(text, /UNIT_PATH="\/etc\/systemd\/system\/\$UNIT_NAME\.service"/, 'unit 必须落在 /etc/systemd/system（开机自启的系统服务）')
+  assert.match(text, /WantedBy=multi-user\.target/, 'system unit 必须挂 multi-user.target，否则开机不拉起')
+  assert.match(text, /systemctl enable --now "\$UNIT_NAME"/, '必须 enable --now 起服务')
+  assert.doesNotMatch(text, /WantedBy=default\.target/, '不得再生成 user unit（会话级，重启即失联）')
+  assert.match(text, /systemctl --user disable --now "\$\{legacy\}\.service"/, '必须清理旧 user unit，否则 SSH 登录会再拉起一个 agent 抢端口')
+  assert.match(text, /KillMode=process/, 'agent 自更新重启时不得连坐杀掉正在干活的 DSH 节点')
+})
+
