@@ -510,10 +510,12 @@ export const loadShell = async () => {
       if (!notifyPanel.hidden) renderNotifyPanel(notifications.items)
     }
 
-    // 设置浮窗里的运行时版本（manager 版本）；槽位在菜单构建时留好。
+    // About 那一项的版本尾注（`DAC v1.0.0`）：版本号只在 /api/status 回来之后才
+    // 出现，之前不显示成空串或占位符（用户实测反馈过「下面一个 V1.0.0 啥意思」，
+    // 那是没填上的槽位）。
     if (typeof status.managerVersion === 'string' && status.managerVersion !== '') {
-      const slot = document.querySelector('#more-settings [data-version-slot]')
-      if (slot !== null) slot.textContent = `v${status.managerVersion}`
+      const trailing = moreMenu.querySelector('[data-about-version]')
+      if (trailing !== null) trailing.replaceChildren(`${brand.name} v${status.managerVersion}`)
     }
 
     if (threads !== null) {
@@ -1142,16 +1144,18 @@ const langItems = availableLocales().map((tag) =>
   }),
 )
 
-/** 设置浮窗的内容：版本（由 /api/status 回填）+ 仓库入口。 */
-const settingsItems = [
-  menuItemHtml({ kind: 'note', label: `${brand.name} — ${brand.full}` }),
-  ...(brand.tagline === '' ? [] : [menuItemHtml({ kind: 'note', label: brand.tagline })]),
-  menuItemHtml({ kind: 'sep' }),
-  menuItemHtml({ label: t('nav.version'), attrs: 'data-version-slot="1"', trailing: '—' }),
-  ...(brand.repo === ''
-    ? []
-    : [menuItemHtml({ label: 'GitHub', icon: 'github', attrs: `href="${esc(brand.repo)}" target="_blank" rel="noopener noreferrer"`, trailing: '↗' })]),
-]
+/**
+ * About 浮窗：只留仓库入口。
+ *
+ * 产品名与版本**不在这里**（用户反馈：「上面不用再介绍 DAC 了吧」「下面一个
+ * V1.0.0 啥意思」）——它们作为 About 那一项的尾注显示在主菜单上（`DAC v1.0.0 ›`），
+ * 排障时不用点开就能看到版本；产品名在登录页与侧栏顶部都写着。浮窗里再抄一遍，
+ * 就是同一个事实在一屏里出现三次。
+ */
+const aboutItems =
+  brand.repo === ''
+    ? [menuItemHtml({ kind: 'note', label: `${brand.name} · ${brand.full}` })]
+    : [menuItemHtml({ label: t('nav.starOnGithub'), icon: 'github', attrs: `href="${esc(brand.repo)}" target="_blank" rel="noopener noreferrer"` })]
 
 const moreMenu = document.createElement('div')
 moreMenu.id = 'side-more-menu'
@@ -1161,7 +1165,7 @@ moreMenu.hidden = true
 moreMenu.innerHTML = `${MORE_NAV.map((item) => menuItemHtml({ label: item.label, icon: item.icon, attrs: `href="${item.href}" data-nav="${item.nav}"` })).join('')}
   ${menuItemHtml({ kind: 'sep' })}
   ${menuItemHtml({ label: t('nav.language'), icon: 'endpoint', trailing: t(`lang.${currentLocale()}`), attrs: 'data-more-flyout="more-langs" aria-haspopup="true" aria-expanded="false" data-more-flyout-side="right"' })}
-  ${menuItemHtml({ label: t('nav.settings'), icon: 'hive', attrs: 'data-more-flyout="more-settings" aria-haspopup="true" aria-expanded="false" data-more-flyout-side="right"' })}
+  ${menuItemHtml({ label: t('nav.about'), icon: 'hive', trailing: brand.name, attrs: 'data-about-version aria-controls="more-about" data-more-flyout="more-about" aria-haspopup="true" aria-expanded="false" data-more-flyout-side="right"' })}
   ${menuItemHtml({ kind: 'sep' })}
   <button id="logout" class="menu-item danger" type="button">
     <svg width="14" height="14" aria-hidden="true"><use href="#i-logout" /></svg>
@@ -1171,7 +1175,7 @@ moreMenu.innerHTML = `${MORE_NAV.map((item) => menuItemHtml({ label: item.label,
 // 两个浮窗与主菜单同级、同挂 body（脱离 .sidebar 的 overflow 与 transform）。
 const moreFlyouts = new Map([
   ['more-langs', { panel: document.createElement('div'), items: langItems, label: t('nav.language'), owner: null }],
-  ['more-settings', { panel: document.createElement('div'), items: settingsItems, label: t('nav.settings'), owner: null }],
+  ['more-about', { panel: document.createElement('div'), items: aboutItems, label: t('nav.about'), owner: null }],
 ])
 for (const [id, fly] of moreFlyouts) {
   fly.panel.id = id
@@ -1260,6 +1264,11 @@ moreBtn?.addEventListener('click', (event) => {
 document.addEventListener('click', (event) => {
   if (moreMenu.hidden) return
   if (event.target.closest('#side-more') !== null) return
+  // 浮窗是 body 上的**兄弟节点**、不在 moreMenu 里：漏掉这一段的话，点语言/设置里
+  // 的任何一项都被判成「外部点击」→ 当场把菜单和浮窗一起关掉，表现就是
+  // 「点了没反应」（2026-09-25 用户实测反馈）。
+  if (event.target.closest('[data-more-flyout]') !== null) return
+  if (event.target.closest('.more-flyout') !== null) return
   if (!moreMenu.contains(event.target)) closeMoreMenu()
 })
 

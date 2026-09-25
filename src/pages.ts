@@ -114,8 +114,12 @@ export const PAGES: Record<string, PageDef> = {
 
 /**
  * 布局里**必须**出现的占位符（buildPages 启动期校验；测试据此拼夹具布局）。
- * 只是「可替换」的占位符（{{TAGLINE}}/{{HOMEPAGE}}/{{BRAND_FULL}}）不在此列：
- * 它们由页面片段或独立页按需使用，布局不引用时不该逼着布局保留空位。
+ * 只是「可替换」的占位符（{{TAGLINE}}/{{BRAND_FULL}}）不在此列：它们由页面片段
+ * 或独立页按需使用，布局不引用时不该逼着布局保留空位。
+ *
+ * {{REPO_URL}}/{{HOMEPAGE}} 已移出本清单（2026-09-25）：侧栏底部那个 GitHub 图标
+ * 被删除、仓库入口收进 ⋮ → About 之后，布局里再也没有它们的使用者——继续要求
+ * 布局保留一个没人用的占位符，只会逼着后来者把一个死标记放回去。
  */
 export const PLACEHOLDERS = [
   '{{TITLE}}',
@@ -126,7 +130,6 @@ export const PLACEHOLDERS = [
   '{{BRAND}}',
   '{{BRAND_MARK}}',
   '{{BRAND_SUB}}',
-  '{{REPO_URL}}',
   '{{LOCALE}}',
 ] as const
 
@@ -216,8 +219,6 @@ const render = (layout: string, def: PageDef, fragment: string, locale: Locale):
     .replaceAll('{{BRAND_SUB}}', BRAND.sub)
     .replaceAll('{{BRAND_FULL}}', BRAND.fullName)
     .replaceAll('{{TAGLINE}}', BRAND.tagline)
-    .replaceAll('{{REPO_URL}}', BRAND.repoUrl)
-    .replaceAll('{{HOMEPAGE}}', BRAND.homepage)
     .replaceAll('{{LOCALE}}', locale)
     // Last, and via a function: a fragment containing `$&` or `$1` would
     // otherwise be interpreted as a replacement pattern and silently mangled.
@@ -274,8 +275,6 @@ export const buildStandalonePage = (publicDir: string, file: string, locale: Loc
     .replaceAll('{{BRAND_SUB}}', BRAND.sub)
     .replaceAll('{{BRAND_FULL}}', BRAND.fullName)
     .replaceAll('{{TAGLINE}}', BRAND.tagline)
-    .replaceAll('{{REPO_URL}}', BRAND.repoUrl)
-    .replaceAll('{{HOMEPAGE}}', BRAND.homepage)
     .replaceAll('{{LOCALE}}', locale)
   const leftover = html.match(/\{\{[A-Z_]+\}\}/)
   if (leftover !== null) throw new Error(`${file} still contains ${leftover[0]} after rendering (${locale})`)

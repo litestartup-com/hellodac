@@ -2160,7 +2160,13 @@ button:disabled {
   color: var(--bad);
 }
 
+/* 图标 + 文字：gap 必须落在**这一层**。
+   .menu-item 的 gap 只作用于它的直接子元素，而图标和文字同在这个 span 里，
+   靠父级 gap 拿不到间距——实测就是「图标和名字零边距怼在一起」。 */
 .menu-grow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -2168,10 +2174,20 @@ button:disabled {
   white-space: nowrap;
 }
 
+.menu-grow > svg {
+  flex: 0 0 auto;
+}
+
 .menu-trailing {
   flex: 0 0 auto;
   color: var(--muted);
   font-size: 12px;
+}
+
+/* 空的尾注不留空隙：About 那一项的版本要等 /api/status，填充前不能挤出一个
+   看不见却占位的空白（否则图标/文字看着偏左）。 */
+.menu-trailing:empty {
+  display: none;
 }
 
 .menu-chevron {

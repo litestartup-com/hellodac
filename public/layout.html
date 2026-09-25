@@ -261,12 +261,8 @@
         <div class="side-foot">
           <span id="avatar" class="side-avatar" aria-hidden="true"></span>
           <span id="who" class="grow"></span>
-          <!-- 开源标识（DAC v1.0.0）：仓库地址来自 src/brand.ts 的 {{REPO_URL}}，
-               新标签页打开 + noopener（外链一律按此写）。 -->
-          <a id="github-link" class="icon-btn" href="{{REPO_URL}}" target="_blank" rel="noopener noreferrer"
-             aria-label="{{t:side.github}}" title="{{BRAND}} on GitHub">
-            <svg width="15" height="15" aria-hidden="true"><use href="#i-github" /></svg>
-          </a>
+          <!-- 仓库入口只在 ⋮ → About 里给（用户反馈：三个点旁边的 GitHub 图标多余，
+               同一件事不该在侧栏出现两次）。 -->
           <button id="notify-bell" class="icon-btn" type="button" aria-label="{{t:side.notify}}" title="{{t:side.notify}}">
             <svg width="15" height="15" aria-hidden="true"><use href="#i-bell" /></svg>
             <span id="notify-badge" class="notify-badge" hidden></span>
