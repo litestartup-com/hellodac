@@ -122,7 +122,12 @@ check('版本号单一口径（pkg / version.ts / compose / install.sh / 锁文�
 check('旧品牌名已清零（B2 更名后转绿）', () => {
   // 白名单与 scripts/rename-to-dac.mjs 保持一致：gateway 包名/仓库、加密格式常量、
   // 历史流水账、本地笔记、脚本自身。
-  const whitelist = ['ohdsh-api-facade', 'dsh-api-gateway', 'OHDSH-BAK2', 'OHDSH-BAK1', 'ohdsh-backup-v2', 'ohdsh-backup:']
+  //
+  // `ohdsh-agent`（2026-09-25 事故修复引入）：join.sh 升级到 systemd **system**
+  // unit 后，必须把老机器上那份旧的 user unit 关掉删掉——不写这个名字就清不掉它，
+  // 而残留的旧 user unit 会在每次 SSH 登录时再拉起一个 agent 抢同一批节点端口
+  // （EADDRINUSE 的现场成因）。所以它是**必须残留的历史标识**，与 gateway 包名同类。
+  const whitelist = ['ohdsh-api-facade', 'dsh-api-gateway', 'OHDSH-BAK2', 'OHDSH-BAK1', 'ohdsh-backup-v2', 'ohdsh-backup:', 'ohdsh-agent']
   // B2 更名期的前端 CSRF 双读过渡白名单已随生产 cutover（2026-09-24 13:30）删除：
   // 现在两侧都是新代码，仓库里不该再有第二个口径。
   const skipFiles = new Set(['CHANGELOG.md', 'CONTEXT.md', 'RULE.md', 'scripts/rename-to-dac.mjs', 'scripts/release-check.mjs'])
