@@ -32,7 +32,7 @@ export const BRAND: Brand = {
   name: 'DAC',
   fullName: 'Dispatched Agent Cluster',
   tagline: 'One Manager. A Fleet of Agents.',
-  sub: 'agent fleet control plane',
+  sub: 'Dispatched Agent Cluster',
   repoUrl: 'https://github.com/litestartup-com/hellodac',
   homepage: 'https://hellodac.com',
   supportEmail: 'support@hellodac.com',
