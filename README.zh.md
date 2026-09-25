@@ -1,9 +1,10 @@
 # DAC — Dispatched Agent Cluster
 
-> **One Manager. A Fleet of Agents.**
-> DAC 是 MIT 开源的多机 agent 控制面：跨服务器管理并暴露容器化 agent 节点舰队
-> （当前基于 DeepSeek Harness），提供统一对话与 API 访问。
-> 默认安装 = manager（总办）+ 主脑（总控）+ 个人（工作区）。一条命令、5 分钟用起来。
+> **一个总控，一队智能体。更多服务器，更多智能体。**
+
+DAC 是 MIT 开源的多机 agent 控制面：跨服务器管理并暴露容器化 agent 节点舰队
+（当前基于 DeepSeek Harness），提供统一对话与 API 访问。
+默认安装 = manager（总办）+ 主脑（总控）+ 个人（工作区）。一条命令、5 分钟用起来。
 
 > English version: [README.md](./README.md)。界面**默认英文，可一键切换中文**（语言切换在侧栏 ⋮ 菜单里）。
 

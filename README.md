@@ -1,10 +1,11 @@
 # DAC — Dispatched Agent Cluster
 
-> **One Manager. A Fleet of Agents.**
-> DAC is an MIT open-source control plane for managing and exposing fleets of containerized
-> agent nodes (currently built on DeepSeek Harness) across multiple servers, with unified
-> conversation and API access.
-> Default install = manager (HQ) + brain (chief controller) + personal workspace. One command, up in 5 minutes.
+> **One Manager. A Fleet of Agents. More servers. More agents.**
+
+DAC is an MIT open-source control plane for managing and exposing fleets of containerized
+agent nodes (currently built on DeepSeek Harness) across multiple servers, with unified
+conversation and API access.
+Default install = manager (HQ) + brain (chief controller) + personal workspace. One command, up in 5 minutes.
 
 > 中文文档见 [README.zh.md](./README.zh.md)。The UI ships with **English as the default
 > language and Chinese one click away** (the language switcher lives in the sidebar's ⋮ menu).
