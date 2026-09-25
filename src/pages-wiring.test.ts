@@ -107,3 +107,17 @@ test('接线守卫: 代码引用的图标名都在图标精灵里存在', () => 
   }
   assert.deepEqual(offenders, [], `这些图标名不存在（会渲染成空白图标位且不报错）：\n  ${offenders.join('\n  ')}`)
 })
+
+/**
+ * 品牌副行按语言渲染（2026-09-26）：`brand.sub` 进 i18n 字典后，侧栏那句
+ * DISPATCHED AGENT CLUSTER 必须随语言切换——如果 layout 还留着旧的
+ * `{{BRAND_SUB}}` 占位符（或字典缺键），这里会以键名/英文出现在中文页。
+ */
+test('品牌副行按语言渲染（en / zh-CN 各是各的译文）', () => {
+  const expected = { en: 'Dispatched Agent Cluster', 'zh-CN': '统一调度的智能体集群' } as const
+  for (const locale of LOCALES) {
+    const pages = buildPages(publicDir, locale)
+    const m = /<span class="brand-sub">([^<]*)<\/span>/.exec(pages.get('nodes') ?? '')
+    assert.equal(m?.[1], expected[locale], `${locale} 的侧栏副行`)
+  }
+})

@@ -16,8 +16,6 @@ export interface Brand {
   fullName: string
   /** 一句话定位。 */
   tagline: string
-  /** 侧栏品牌副行（短，一行放得下）。 */
-  sub: string
   /** 公开仓库。 */
   repoUrl: string
   /** 站点。 */
@@ -32,7 +30,6 @@ export const BRAND: Brand = {
   name: 'DAC',
   fullName: 'Dispatched Agent Cluster',
   tagline: 'One Manager. A Fleet of Agents.',
-  sub: 'Dispatched Agent Cluster',
   repoUrl: 'https://github.com/litestartup-com/hellodac',
   homepage: 'https://hellodac.com',
   supportEmail: 'support@hellodac.com',

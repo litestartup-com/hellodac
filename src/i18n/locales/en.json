@@ -18,6 +18,7 @@
   "nav.starOnGithub": "Star on GitHub",
   "nav.logout": "Sign out",
   "nav.about": "About",
+  "brand.sub": "Dispatched Agent Cluster",
   "about.emailCopied": "Copied!",
   "about.emailCopyFailed": "Copy failed — the address is {email}",
   "side.agentList": "Agent list",

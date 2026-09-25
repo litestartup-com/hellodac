@@ -120,6 +120,9 @@ export const PAGES: Record<string, PageDef> = {
  * {{REPO_URL}}/{{HOMEPAGE}} 已移出本清单（2026-09-25）：侧栏底部那个 GitHub 图标
  * 被删除、仓库入口收进 ⋮ → About 之后，布局里再也没有它们的使用者——继续要求
  * 布局保留一个没人用的占位符，只会逼着后来者把一个死标记放回去。
+ *
+ * {{BRAND_SUB}} 同样移出（2026-09-26）：品牌副行改为随语言切换（布局里直接
+ * `{{t:brand.sub}}` 走译文），不再需要单一英文值占位。
  */
 export const PLACEHOLDERS = [
   '{{TITLE}}',
@@ -129,7 +132,6 @@ export const PLACEHOLDERS = [
   '{{SCRIPT}}',
   '{{BRAND}}',
   '{{BRAND_MARK}}',
-  '{{BRAND_SUB}}',
   '{{LOCALE}}',
 ] as const
 
@@ -216,7 +218,6 @@ const render = (layout: string, def: PageDef, fragment: string, locale: Locale):
     // 不散写 URL（改域名只改一处）。
     .replaceAll('{{BRAND}}', BRAND.name)
     .replaceAll('{{BRAND_MARK}}', BRAND.mark)
-    .replaceAll('{{BRAND_SUB}}', BRAND.sub)
     .replaceAll('{{BRAND_FULL}}', BRAND.fullName)
     .replaceAll('{{TAGLINE}}', BRAND.tagline)
     .replaceAll('{{LOCALE}}', locale)
@@ -272,7 +273,6 @@ export const buildStandalonePage = (publicDir: string, file: string, locale: Loc
   const raw = readFileSync(join(publicDir, file), 'utf8')
   const html = translateTokens(raw, locale)
     .replaceAll('{{BRAND}}', BRAND.name)
-    .replaceAll('{{BRAND_SUB}}', BRAND.sub)
     .replaceAll('{{BRAND_FULL}}', BRAND.fullName)
     .replaceAll('{{TAGLINE}}', BRAND.tagline)
     .replaceAll('{{LOCALE}}', locale)
