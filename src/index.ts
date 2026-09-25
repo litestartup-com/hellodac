@@ -140,14 +140,12 @@ const main = async (): Promise<void> => {
   // 对账单一化（A 清单 #2）：DB 注册表镜像、遗留 run 收敛、孤儿会话归档、
   // fleet.md 派生下发、托管节点认领（docker 对账 / process 拉起）——
   // boot 与配置变更（provision 路由）共用这一个入口，runHygiene 仅 boot 打开。
-  await reconcileAll(
-    { db, config, supervisors: nodeSupervisors, docker: dockerRunner, log: (line) => app.log.info(line) },
-    { runHygiene: true },
-  )
+  const reconcileDeps = { db, config, supervisors: nodeSupervisors, docker: dockerRunner, log: (line: string) => app.log.info(line) }
+  await reconcileAll(reconcileDeps, { runHygiene: true })
   // 修路 A2：周期对账（间隔配置 reconcile_interval_minutes，0 = 关）。
   // healOnly：人手动停的冷态节点不动，失败落 offline 的节点自愈。
   const stopPeriodicReconcile = startPeriodicReconcile(
-    { db, config, supervisors: nodeSupervisors, docker: dockerRunner, log: (line) => app.log.info(line) },
+    reconcileDeps,
     config.reconcileIntervalMs ?? 10 * 60_000,
   )
   app.addHook('onClose', async () => { stopPeriodicReconcile() })
@@ -324,7 +322,28 @@ const main = async (): Promise<void> => {
     fleetDoc: () => renderFleetDoc(config),
   })
   // 能力四（舰队 M1-2）：node-agent 注册链（join 签发 / register 换发 / 吊销）。
-  registerAgentsRoutes(app, db, requireUser, (actor, kind, detail) => recordAudit(db, { actor, kind, detail }))
+  registerAgentsRoutes(
+    app,
+    db,
+    requireUser,
+    (actor, kind, detail) => recordAudit(db, { actor, kind, detail }),
+    // 事故回归（2026-09-25 ubuntu-focal 失联）：机器重新上线 = 该机节点大概率
+    // 需要重拉（重启后 agent 先回来、节点还没起）。这里走 supervisor.resume 而
+    // 不是 healOnly 对账——重启后节点是 cold，而 healOnly 故意跳过 cold（保护
+    // 人手动停的节点），照它会永远不起。resume 的语义：cold 拉起、live 不打扰、
+    // 手动停过的不动。
+    (agentId) => {
+      const hosted = Object.entries(config.endpoints)
+        .filter(([, ep]) => ep.spawn?.runner === 'agent' && ep.spawn.host === agentId)
+      if (hosted.length === 0) return
+      app.log.info(`agent ${agentId} came back online → resuming its nodes: ${hosted.map(([id]) => id).join(', ')}`)
+      for (const [id, ep] of hosted) {
+        const supervisor = nodeSupervisors.get(id)
+        if (supervisor === undefined || ep.spawn === null) continue
+        supervisor.resume(ep.spawn)
+      }
+    },
+  )
   registerSkillsRoutes(app, config, requireUser)
   registerNotificationRoutes(app, db, requireUser)
   // 债务 B6:/metrics 快照端点(受保护)

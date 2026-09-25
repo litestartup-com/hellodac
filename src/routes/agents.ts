@@ -155,7 +155,32 @@ export const registerAgentsRoutes = (
   requireUser: preHandlerHookHandler,
   /** 审计回调（wiring 注入；测试可不传）。 */
   audit?: (actor: string, kind: AuditKind, detail: string) => void,
+  /**
+   * 事故回归（2026-09-25 ubuntu-focal 失联）：agent 从离线恢复时触发舰队
+   * 对账自愈。看门狗只发通知不做自愈，节点本要干等周期对账（默认 10 分钟），
+   * 而主机重启后正是「agent 先回来、节点还没起」的窗口。
+   * 注入方负责只收敛该 agent 名下的节点（healOnly 语义：人手动停的冷节点不动）。
+   */
+  onAgentRecover?: (agentId: string) => void,
 ): void => {
+  /**
+   * 事故回归（2026-09-25 ubuntu-focal 失联）：刷新 lastSeenAt 并回报「本次之前
+   * 是否已离线」。顺序是先读后写——反了就看不到边沿，自愈永不触发。
+   * commands 长轮询与 events 回报都算在线证据（agent 每 25s 两条都发）。
+   */
+  const touchHeartbeat = (agentId: string): void => {
+    const priorSeen = db
+      .select({ lastSeenAt: schema.agentMachine.lastSeenAt })
+      .from(schema.agentMachine)
+      .where(eq(schema.agentMachine.id, agentId))
+      .all()[0]
+    const wasOffline = priorSeen === undefined
+      || priorSeen.lastSeenAt === null
+      || Date.now() - priorSeen.lastSeenAt > AGENT_OFFLINE_MS
+    db.update(schema.agentMachine).set({ lastSeenAt: Date.now() }).where(eq(schema.agentMachine.id, agentId)).run()
+    if (wasOffline) onAgentRecover?.(agentId)
+  }
+
   // ---- 用户面：签发一次性 join token ----
   app.post(
     '/api/agents/join',
@@ -224,8 +249,8 @@ export const registerAgentsRoutes = (
           ? reply.code(404).send({ error: 'unknown_agent' })
           : reply.code(401).send({ error: 'unauthorized' })
       }
-      // 任何鉴权请求刷心跳（设计：心跳随轮询携带）
-      db.update(schema.agentMachine).set({ lastSeenAt: Date.now() }).where(eq(schema.agentMachine.id, agentId)).run()
+      // 任何鉴权请求刷心跳（设计：心跳随轮询携带）；离线→在线即触发舰队自愈
+      touchHeartbeat(agentId)
 
       const waitRaw = Number(request.query.wait ?? MAX_WAIT_MS)
       const waitMs = Number.isFinite(waitRaw) ? Math.min(Math.max(waitRaw, 0), MAX_WAIT_MS + 5_000) : MAX_WAIT_MS
@@ -269,7 +294,9 @@ export const registerAgentsRoutes = (
           ? reply.code(404).send({ error: 'unknown_agent' })
           : reply.code(401).send({ error: 'unauthorized' })
       }
-      db.update(schema.agentMachine).set({ lastSeenAt: Date.now() }).where(eq(schema.agentMachine.id, agentId)).run()
+      // 事故回归：先判「本次请求之前是否已离线」，再刷 lastSeenAt——顺序反了
+      // 就再也看不到边沿，自愈永不触发。任何鉴权抵达都算在线证据（心跳/回报/日志）。
+      touchHeartbeat(agentId)
 
       const parsed = eventsBody.safeParse(request.body)
       if (!parsed.success) return reply.code(400).send({ error: 'invalid_body', detail: 'an events array (command_result/heartbeat/log_chunk)' })

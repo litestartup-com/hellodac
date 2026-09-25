@@ -242,11 +242,40 @@ export class NodeSupervisor {
     this.stop()
   }
 
+  /**
+   * 事故回归（2026-09-25 ubuntu-focal 失联）：宿主机重新上线后的节点续跑。
+   *
+   * 与 healOnly 对账的区别在 cold 态：healOnly 故意跳过 cold（保护人手动停的
+   * 节点，债务 R9），但机器重启后节点**正是 cold**——照 skip 就等于永远不起。
+   * 这里专门给「agent 掉线后重新上线」这一条边沿用：cold 主动拉起，live 不打扰
+   * （KillMode=process 让节点可能在 agent 自更新时存活，重复 spawn 会抢同一端口
+   * 报 EADDRINUSE），而 `manualStop` 标记过的人为停止仍然不动。
+   */
+  resume(spec: ResolvedSpawnSpec): void {
+    this.lastSpec = spec
+    if (this.manualStop) return
+    if (this.status.state === 'live') return
+    if (this.restartTimer !== null || this.status.state === 'starting' || this.status.state === 'restarting') return
+    if (spec.runner === 'agent') {
+      this.startAgent(spec)
+      return
+    }
+    if (this.status.state === 'offline') {
+      this.restart(spec)
+      return
+    }
+    if (spec.runner === 'docker') {
+      this.startDocker(spec)
+      return
+    }
+    if (this.child !== null) return
+    this.spawnOnce(spec)
+  }
+
   /** Buffered stdout/stderr of the current (or last) child, as text. */
   logs(): string {
     return this.logLines.join('')
   }
-
   /**
    * 修路 A3：live 态健康探活（周期对账调用）。只在 state==='live' 时探测；
    * 连续 LIVE_PROBE_THRESHOLD 次失败 → 转 offline 交给对账自愈。

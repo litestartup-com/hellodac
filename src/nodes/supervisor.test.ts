@@ -527,3 +527,53 @@ test('能力四 M1-4: 未接线 agentCommand → fail-loud offline；agentLogs �
   withLog.start(agentSpec())
   assert.equal(withLog.agentLogs(), 'agent-abc123/ops01/log')
 })
+
+// ---- 事故回归（2026-09-25 ubuntu-focal 失联）：agent 重连后的节点续跑 ----
+
+test('事故回归: resume 把 cold 节点重新拉起——重启后节点正是 cold，healOnly 会跳过它', () => {
+  const deps = agentDeps()
+  const s = supervisorWith(deps, okProbe)
+
+  // 刚开机的样子：还没人 start 过，状态是 cold
+  assert.equal(s.current.state, 'cold')
+  // healOnly 的 skip 语义就是照 cold 跳过的——所以 resume 必须自己动手
+  s.resume(agentSpec())
+  assert.equal(s.current.state, 'starting', 'cold → resume 必须真的拉起')
+  assert.equal(deps.enqueued.filter((e) => e.type === 'node.spawn').length, 1, '入队一条 node.spawn')
+})
+
+test('事故回归: resume 不打扰 live 节点——机器重连但节点还活着时不得重复 spawn', () => {
+  const deps = agentDeps()
+  const s = supervisorWith(deps, okProbe)
+
+  s.resume(agentSpec())
+  deps.resultCallbacks.get(1)?.(true)
+  return waitFor(() => s.current.state === 'live', 2_000, 'first resume reaches live').then(() => {
+    const spawnedBefore = deps.enqueued.filter((e) => e.type === 'node.spawn').length
+    // 节点还活着（KillMode=process 让它在 agent 自更新时存活）——再来一次 resume
+    s.resume(agentSpec())
+    assert.equal(s.current.state, 'live', 'live 保持 live')
+    assert.equal(
+      deps.enqueued.filter((e) => e.type === 'node.spawn').length,
+      spawnedBefore,
+      'live 节点不得被重复 spawn（否则抢同一端口 = EADDRINUSE）',
+    )
+  })
+})
+
+test('事故回归: resume 不抢人手动停掉的节点——手动 stop 后机器重连也不得拉起', () => {
+  const deps = agentDeps()
+  const s = supervisorWith(deps, okProbe)
+
+  s.start(agentSpec())
+  deps.resultCallbacks.get(1)?.(true)
+  return waitFor(() => s.current.state === 'live', 2_000, 'live before stop').then(() => {
+    s.stop()
+    assert.equal(s.current.state, 'cold', '手动 stop 落冷')
+    const spawnedBefore = deps.enqueued.filter((e) => e.type === 'node.spawn').length
+
+    s.resume(agentSpec())
+    assert.equal(s.current.state, 'cold', '手动停掉的节点绝不因 resume 复活（债务 R9 同款红线）')
+    assert.equal(deps.enqueued.filter((e) => e.type === 'node.spawn').length, spawnedBefore, '不得入队 spawn')
+  })
+})
