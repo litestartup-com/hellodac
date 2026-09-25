@@ -1429,6 +1429,7 @@ button:disabled {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
+/* 提交按钮基础形态（登录页与改密页共用）：蓝底白字。 */
 .narrow button[type='submit'] {
   width: 100%;
   justify-content: center;
@@ -1441,6 +1442,20 @@ button:disabled {
 .narrow button[type='submit']:hover:not(:disabled) {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
+}
+
+/* 改密按钮改深墨（2026-09-26 用户反馈「password 按钮还是蓝色的」）。
+   只作用于改密表单——登录页共用 .narrow，登录按钮保持蓝色是既定惯例，
+   共用选择器会把登录页一起改掉。 */
+#password-form button[type='submit'] {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--surface);
+}
+
+#password-form button[type='submit']:hover:not(:disabled) {
+  background: var(--text-2);
+  border-color: var(--text-2);
 }
 
 /* ==========================================================================
