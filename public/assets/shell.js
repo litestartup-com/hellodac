@@ -510,12 +510,11 @@ export const loadShell = async () => {
       if (!notifyPanel.hidden) renderNotifyPanel(notifications.items)
     }
 
-    // About 那一项的版本尾注（`DAC v1.0.0`）：版本号只在 /api/status 回来之后才
-    // 出现，之前不显示成空串或占位符（用户实测反馈过「下面一个 V1.0.0 啥意思」，
-    // 那是没填上的槽位）。
+    // About 浮窗第一行的产品名 + 版本（`DAC v1.0.0`）。版本来自 /api/status，
+    // 拿到之前那一行显示 `DAC v…`——是个明确的"还在取"，不是空白。
     if (typeof status.managerVersion === 'string' && status.managerVersion !== '') {
-      const trailing = moreMenu.querySelector('[data-about-version]')
-      if (trailing !== null) trailing.replaceChildren(`${brand.name} v${status.managerVersion}`)
+      const row = document.querySelector('#more-about [data-about-version]')
+      if (row !== null) row.replaceChildren(`${brand.name} v${status.managerVersion}`)
     }
 
     if (threads !== null) {
@@ -1145,17 +1144,25 @@ const langItems = availableLocales().map((tag) =>
 )
 
 /**
- * About 浮窗：只留仓库入口。
+ * About 浮窗内容（用户指定的形态）：
  *
- * 产品名与版本**不在这里**（用户反馈：「上面不用再介绍 DAC 了吧」「下面一个
- * V1.0.0 啥意思」）——它们作为 About 那一项的尾注显示在主菜单上（`DAC v1.0.0 ›`），
- * 排障时不用点开就能看到版本；产品名在登录页与侧栏顶部都写着。浮窗里再抄一遍，
- * 就是同一个事实在一屏里出现三次。
+ *   DAC v1.0.0            ← 产品名 + 版本（版本由 /api/status 回填）
+ *   support@hellodac.com  ← 联系方式
+ *   ⬡ Star on GitHub      ← 仓库入口
+ *
+ * 版本放在浮窗**第一行**而不是主菜单项的尾注：浮窗是「关于本产品」的落点，
+ * 产品名与版本是这一屏的主体；而且第一行恒在，不会出现「槽位还没填上」的空档
+ * （上一版把版本挂在主菜单项尾注上，异步回填前那一栏是空的）。
  */
-const aboutItems =
-  brand.repo === ''
-    ? [menuItemHtml({ kind: 'note', label: `${brand.name} · ${brand.full}` })]
-    : [menuItemHtml({ label: t('nav.starOnGithub'), icon: 'github', attrs: `href="${esc(brand.repo)}" target="_blank" rel="noopener noreferrer"` })]
+const aboutItems = [
+  menuItemHtml({ kind: 'note', label: `${brand.name} v…`, attrs: 'data-about-version' }),
+  ...(brand.supportEmail === ''
+    ? []
+    : [menuItemHtml({ label: brand.supportEmail, attrs: `href="mailto:${esc(brand.supportEmail)}"` })]),
+  ...(brand.repo === ''
+    ? []
+    : [menuItemHtml({ label: t('nav.starOnGithub'), icon: 'github', attrs: `href="${esc(brand.repo)}" target="_blank" rel="noopener noreferrer"` })]),
+]
 
 const moreMenu = document.createElement('div')
 moreMenu.id = 'side-more-menu'
@@ -1165,7 +1172,7 @@ moreMenu.hidden = true
 moreMenu.innerHTML = `${MORE_NAV.map((item) => menuItemHtml({ label: item.label, icon: item.icon, attrs: `href="${item.href}" data-nav="${item.nav}"` })).join('')}
   ${menuItemHtml({ kind: 'sep' })}
   ${menuItemHtml({ label: t('nav.language'), icon: 'endpoint', trailing: t(`lang.${currentLocale()}`), attrs: 'data-more-flyout="more-langs" aria-haspopup="true" aria-expanded="false" data-more-flyout-side="right"' })}
-  ${menuItemHtml({ label: t('nav.about'), icon: 'hive', trailing: brand.name, attrs: 'data-about-version aria-controls="more-about" data-more-flyout="more-about" aria-haspopup="true" aria-expanded="false" data-more-flyout-side="right"' })}
+  ${menuItemHtml({ label: t('nav.about'), icon: 'hive', attrs: 'data-more-flyout="more-about" aria-haspopup="true" aria-expanded="false" data-more-flyout-side="right"' })}
   ${menuItemHtml({ kind: 'sep' })}
   <button id="logout" class="menu-item danger" type="button">
     <svg width="14" height="14" aria-hidden="true"><use href="#i-logout" /></svg>

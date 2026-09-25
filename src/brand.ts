@@ -22,6 +22,8 @@ export interface Brand {
   repoUrl: string
   /** 站点。 */
   homepage: string
+  /** 支持邮箱（关于弹窗里的联系方式）。 */
+  supportEmail: string
   /** 品牌标记（单字符，侧栏方块）。 */
   mark: string
 }
@@ -33,5 +35,6 @@ export const BRAND: Brand = {
   sub: 'agent fleet control plane',
   repoUrl: 'https://github.com/litestartup-com/hellodac',
   homepage: 'https://hellodac.com',
+  supportEmail: 'support@hellodac.com',
   mark: 'D',
 }

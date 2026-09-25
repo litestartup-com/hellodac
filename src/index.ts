@@ -43,7 +43,8 @@ import { createFleetWatchdog } from './fleet/watchdog.js'
 import { Scheduler } from './cron/schedule.js'
 import { registerI18nRoutes } from './routes/i18n.js'
 import { assetCacheHeaders, buildAllPages, buildStandalonePage } from './pages.js'
-import { LOCALE_COOKIE, LOCALES, isLocale, resolveLocale } from './i18n/index.js'
+import { LOCALE_COOKIE, LOCALES, resolveLocale } from './i18n/index.js'
+import { switchLocale } from './locale-switch.js'
 import { registerSecurityHeaders } from './security.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -202,27 +203,26 @@ const main = async (): Promise<void> => {
       accept: typeof request.headers?.['accept-language'] === 'string' ? (request.headers['accept-language'] as string) : undefined,
     })
 
-  /** `?lang=` 命中 → 写 cookie + 回跳；否则返回 null。 */
-  const switchLocale = (
-    request: { url: string; query?: unknown },
-    reply: FastifyReply,
-  ): FastifyReply | null => {
-    const requested = (request.query as { lang?: unknown } | undefined)?.lang
-    if (!isLocale(requested)) return null
-    reply.setCookie(LOCALE_COOKIE, requested, { path: '/', sameSite: 'lax', maxAge: 60 * 60 * 24 * 365 })
-    const [pathname, search] = request.url.split('?')
-    const params = new URLSearchParams(search ?? '')
-    params.delete('lang')
-    const query = params.toString()
-    // 回跳目标只取本站路径（request.url 由路由器给出，不含外部主机）。
-    return reply.redirect(query === '' ? (pathname ?? '/') : `${pathname}?${query}`, 302)
-  }
+  /**
+   * 语言切换挂在**全局 onRequest**：先于所有 preHandler / 路由处理函数。
+   *
+   * 实测现场（2026-09-25 用户报「语言选择切换点了没反应」）：
+   *   GET /login?lang=zh-CN  → 302 /login 且 Set-Cookie: dac_lang=zh-CN  ✅
+   *   GET /nodes?lang=zh-CN  → 302 /login 且**无 cookie**                ❌
+   * 受保护页面挂 `{ preHandler: requirePage }`，preHandler 跑在路由处理函数之前，
+   * 于是会话缺失时守卫先 302，写在处理函数里的 switchLocale 根本没机会执行。
+   * 挂成钩子后任何页面（公开/受保护/将来新增）都自动具备切换能力。
+   */
+  app.addHook('onRequest', async (request, reply) => {
+    const switched = switchLocale(request, reply)
+    if (switched !== null) return reply
+  })
 
   const page =
     (name: string) =>
-    async (request: { url: string; query?: unknown; cookies?: Record<string, string | undefined>; headers?: Record<string, unknown> }, reply: FastifyReply): Promise<FastifyReply> => {
-      const switched = switchLocale(request, reply)
-      if (switched !== null) return switched
+    async (request: { cookies?: Record<string, string | undefined>; headers?: Record<string, unknown> }, reply: FastifyReply): Promise<FastifyReply> => {
+      // `?lang=` 已由上面的 onRequest 钩子统一处理（那边先于认证守卫），
+      // 这里只负责按 cookie/Accept-Language 取对应语言的预渲染页面。
       const html = pages.get(localeOf(request))?.get(name)
       return noCache(reply.type('text/html').send(html))
     }
@@ -247,12 +247,8 @@ const main = async (): Promise<void> => {
   // 判定（登录页也要能选语言，DAC v1.0.0）。
   app.get(
     '/login',
-    async (
-      request: { url: string; query?: unknown; cookies?: Record<string, string | undefined>; headers?: Record<string, unknown> },
-      reply: FastifyReply,
-    ) => {
-      const switched = switchLocale(request, reply)
-      if (switched !== null) return switched
+    async (request: { cookies?: Record<string, string | undefined>; headers?: Record<string, unknown> }, reply: FastifyReply) => {
+      // `?lang=` 同样由 onRequest 钩子处理；这里按 cookie/Accept-Language 取页面。
       return noCache(reply.type('text/html').send(loginPages.get(localeOf(request))))
     },
   )
