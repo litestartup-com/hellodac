@@ -57,5 +57,17 @@ test('能力四 M1-7: join 命令——origin 与 token 注入，静态面分发
   assert.ok(cmd.includes('MANAGER_URL=https://app.example.com'), 'MANAGER_URL 注入')
   assert.ok(cmd.includes('AGENT_JOIN_TOKEN=dac-join-xyz'), '一次性 token 注入')
   assert.ok(cmd.includes('| MANAGER_URL='), '管道 + env 前缀执行')
-  assert.ok(cmd.trimEnd().endsWith(' bash'), 'bash 从 stdin 读脚本')
+  assert.ok(cmd.trimEnd().endsWith('sudo bash'), 'bash 从 stdin 读脚本，且必须提权')
+})
+
+/**
+ * 事故回归（2026-09-25 ubuntu-focal 失联）：join.sh 装 systemd **system**
+ * unit 后要求 root。生成的命令必须把 sudo 加在**读 stdin 的 bash** 上——
+ * 漏了 sudo 则照 README 走的用户第一步就吃「需要 root」报错；加错地方
+ * （sudo curl）则环境变量前缀失效、脚本下到 root 当前目录。
+ */
+test('事故回归: join 命令必须提权，且 sudo 作用于 bash 而非 curl', () => {
+  const cmd = joinCommand('https://app.example.com', 'dac-join-xyz')
+  assert.ok(/\|\s*MANAGER_URL=\S+ AGENT_JOIN_TOKEN=\S+ sudo bash$/.test(cmd), 'sudo 紧贴 bash（env 前缀在外层 shell 赋值）')
+  assert.ok(!cmd.includes('sudo curl'), 'sudo 不得落在 curl 上')
 })

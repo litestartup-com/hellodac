@@ -104,8 +104,9 @@ process = reseed + reinstall + restart), no config edits.
 
 1. On the nodes page, click "Add machine" in the Machines section → get a join
    command (token valid 15 minutes, one-time);
-2. Run the join command on the target server (installs the node-agent service
-   and registers the machine);
+2. Run the join command on the target server (installs the node-agent as a
+   **system service** and registers the machine; it needs root, so the generated
+   command pipes into `sudo bash`);
 3. In the node wizard, pick the machine in the "Host" dropdown and fill in the
    node address (`http://IP:port` reachable from the manager) — the node is
    created as a host process on that machine (whole-machine capability,

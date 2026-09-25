@@ -21,6 +21,21 @@ const fakeFs = () => {
     remove: (p) => {
       store.delete(p)
     },
+    /**
+     * 事故回归：目录列举——重启后自恢复的发现入口（内存盘按已落盘文件反推）。
+     * 语义与真实 readdirSync 对齐：目录不存在/为空 → null。
+     */
+    listDir: (p) => {
+      const prefix = `${p}/`
+      const names = new Set()
+      for (const path of store.keys()) {
+        if (!path.startsWith(prefix)) continue
+        const rest = path.slice(prefix.length)
+        const slash = rest.indexOf('/')
+        if (slash > 0) names.add(rest.slice(0, slash))
+      }
+      return names.size > 0 ? [...names] : null
+    },
   }
 }
 
@@ -47,6 +62,8 @@ const makeRuntime = (over = {}) => {
     spawned: [],
     killed: [],
     profileInstalls: [],
+    /** 事故回归：pid 存活集合——spawn 入、kill 出，忠实模拟「谁还活着」。 */
+    alivePids: new Set(),
     install: async (_dir, version, legacy) => {
       proc.installed.push({ version, legacy })
       return `/agent/dsh/${version}/node_modules/@deepseek-ai/dsh/lib/bin.js`
@@ -55,13 +72,21 @@ const makeRuntime = (over = {}) => {
       proc.profileInstalls.push({ dir, legacy })
     },
     spawn: async (bin, args, env) => {
-      proc.spawned.push({ bin, args, env })
-      return { pid: 4242 }
+      const pid = 4242 + proc.spawned.length
+      proc.spawned.push({ bin, args, env, pid })
+      proc.alivePids.add(pid)
+      return { pid }
     },
     kill: async (pid) => {
       proc.killed.push(pid)
+      proc.alivePids.delete(pid)
     },
-    alive: async () => true,
+    /**
+     * 事故回归（2026-09-25 EADDRINUSE）：原来恒 `true` 是「偷懒的桩」——
+     * 幂等闸门一上线，它就把每个二次 spawn 都判成「已活着」而短路掉。
+     * 按真实语义答：只有 spawn 过且没被 kill 的 pid 才算活着。
+     */
+    alive: async (pid) => proc.alivePids.has(pid),
     ...over.proc,
   }
   const fs = over.fs ?? fakeFs()
@@ -186,6 +211,10 @@ test('能力四 M2 回归: 文件未变 + 安装完成标记 = 跳过 npm 重装
   assert.equal(a.proc.profileInstalls.length, 0, '未变 + 标记 = 跳过重装')
 
   // 文件变了 → 即使有标记也重装
+  // （事故回归补充前提：重装只发生在「真的又 spawn 了一次」时，而幂等闸门
+  //  会挡住「进程还活着」的重复 spawn。这里显式表达「上一次的节点已经死了」，
+  //  否则测到的是幂等跳过、而不是重装。）
+  a.proc.alivePids.clear()
   a.transport.commandBatches.push([
     { id: 52, type: 'node.spawn', payload: { nodeId: 'ops01', args: [], env: { DSH_HOME: '/agent/nodes/ops01' }, dshVersion: '0.1.5-rc.2', profile: { dir: 'profiles/ops01', files: { 'package.json': '{"dsh":2}' } } } },
   ])
@@ -434,4 +463,164 @@ test('能力四 M1 试点回归: Windows spawn bin.js 必须经 node 执行（Cr
   assert.equal(posix.cmd, '/agent/dsh/0.1.5-rc.2/bin.js', 'posix: shebang 可直接 spawn')
   assert.deepEqual(posix.args, ['--profile', 'pilot01'])
 })
+
+// ---- 事故回归（2026-09-25 ubuntu-focal 失联）----
+//
+// 现场：主机重启后两个节点再没起来（manager 默认 10 分钟才巡一遍，且 agent 侧
+// 完全被动）；而 node.log 里的 `EADDRINUSE 0.0.0.0:3197` 则是重复 spawn 的产物
+// ——manager 每轮对账都重发 node.spawn，agent 每次都照单再拉一个。
+// 下面覆盖两条修法：execSpawn 幂等、启动时按落盘载荷自恢复。
+
+/** 一条 node.spawn 指令（payload 形状与 manager 侧 supervisor.startAgent 同构）。 */
+const spawnCmd = (id, nodeId, files = { 'package.json': '{"dsh":1}' }) => ({
+  id,
+  type: 'node.spawn',
+  payload: {
+    nodeId,
+    args: ['--profile', nodeId, '--port', '3197', '--no-open'],
+    env: { DSH_HOME: `/agent/nodes/${nodeId}`, GW_KEY: 'apigw-k' },
+    dshVersion: '0.1.5-rc.2',
+    profile: { dir: `profiles/${nodeId}`, files },
+  },
+})
+
+test('事故回归: execSpawn 幂等——节点已活着时复用，绝不再拉一个抢同一端口', async () => {
+  const a = makeRuntime()
+  await a.runtime.registerOnce()
+
+  const first = await a.runtime.execSpawn(spawnCmd(1, 'spike02'))
+  assert.equal(first.ok, true)
+  assert.equal(a.proc.spawned.length, 1, '首次真的拉起')
+
+  // manager 下一轮对账又入队同一条 node.spawn——这正是 EADDRINUSE 的现场
+  const second = await a.runtime.execSpawn(spawnCmd(2, 'spike02'))
+  assert.equal(second.ok, true)
+  assert.equal(second.result.pid, first.result.pid, '复用既有 pid')
+  assert.equal(second.result.alreadyRunning, true, '结果标明是复用')
+  assert.equal(a.proc.spawned.length, 1, '绝不第二次 spawn')
+})
+
+test('事故回归: 幂等不能变成永不重启——进程已死必须照常重拉', async () => {
+  const a = makeRuntime()
+  await a.runtime.registerOnce()
+
+  const first = await a.runtime.execSpawn(spawnCmd(1, 'spike02'))
+  // 进程崩了（pid 文件还在——现场就是这样）
+  a.proc.alivePids.delete(first.result.pid)
+  assert.equal(a.fs.store.get('/agent/nodes/spike02/node.pid'), String(first.result.pid), 'pid 文件仍在')
+
+  const again = await a.runtime.execSpawn(spawnCmd(2, 'spike02'))
+  assert.equal(again.ok, true)
+  assert.notEqual(again.result.pid, first.result.pid, '必须拉起新进程')
+  assert.equal(a.proc.spawned.length, 2, '死进程不阻塞重启')
+})
+
+test('事故回归: 幂等按节点隔离——一个节点活着不影响另一个节点拉起', async () => {
+  const a = makeRuntime()
+  await a.runtime.registerOnce()
+  await a.runtime.execSpawn(spawnCmd(1, 'spike02'))
+  await a.runtime.execSpawn(spawnCmd(2, 'ops33'))
+  assert.equal(a.proc.spawned.length, 2, '两个节点各拉一个')
+  await a.runtime.execSpawn(spawnCmd(3, 'spike02'))
+  await a.runtime.execSpawn(spawnCmd(4, 'ops33'))
+  assert.equal(a.proc.spawned.length, 2, '再各来一次都不重复')
+})
+
+/**
+ * 模拟一次主机重启：进程全灭（存活 pid 集合清空）、agent 的内存节点表清空，
+ * 但磁盘还是那块盘。这比「另造一个 runtime 共享 fs」更忠实——后者会让观测用的
+ * proc 桩与运行时实际使用的对象对不上，测出来的东西不是真实行为。
+ */
+const simulateRestart = (h) => {
+  h.runtime.nodes.clear()
+  h.proc.alivePids.clear()
+}
+
+test('事故回归: resumeNodes 按落盘载荷自恢复（主机重启后不等 manager）', async () => {
+  const a = makeRuntime()
+  await a.runtime.registerOnce()
+  await a.runtime.execSpawn(spawnCmd(1, 'spike02'))
+  await a.runtime.execSpawn(spawnCmd(2, 'ops33'))
+  assert.equal(a.proc.spawned.length, 2)
+
+  simulateRestart(a)
+  assert.equal(a.runtime.nodes.size, 0, '内存节点表已清空 = 全新 agent')
+
+  const resumed = await a.runtime.resumeNodes()
+  assert.deepEqual(resumed.sort(), ['ops33', 'spike02'], '两个节点都从磁盘恢复')
+  assert.equal(a.proc.spawned.length, 4, '重启后两个节点自动回到运行态，无需 manager 下发')
+})
+
+test('事故回归: resumeNodes 不复活被 node.stop 停掉的节点', async () => {
+  const a = makeRuntime()
+  await a.runtime.registerOnce()
+  await a.runtime.execSpawn(spawnCmd(1, 'spike02'))
+  await a.runtime.execSpawn(spawnCmd(2, 'ops33'))
+  await a.runtime.execStop({ payload: { nodeId: 'spike02' } })
+  assert.equal(a.fs.store.has('/agent/nodes/spike02/spawn.json'), false, 'stop 删掉落盘载荷 = 停机意图')
+
+  simulateRestart(a)
+  const before = a.proc.spawned.length
+  const resumed = await a.runtime.resumeNodes()
+  assert.deepEqual(resumed, ['ops33'], '只有仍在运行的节点会自恢复')
+  assert.equal(a.proc.spawned.length, before + 1, '只有 ops33 被拉回')
+  assert.equal(a.proc.killed.filter((p) => p !== undefined).length >= 1, true, 'stop 确实杀过进程')
+})
+
+test('事故回归: resumeNodes 对未启过的节点是空操作（全新机器）', async () => {
+  const a = makeRuntime()
+  const resumed = await a.runtime.resumeNodes()
+  assert.deepEqual(resumed, [])
+  assert.equal(a.proc.spawned.length, 0, '没有落盘状态就什么都不做')
+})
+
+test('事故回归: resumeNodes 对坏 payload 容错——一个坏文件不拖垮其余节点', async () => {
+  const a = makeRuntime()
+  await a.runtime.registerOnce()
+  await a.runtime.execSpawn(spawnCmd(1, 'spike02'))
+  await a.runtime.execSpawn(spawnCmd(2, 'ops33'))
+  a.fs.store.set('/agent/nodes/spike02/spawn.json', '{ not json')
+
+  simulateRestart(a)
+  const before = a.proc.spawned.length
+  const resumed = await a.runtime.resumeNodes()
+  assert.deepEqual(resumed, ['ops33'], '坏 payload 只丢自己')
+  assert.equal(a.proc.spawned.length, before + 1, '另一个节点照常恢复')
+})
+
+test('事故回归: 载荷里的 nodeId 必须与所在目录一致——防被篡改文件写到别处', async () => {
+  const a = makeRuntime()
+  await a.runtime.registerOnce()
+  await a.runtime.execSpawn(spawnCmd(1, 'spike02'))
+  // 把 payload 的 nodeId 改成别的节点：路径拼接的输入不可信
+  const payload = JSON.parse(a.fs.store.get('/agent/nodes/spike02/spawn.json'))
+  payload.nodeId = '../../etc'
+  a.fs.store.set('/agent/nodes/spike02/spawn.json', JSON.stringify(payload))
+
+  simulateRestart(a)
+  const resumed = await a.runtime.resumeNodes()
+  assert.deepEqual(resumed, [], '目录与载荷不符 = 拒绝自恢复')
+  assert.equal(a.proc.spawned.length, 1, '绝不按篡改后的 nodeId 再拉进程')
+})
+
+test('事故回归: run() 自恢复排在注册之前——manager 不可达也要把节点拉起来', async () => {
+  const a = makeRuntime()
+  await a.runtime.registerOnce()
+  await a.runtime.execSpawn(spawnCmd(1, 'spike02'))
+
+  // 同一个 agent 重新上班，但 manager 完全不可达（注册必炸）
+  simulateRestart(a)
+  a.fs.store.delete('/agent/agent.json')
+  const before = a.proc.spawned.length
+  a.transport.register = async () => {
+    throw new Error('manager unreachable')
+  }
+  // run() 对网络故障是「退避重试、永不退出」（设计），所以用信号收尾；
+  // 关键是节点要在注册失败之前就已经回来了。
+  const ctrl = new AbortController()
+  setTimeout(() => ctrl.abort(), 30)
+  await a.runtime.run({ signal: ctrl.signal })
+  assert.equal(a.proc.spawned.length, before + 1, '自恢复不依赖 manager 可达')
+})
+
 

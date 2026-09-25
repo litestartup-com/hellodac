@@ -56,12 +56,19 @@ export const machineRowHtml = (m) => {
 /**
  * join 命令（Linux 一条命令加入）：join.sh 由 manager 静态面分发，
  * MANAGER_URL 与一次性 token 走环境变量注入。
+ *
+ * 事故回归（2026-09-25）：这里必须 `sudo bash`——join.sh 装的是 systemd
+ * **system** unit（/etc/systemd/system），非 root 会被脚本显式拒绝。只给
+ * `curl` 加 sudo 是没用的（提权的得是读 stdin 的那个 bash），而 `sudo curl`
+ * 反而会把脚本下载到 root 的当前目录。env 前缀由外层 shell 赋值，sudo 默认
+ * 放行，所以 token 能正常传进脚本。
+ *
  * @param {string} origin manager 站点源（如 https://app.example.com）
  * @param {string} token 一次性 join token
  * @returns {string}
  */
 export const joinCommand = (origin, token) =>
-  `curl -fsSL ${origin}/assets/agent/join.sh | MANAGER_URL=${origin} AGENT_JOIN_TOKEN=${token} bash`
+  `curl -fsSL ${origin}/assets/agent/join.sh | MANAGER_URL=${origin} AGENT_JOIN_TOKEN=${token} sudo bash`
 
 /**
  * 本机行（UI 收尾 C-P1.5）：manager 宿主不是 node-agent 注册机器（机器目录
