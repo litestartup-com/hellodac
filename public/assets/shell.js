@@ -510,8 +510,8 @@ export const loadShell = async () => {
       if (!notifyPanel.hidden) renderNotifyPanel(notifications.items)
     }
 
-    // About 浮窗第一行的产品名 + 版本（`DAC v1.0.0`）。版本来自 /api/status，
-    // 拿到之前那一行显示 `DAC v…`——是个明确的"还在取"，不是空白。
+    // About 浮窗第一行的产品名 + 版本（`DAC v1.0.0`）。拿到版本之前那一行只写
+    // 产品名——不显示 `v…` 这种半成品（用户实测看到「DAC v…」以为是坏了）。
     if (typeof status.managerVersion === 'string' && status.managerVersion !== '') {
       const row = document.querySelector('#more-about [data-about-version]')
       if (row !== null) row.replaceChildren(`${brand.name} v${status.managerVersion}`)
@@ -1144,21 +1144,23 @@ const langItems = availableLocales().map((tag) =>
 )
 
 /**
- * About 浮窗内容（用户指定的形态）：
+ * About 浮窗内容（用户指定形态）：
  *
  *   DAC v1.0.0            ← 产品名 + 版本（版本由 /api/status 回填）
- *   support@hellodac.com  ← 联系方式
+ *   ✉ support@hellodac.com ← 联系方式，点击复制（不是 mailto：见下）
  *   ⬡ Star on GitHub      ← 仓库入口
  *
- * 版本放在浮窗**第一行**而不是主菜单项的尾注：浮窗是「关于本产品」的落点，
- * 产品名与版本是这一屏的主体；而且第一行恒在，不会出现「槽位还没填上」的空档
- * （上一版把版本挂在主菜单项尾注上，异步回填前那一栏是空的）。
+ * 版本第一行**先只显示产品名**，拿到版本后才补成 `DAC v1.0.0`——不写 `v…` 这种
+ * 半成品（用户实测看到「DAC v…」以为是坏了）。
+ *
+ * 邮箱按**点击复制**而不是 `mailto:`：桌面端 mailto 会弹一个没配过的邮件客户端，
+ * 而这里更常见的诉求是把地址填到别处。复制后弹提示，与节点隧道命令的复制同一套反馈。
  */
 const aboutItems = [
-  menuItemHtml({ kind: 'note', label: `${brand.name} v…`, attrs: 'data-about-version' }),
+  menuItemHtml({ kind: 'note', label: brand.name, attrs: 'data-about-version' }),
   ...(brand.supportEmail === ''
     ? []
-    : [menuItemHtml({ label: brand.supportEmail, attrs: `href="mailto:${esc(brand.supportEmail)}"` })]),
+    : [menuItemHtml({ label: brand.supportEmail, icon: 'chat', attrs: `data-about-email="${esc(brand.supportEmail)}"` })]),
   ...(brand.repo === ''
     ? []
     : [menuItemHtml({ label: t('nav.starOnGithub'), icon: 'github', attrs: `href="${esc(brand.repo)}" target="_blank" rel="noopener noreferrer"` })]),
@@ -1231,6 +1233,22 @@ moreMenu.addEventListener('click', (event) => {
   if (trigger === null) return
   openMoreFlyout(trigger.dataset.moreFlyout ?? '', trigger)
 })
+
+// 支持邮箱：点击复制（不是 mailto——桌面端会弹一个没配过的邮件客户端，而这里
+// 更常见的诉求是把地址填到别处）。提示文案与节点隧道命令的复制共用同一套。
+const bindEmailCopy = (root) => {
+  for (const el of root.querySelectorAll('[data-about-email]')) {
+    el.addEventListener('click', () => {
+      const email = el.dataset.aboutEmail ?? ''
+      navigator.clipboard
+        ?.writeText(email)
+        .then(() => alert(t('about.emailCopied', { email })))
+        .catch(() => alert(t('about.emailCopyFailed', { email })))
+    })
+  }
+}
+bindEmailCopy(moreMenu)
+for (const [, fly] of moreFlyouts) bindEmailCopy(fly.panel)
 
 // 登出绑定在菜单入 DOM 之后（id 是同一套，绑定时机决定成败）。
 $('logout')?.addEventListener('click', async () => {

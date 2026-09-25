@@ -222,3 +222,31 @@ test('菜单原语: 图标名与文字都转义，不接受注入', () => {
   assert.ok(!evil.includes('<script>'), '图标名不能逃出属性')
   assert.ok(evil.includes('&quot;'), '引号被转义')
 })
+
+// ---- 链接项必须是真链接（2026-09-25 用户反复报「语言点了没反应」的真因）----
+
+test('事故回归: 带 href 的菜单项必须渲染成 <a>，不是 <button>', () => {
+  const link = menuItemHtml({ label: '中文', attrs: 'href="?lang=zh-CN"' })
+  assert.ok(link.startsWith('<a '), `带 href 的项必须是链接，实际开头：${link.slice(0, 40)}`)
+  assert.ok(link.includes('href="?lang=zh-CN"'), 'href 保留')
+  assert.ok(!link.includes('<button'), '不能是 button —— button 上的 href 是无效属性，点了什么都不发生')
+})
+
+test('事故回归: 没有 href 的项仍是 <button>（操作项，不是导航）', () => {
+  const action = menuItemHtml({ label: 'Stop', attrs: 'data-node-down="x"' })
+  assert.ok(action.startsWith('<button '), '操作项保持按钮语义')
+  assert.ok(!action.includes('<a '), '不该变成链接')
+})
+
+test('菜单原语: 链接项同样支持图标与尾注，且不带 type=button', () => {
+  const link = menuItemHtml({ label: 'Skills', icon: 'spark', trailing: '›', attrs: 'href="/skills"' })
+  assert.ok(link.includes('<use href="#i-spark" />'), '图标在')
+  assert.ok(link.includes('menu-trailing'), '尾注在')
+  assert.ok(!link.includes('type="button"'), 'a 元素不该带 type=button')
+})
+
+test('事件委托前提: 链接项带 data 属性时仍可原样生成', () => {
+  const link = menuItemHtml({ label: 'GitHub', icon: 'github', attrs: 'href="https://x" target="_blank" rel="noopener noreferrer"' })
+  assert.ok(link.startsWith('<a '), '外链也是 a')
+  assert.ok(link.includes('target="_blank"') && link.includes('rel="noopener noreferrer"'), '外链属性保留')
+})

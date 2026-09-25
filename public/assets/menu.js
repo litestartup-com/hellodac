@@ -23,6 +23,12 @@ export const triggerButtonHtml = ({ id, label, controls }) =>
  * 语义图标（图标集里没有 stop/restart/tag 这些），硬凑会拿错图标表达错意思
  * ——那批菜单项保持纯文字；而侧栏导航项本来就有约定俗成的图标（spark/archive/
  * coin/shield/pencil），丢了反而认不出来。
+ *
+ * **带 href 的项渲染成 `<a>`，其余渲染成 `<button>`**（2026-09-25 实测事故）：
+ * 早先这里恒返回 `<button>`，调用方却把 `href` 当属性塞进来——`<button href>` 是
+ * 无效属性，点上去什么都不发生。表现就是「语言选择点了没反应」，而且底部
+ * Skills/Cost/… 一整列导航同样是死的。导航项本来就该是链接（可中键、可复制地址、
+ * 可被读屏当链接念），操作项才该是按钮。
  * @param {{ kind?: 'item' | 'submenu' | 'danger' | 'sep' | 'note' | 'group', label?: string, icon?: string | null, attrs?: string, trailing?: string | null }} spec
  * @returns {string}
  */
@@ -38,9 +44,13 @@ export const menuItemHtml = (spec) => {
       : ''
   const trailing = typeof spec.trailing === 'string' && spec.trailing !== '' ? `<span class="menu-trailing">${esc(spec.trailing)}</span>` : ''
   const attrs = typeof spec.attrs === 'string' ? spec.attrs : ''
-  // 子菜单项：点开第二层，用 aria-haspopup 标出来（与普通项区分）。
+  const isLink = /\bhref\s*=/.test(attrs)
+  // 子菜单/浮窗触发器：用 aria-haspopup 标出来（与普通项区分）。
   const popup = kind === 'submenu' ? ' aria-haspopup="true" aria-expanded="false"' : ''
-  return `<button type="button"${cls}${popup} ${attrs}><span class="menu-grow">${icon}${esc(spec.label ?? '')}</span>${trailing}${kind === 'submenu' ? '<span class="menu-chevron" aria-hidden="true">›</span>' : ''}</button>`
+  const tag = isLink ? 'a' : 'button'
+  const typeAttr = isLink ? '' : ' type="button"'
+  const role = isLink ? ' role="menuitem"' : ''
+  return `<${tag}${typeAttr}${cls}${popup}${role} ${attrs}><span class="menu-grow">${icon}${esc(spec.label ?? '')}</span>${trailing}${kind === 'submenu' ? '<span class="menu-chevron" aria-hidden="true">›</span>' : ''}</${tag}>`
 }
 
 /**
