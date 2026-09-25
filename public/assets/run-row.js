@@ -21,7 +21,14 @@ export const runStateLabel = (state) => t(`runs.state.${state}`)
 export const triggerLabel = (trigger) => (trigger === 'api' ? 'API' : t(`runs.trigger.${trigger}`))
 
 /**
- * 任务行：状态点 / 状态与触发来源文案 / 冲突徽标 / 会话链接。
+ * 任务行：状态点 / 状态与触发来源文案 / 冲突徽标 / 会话链接 / 正文（默认 2 行折叠）。
+ *
+ * 为什么要折叠（改前实测最近 40 条 run）：正文中位 315 字、p90 1360 字、最长 2266 字，
+ * 且有 65% 含换行——原来整段无截断地铺开，一屏只看得到两三条任务。
+ *
+ * 正文先带 `clamped` 类渲染（默认就是 2 行，不会先闪一下全文）；是否真的溢出由
+ * runs.js 在布局后量 scrollHeight 决定，量出来没溢出就把类撤掉、也不给展开按钮
+ * ——短任务（例如「收到」两个字）不该多一个没用的控件。
  * @param {{ agentName: string, trigger: string, state: string, summary?: string | null, error?: string | null, sourceChatId?: string | null, conflict?: string | null, startedAt: number }} r
  * @returns {string}
  */
@@ -44,7 +51,12 @@ export const runRow = (r) => {
       <div class="node-title">
         <span class="dot ${dot}"></span>${esc(r.agentName)} <span class="muted">· ${esc(label)} · ${esc(trigger)} · ${whenText}</span> ${conflict}
       </div>
-      ${summary !== '' ? `<div class="node-detail">${esc(summary)}</div>` : ''}
+      ${
+        summary === ''
+          ? ''
+          : `<div class="run-body clamped" data-run-body>${esc(summary)}</div>
+      <button type="button" class="run-toggle" data-run-toggle hidden>${esc(t('runs.expand'))}</button>`
+      }
     </div>
     ${link !== '' ? `<div class="node-side">${link}</div>` : ''}
   </div>`

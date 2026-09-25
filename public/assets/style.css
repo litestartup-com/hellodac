@@ -2046,26 +2046,8 @@ button:disabled {
   flex: 0 0 auto;
 }
 
-/* 能力三 v1：节点行里的「原生 GUI」卡（隧道 / 本机直连 共用）。
-   宽度显式约束——长隧道命令不得用 max-content 撑爆整行挤压节点信息区。 */
-.node-gui {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  width: 330px;
-  max-width: 100%;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  background: var(--surface);
-  box-shadow: var(--sh-1);
-}
-
-.node-gui-title {
-  font-size: 12px;
-  font-weight: 600;
-}
-
+/* 隧道命令代码块（能力三 v1 起就在用；UI 精简后从节点行的常显卡搬进
+   原生访问抽屉的「连接」区，样式不变——它现在只在抽屉里出现）。 */
 .node-gui-cmd {
   display: block;
   font-size: 11px;
@@ -2077,25 +2059,28 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
-/* 能力二/P1：节点行版本切换下拉 */
-.node-version-select {
-  margin-left: 8px;
-  font: 11.5px var(--mono);
-  color: var(--text-2);
-  background: var(--surface);
+/* 原生访问抽屉的「连接」区：命令 + 打开/复制 + 提示。 */
+.access-conn {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
-  padding: 2px 6px;
+  background: var(--surface-sunken);
 }
 
-/* 窄容器：卡片下折整行，不再横向挤压 */
+.access-conn-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 窄容器：节点行允许折行（状态/归属占满一行，版本与触发器跟到下一行）。 */
 @media (max-width: 1100px) {
   .node-row {
     flex-wrap: wrap;
-  }
-
-  .node-gui {
-    width: 100%;
   }
 }
 
@@ -2105,6 +2090,199 @@ button:disabled {
   align-items: center;
   gap: 6px;
   flex: 0 0 auto;
+}
+
+/* ==========================================================================
+   UI 精简（DAC v1.0.0）：节点行 + ⋮ 浮层菜单
+   --------------------------------------------------------------------------
+   改前单行横向 4 个区块（标题+告警 / meta / detail+版本下拉 / 最多 5 个按钮），
+   外加一张固定 330px 的原生 GUI 卡（含整条 SSH 命令）——行内绝大多数像素给了
+   偶尔才用的操作。现在主行只回答「哪个节点活着、跑的什么」，其余进浮层。
+   ========================================================================== */
+
+/* 浮层一律 fixed + 挂 body：节点行在 .card 的圆角裁剪里，absolute 子菜单会被裁掉。
+   坐标由 menu.js 的 placePanel/placeSubmenu 现算（可单测）。 */
+.menu-panel {
+  position: fixed;
+  z-index: 75;
+  min-width: 196px;
+  max-width: 280px;
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--sh-2);
+}
+
+.menu-panel[hidden] {
+  display: none;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--text-2);
+  font: 13px/1.4 var(--font);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--motion);
+}
+
+.menu-item:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.menu-item:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+/* 危险项（删除节点）：与普通项视觉分离，同仓库 danger 惯例。 */
+.menu-item.danger {
+  color: var(--bad);
+}
+
+.menu-item.danger:hover:not(:disabled) {
+  background: var(--bad-bg);
+  color: var(--bad);
+}
+
+.menu-grow {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu-trailing {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.menu-chevron {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
+}
+
+.menu-group {
+  padding: 6px 10px 2px;
+  color: var(--muted);
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.menu-note {
+  padding: 6px 10px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* ⋮ 触发器：与图标按钮同语言，悬停才明显（不抢主行注意力）。 */
+.menu-trigger {
+  flex: 0 0 auto;
+}
+
+/* 节点主行：状态 / ID / 归属 / 当前版本 + 触发器。 */
+.node-title .node-state {
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+.node-sub {
+  margin-top: 2px;
+  color: var(--text-2);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* 错误必须可见（排障第一眼），但不许撑高整行：压成一行，全文走 tooltip。 */
+.node-err {
+  margin-top: 2px;
+  color: var(--bad);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 当前版本：右侧弱化一列，等宽字体便于比对。 */
+.node-ver {
+  flex: 0 0 auto;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+@media (max-width: 720px) {
+  /* 窄屏：版本让位（它在菜单里也有），主行只留状态与归属。 */
+  .node-ver {
+    display: none;
+  }
+}
+
+/* 任务行正文折叠（UI 精简）：默认 2 行，点开展开全文。
+   65% 的任务正文含换行，所以保留原换行（pre-line），不要挤成一行。 */
+.run-body {
+  margin-top: 2px;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.run-body.clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.run-body.expanded {
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.run-toggle {
+  margin-top: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: 12px/1.4 var(--font);
+  cursor: pointer;
+}
+
+.run-toggle:hover {
+  text-decoration: underline;
 }
 
 .node-logs-wrap {
@@ -2291,17 +2469,19 @@ select.text-input {
   overflow: hidden;
 }
 
-/* ⋮ 溢出菜单：底部导航（节点→改密）+ 退出登录。与通知面板同一浮层语言
-   （fixed 定位 + body 挂载 + rect 定位，抽屉/rail 下不裁剪不错位）。 */
+/* ⋮ 溢出菜单（UI 精简后）：外壳沿用「与通知面板同一浮层语言」的定位方式，
+   内部只保留两种元素——菜单项与分组标题（都来自 menu.js 的同一套语言）。
+   改前这里混了导航项/分隔线/语言列表/品牌页脚/独立登出按钮五种样式，
+   正是用户说的「password 到 sign out 太乱」。 */
 .side-more-menu {
   position: fixed;
   width: 224px;
   max-height: 60vh;
   overflow-y: auto;
-  padding: 6px;
+  padding: 5px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -2313,71 +2493,40 @@ select.text-input {
   display: none;
 }
 
-.side-more-menu .side-link {
+/* 菜单项：图标位 + 文字 + 可选尾注（语言项右侧显示当前语言）。 */
+.side-more-menu .menu-item {
   min-height: 36px;
   padding: 6px 10px;
-}
-
-.side-more-menu .more-divider {
-  height: 1px;
-  margin: 4px 6px;
-  background: var(--border);
-  flex: 0 0 auto;
-}
-
-/* 品牌页脚（DAC v1.0.0）：产品全称 + 口号 + GitHub 入口；安静一行，不与
-   导航项抢注意力。 */
-.side-more-menu .more-brand {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 6px 10px 2px;
-}
-
-.side-more-menu .more-brand-line {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  flex-wrap: wrap;
-  font-size: 13px;
-  color: var(--text-2);
-}
-
-.side-more-menu .more-brand .side-link {
-  margin-top: 2px;
-}
-
-/* 语言切换（DAC v1.0.0）：与导航项同语言，✓ 标出当前语言。 */
-.side-more-menu .more-langs {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding-bottom: 2px;
-}
-
-/* 退出登录：与导航视觉分离的危险操作（红线 hover，同仓库 danger 惯例）。 */
-.side-more-menu .more-logout {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  min-height: 36px;
-  padding: 6px 10px;
-  border: 0;
-  border-radius: 12px;
-  background: none;
-  color: var(--text-2);
-  font: inherit;
   font-size: 14px;
-  line-height: 22px;
-  text-align: left;
-  cursor: pointer;
-  transition: background-color var(--motion);
 }
 
-.side-more-menu .more-logout:hover {
-  background: var(--bad-bg);
-  color: var(--bad);
+/* 子项展开区（语言 / 关于）：就地展开，缩进一级，与父项形成层级。 */
+.side-more-menu .more-sub {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 1px 0 3px 10px;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
 }
+
+.side-more-menu .more-sub[hidden] {
+  display: none;
+}
+
+.side-more-menu .more-sub .menu-item {
+  min-height: 32px;
+  font-size: 13px;
+}
+
+/* 关于项里的说明行：不占菜单项高度，纯文字。 */
+.side-more-menu .menu-note {
+  padding: 5px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .notify-head {
   display: flex;
   align-items: center;

@@ -14,6 +14,38 @@ let loading = false
 const fAgent = () => $('f-run-agent').value
 const fState = () => $('f-run-state').value
 
+/**
+ * 正文折叠的收尾（UI 精简）：行先带 `clamped` 渲染（2 行，不闪全文），
+ * 这里在布局后量真实高度——没溢出就把类撤掉、展开按钮继续隐藏。
+ *
+ * 为什么用 scrollHeight 而不是 `-webkit-line-clamp` 自己判断：clamp 只截显示，
+ * 不报告「有没有被截」。整段高度 > 可视高度才算溢出，量一次就知道。
+ */
+const finalizeRunRows = () => {
+  for (const body of document.querySelectorAll('#runs-list [data-run-body].clamped')) {
+    const overflows = body.scrollHeight - body.clientHeight > 1
+    const toggle = body.nextElementSibling
+    if (toggle === null || toggle.dataset.runToggle === undefined) continue
+    if (overflows) {
+      toggle.hidden = false
+    } else {
+      body.classList.remove('clamped')
+      toggle.hidden = true
+    }
+  }
+}
+
+// 展开/收起：纯前端，正文已在 DOM 里（不需要再请求后端）。
+$('runs-list').addEventListener('click', (event) => {
+  const toggle = event.target.closest('[data-run-toggle]')
+  if (toggle === null) return
+  const body = toggle.previousElementSibling
+  if (body === null || body.dataset.runBody === undefined) return
+  const expanded = body.classList.toggle('expanded')
+  body.classList.toggle('clamped', !expanded)
+  toggle.textContent = expanded ? t('runs.collapse') : t('runs.expand')
+})
+
 const loadPage = async (append) => {
   if (loading) return
   loading = true
@@ -37,6 +69,8 @@ const loadPage = async (append) => {
     $('runs-more').hidden = nextCursor === null
     pagesLoaded = append ? pagesLoaded + 1 : 1
     $('runs-updated').textContent = t('runs.refreshAt', { time: new Date().toLocaleTimeString(undefined, { hour12: false }) })
+    // 布局完成后再决定每行要不要给「展开」——首帧量到的还是未折叠高度。
+    requestAnimationFrame(finalizeRunRows)
   } catch {
     // 网络失败时保留上一帧，不刷成错误页。
   } finally {

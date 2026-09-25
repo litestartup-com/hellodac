@@ -4,6 +4,7 @@
 // being the dashboard's private property; every page owns the shell equally.
 
 import { $, ago, banner, esc, icon, setHtml, when, apiFetch, poll, t, loadI18n, brandInfo, availableLocales, currentLocale } from './ui.js'
+import { menuItemHtml } from './menu.js'
 
 /**
  * 多语言与品牌：先取字典再画侧栏（顶层 await——首屏不该先显示键名再补译文）。
@@ -509,10 +510,10 @@ export const loadShell = async () => {
       if (!notifyPanel.hidden) renderNotifyPanel(notifications.items)
     }
 
-    // 品牌页脚的运行时版本（⋮ 菜单里那行）；status 里带的是 manager 版本。
+    // About 子项里的运行时版本（manager 版本）；槽位在菜单构建时留好。
     if (typeof status.managerVersion === 'string' && status.managerVersion !== '') {
-      const version = $('side-version')
-      if (version !== null) version.textContent = `v${status.managerVersion}`
+      const slot = document.querySelector('#side-more-menu [data-version-slot]')
+      if (slot !== null) slot.textContent = `v${status.managerVersion}`
     }
 
     if (threads !== null) {
@@ -1115,42 +1116,81 @@ const MORE_NAV = [
 const primaryNav = $('side-primary')
 if (primaryNav !== null) primaryNav.innerHTML = PRIMARY_NAV.map(navLinkHtml).join('')
 
+// ---------------------------------------------------------------------------
+// ⋮ 溢出菜单（UI 精简）
+//
+// 改前这个 224px 浮窗里混了五种视觉语言：导航项 / 分隔线 / 语言列表（每个语言
+// 一个满高导航行）/ 品牌页脚（全称+口号+版本+GitHub 四行弱化文字）/ 独立红色登出
+// 按钮。用户的原话是「password 以下到 sign out 太乱」。
+//
+// 改后只保留两种语言：**菜单项**（图标位+文字+可选尾注）与**分组标题**。
+// 语言与关于各自收进子项（第二层），所以主菜单尺寸与语言数量彻底解耦——
+// 加到 20 个语言，主菜单还是 6 项。
+// ---------------------------------------------------------------------------
+
+/** 子项列表（默认收起）：用于「语言」「关于」的展开区。 */
+const subListHtml = (id, items) => `<div class="more-sub" id="${id}" hidden>${items.join('')}</div>`
+
+const langItems = availableLocales().map((tag) =>
+  menuItemHtml({
+    label: t(`lang.${tag}`),
+    attrs: `href="?lang=${encodeURIComponent(tag)}" hreflang="${esc(tag)}" lang="${esc(tag)}"`,
+    trailing: tag === currentLocale() ? '✓' : null,
+  }),
+)
+
+const aboutItems = [
+  menuItemHtml({ kind: 'note', label: `${brand.name} — ${brand.full}` }),
+  ...(brand.tagline === '' ? [] : [menuItemHtml({ kind: 'note', label: brand.tagline })]),
+  menuItemHtml({ kind: 'note', label: `${t('nav.version')} …`, attrs: 'data-version-slot="1"' }),
+  ...(brand.repo === ''
+    ? []
+    : [menuItemHtml({ label: 'GitHub', attrs: `href="${esc(brand.repo)}" target="_blank" rel="noopener noreferrer"`, trailing: '↗' })]),
+]
+
 const moreMenu = document.createElement('div')
 moreMenu.id = 'side-more-menu'
-moreMenu.className = 'side-more-menu'
+moreMenu.className = 'side-more-menu menu-panel'
 moreMenu.setAttribute('aria-label', t('nav.more'))
 moreMenu.hidden = true
-moreMenu.innerHTML = `${MORE_NAV.map(navLinkHtml).join('')}
-  <div class="more-divider"></div>
-  <!-- 语言切换（DAC v1.0.0）：点到 ?lang=xx，服务端写 cookie 并 302 回干净 URL；
-       语言名一律用本族语写法（English / 中文），切换时不靠猜。 -->
-  <div class="more-langs" role="group" aria-label="${esc(t('nav.language'))}">
-    ${availableLocales()
-      .map(
-        (tag) =>
-          `<a class="side-link${tag === currentLocale() ? ' active' : ''}" href="?lang=${encodeURIComponent(tag)}" hreflang="${esc(tag)}" lang="${esc(tag)}">
-      <span class="grow">${esc(t(`lang.${tag}`))}</span>
-      ${tag === currentLocale() ? '<span class="muted small">✓</span>' : ''}
-    </a>`,
-      )
-      .join('')}
-  </div>
-  <!-- 品牌页脚（DAC v1.0.0）：全称 + 口号 + 仓库入口 + 运行时版本（版本号
-       由 shell 的 /api/status 轮询回填，不在页面里写死）。 -->
-  <div class="more-brand">
-    <div class="more-brand-line"><strong>${esc(brand.name)}</strong> <span class="muted small">${esc(brand.full)}</span> <span id="side-version" class="muted small"></span></div>
-    ${brand.tagline === '' ? '' : `<div class="muted small">${esc(brand.tagline)}</div>`}
-    ${brand.repo === '' ? '' : `<a class="side-link" href="${esc(brand.repo)}" target="_blank" rel="noopener noreferrer" title="${esc(t('nav.sourceTitle'))}">
-      <svg width="14" height="14" aria-hidden="true"><use href="#i-github" /></svg>
-      <span class="grow">GitHub</span>
-      <span class="muted small">↗</span>
-    </a>`}
-  </div>
-  <button id="logout" class="more-logout" type="button">
+moreMenu.innerHTML = `${MORE_NAV.map((item) => menuItemHtml({ label: item.label, attrs: `href="${item.href}" data-nav="${item.nav}"` })).join('')}
+  ${menuItemHtml({ kind: 'sep' })}
+  ${menuItemHtml({ label: t('nav.language'), attrs: 'data-more-sub="langs" aria-controls="more-langs"', trailing: t(`lang.${currentLocale()}`) })}
+  ${subListHtml(
+    'more-langs',
+    langItems.length === 0 ? [menuItemHtml({ kind: 'note', label: t('nav.languageNone') })] : langItems,
+  )}
+  ${menuItemHtml({ label: t('nav.about'), attrs: 'data-more-sub="about" aria-controls="more-about"' })}
+  ${subListHtml('more-about', aboutItems)}
+  ${menuItemHtml({ kind: 'sep' })}
+  <button id="logout" class="menu-item danger" type="button">
     <svg width="14" height="14" aria-hidden="true"><use href="#i-logout" /></svg>
-    <span class="grow">${esc(t('nav.logout'))}</span>
+    <span class="menu-grow">${esc(t('nav.logout'))}</span>
   </button>`
 document.body.appendChild(moreMenu)
+
+// 版本号由 /api/status 轮询回填（不在页面里写死）；About 里那一行留了槽位。
+
+// 第二层：语言 / 关于，就地展开。就地而不是再叠一个浮窗——两层浮窗在 rail 收窄
+// 时容易互相压住，而且这一层本来就在抽屉底部，展开空间充足。
+const closeMoreSubs = (except) => {
+  for (const panel of moreMenu.querySelectorAll('.more-sub')) {
+    if (panel === except) continue
+    panel.hidden = true
+    moreMenu.querySelector(`[aria-controls="${panel.id}"]`)?.setAttribute('aria-expanded', 'false')
+  }
+}
+
+moreMenu.addEventListener('click', (event) => {
+  const trigger = event.target.closest('[data-more-sub]')
+  if (trigger === null) return
+  const panel = document.getElementById(trigger.getAttribute('aria-controls') ?? '')
+  if (panel === null) return
+  const willOpen = panel.hidden
+  closeMoreSubs(willOpen ? panel : null)
+  panel.hidden = !willOpen
+  trigger.setAttribute('aria-expanded', String(willOpen))
+})
 
 // 登出绑定在菜单入 DOM 之后（id 是同一套，绑定时机决定成败）。
 $('logout')?.addEventListener('click', async () => {
@@ -1169,14 +1209,16 @@ const openMoreMenu = () => {
   closeNotifyPanel()
   const rect = moreBtn?.getBoundingClientRect()
   if (rect !== undefined) {
-    // 菜单右下角对齐按钮，向左上方展开；视口边缘钳制，不越界。
+    // 锚在按钮**上方**：用 CSS 的 bottom 而不是 top——bottom 固定后元素向上生长，
+    // 菜单里再展开「语言 / 关于」子项也不会溢出视口下沿（用 top 就会）。
     moreMenu.style.bottom = `${window.innerHeight - rect.top + 8}px`
     moreMenu.style.left = `${Math.min(Math.max(rect.right - 224, 8), window.innerWidth - 232)}px`
   }
+  closeMoreSubs(null) // 每次打开从收起态开始，避免上次展开的语言/关于留在那儿
   moreMenu.hidden = false
   moreBtn?.setAttribute('aria-expanded', 'true')
   // 菜单打开焦点进首项（标准菜单行为）；Esc 关闭时归还按钮。
-  moreMenu.querySelector('a')?.focus()
+  moreMenu.querySelector('.menu-item')?.focus()
 }
 
 moreBtn?.addEventListener('click', (event) => {
