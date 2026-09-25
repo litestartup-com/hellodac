@@ -41,7 +41,7 @@ let dict = {}
 /** @type {string[]} */
 let locales = []
 let locale = typeof document === 'undefined' ? 'en' : document.documentElement.lang || 'en'
-/** @type {{ name: string, full: string, tagline: string, repo: string, site: string } | null} */
+/** @type {null | { name?: string, full?: string, fullName?: string, tagline?: string, repo?: string, repoUrl?: string, site?: string, homepage?: string, supportEmail?: string }} */
 let brand = null
 /** @type {Promise<void> | null} */
 let loading = null
@@ -69,10 +69,35 @@ export const loadI18n = () => {
   return loading
 }
 
-/** 品牌信息（/api/i18n 提供；未就绪时给安全缺省，避免调用方到处判空）。 */
-export const brandInfo = () =>
-  brand ?? { name: 'DAC', full: 'Dispatched Agent Cluster', tagline: '', repo: '', site: '' }
+/**
+ * 品牌信息（/api/i18n 提供；未就绪时给安全缺省，避免调用方到处判空）。
+ *
+ * 字段名在这里**归一化**：服务端 `src/brand.ts` 是 `repoUrl`/`homepage`/`fullName`
+ * （与 pages.ts 占位符同源），而调用方（shell.js 等）历史上一直用 `repo`/`site`/
+ * `full`。2026-09-26 实测：不映射的话 `brand.repo` 永远为空 → 「Star on GitHub」
+ * 一项**根本不渲染**，用户看到的是整个条目消失，而不是链接坏了。
+ */
+export const brandInfo = () => {
+  if (brand === null) {
+    return { name: 'DAC', full: 'Dispatched Agent Cluster', tagline: '', repo: '', site: '', supportEmail: '' }
+  }
+  return {
+    name: typeof brand.name === 'string' ? brand.name : 'DAC',
+    full: typeof brand.fullName === 'string' ? brand.fullName : (typeof brand.full === 'string' ? brand.full : ''),
+    tagline: typeof brand.tagline === 'string' ? brand.tagline : '',
+    repo: typeof brand.repoUrl === 'string' ? brand.repoUrl : (typeof brand.repo === 'string' ? brand.repo : ''),
+    site: typeof brand.homepage === 'string' ? brand.homepage : (typeof brand.site === 'string' ? brand.site : ''),
+    supportEmail: typeof brand.supportEmail === 'string' ? brand.supportEmail : '',
+  }
+}
 
+/**
+ * 测试注入品牌信息（与 useDictionary 同构；页面运行时走 loadI18n，不经过这里）。
+ * @param {null | { name?: string, full?: string, fullName?: string, tagline?: string, repo?: string, repoUrl?: string, site?: string, homepage?: string, supportEmail?: string }} info
+ */
+export const useBrand = (info) => {
+  brand = info
+}
 /**
  * 直接注入字典（测试与离线预渲染用）。
  *
