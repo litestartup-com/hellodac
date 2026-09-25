@@ -1871,10 +1871,18 @@ button:disabled {
   gap: 4px;
 }
 
+/* 选中态用**蓝色描边**表达「哪个视图开着」，不填蓝底、也不设 color。
+ *
+ * 为什么不是「蓝底 + 白字」（原来那样）：
+ *   本条排在 .btn-quiet:hover 之后，它写的 color 会盖掉 hover 规则；而
+ *   .btn-quiet:hover 只换背景（--surface-hover 浅灰）、不管前景 —— 于是悬停
+ *   瞬间变成白字压浅灰，实测对比度 1.14:1，字直接糊没了。
+ *   只删 color 也不行：蓝底还在，继承来的 --text-2 压蓝底是 1.58:1，更糟。
+ * 让背景回归 surface、文字回归 --text 后：常态 17.8:1、悬停 15.6:1，两态都稳。
+ * （数值用 WCAG 相对亮度公式实测，色值取自本文件变量。） */
 .view-switch .on {
-  background: var(--accent);
   border-color: var(--accent);
-  color: var(--accent-fg);
+  color: var(--text);
   box-shadow: none;
 }
 
