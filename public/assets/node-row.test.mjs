@@ -267,3 +267,18 @@ test('事故回归: 邮箱项渲染为 <button>（点击复制动作）且带内
   assert.ok(item.includes(raw), '信封图标在')
   assert.ok(!item.includes('<use'), '信封不走精灵（精灵没有这个字形）')
 })
+
+// ---- note 必须透传 attrs（2026-09-26 用户报「版本号没显示」的真因）----
+
+test('事故回归: note 项必须渲染 attrs——版本行的回填标记依赖它', () => {
+  const note = menuItemHtml({ kind: 'note', label: 'DAC', attrs: 'data-about-version' })
+  assert.ok(
+    note.includes('data-about-version'),
+    'note 的 data 属性必须进 DOM，否则 querySelector([data-about-version]) 永远命中不了 → 版本号永远不显示',
+  )
+})
+
+test('菜单原语: group 项同样透传 attrs（与 note 同一条渲染路径的约定）', () => {
+  const group = menuItemHtml({ kind: 'group', label: 'Section', attrs: 'data-g="1"' })
+  assert.ok(group.includes('data-g="1"'), 'group 的属性也不该被丢')
+})

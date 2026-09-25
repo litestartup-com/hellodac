@@ -34,9 +34,12 @@ export const triggerButtonHtml = ({ id, label, controls }) =>
  */
 export const menuItemHtml = (spec) => {
   const kind = spec.kind ?? 'item'
+  const attrs = typeof spec.attrs === 'string' ? ` ${spec.attrs}` : ''
   if (kind === 'sep') return '<div class="menu-sep" role="separator"></div>'
-  if (kind === 'group') return `<div class="menu-group">${esc(spec.label ?? '')}</div>`
-  if (kind === 'note') return `<div class="menu-note">${esc(spec.label ?? '')}</div>`
+  // note/group 也必须透传 attrs（2026-09-26 事故：版本回填的 data-about-version
+  // 标记被静默丢掉 → querySelector 永远命中不了 → 版本号永远不显示）。
+  if (kind === 'group') return `<div class="menu-group"${attrs}>${esc(spec.label ?? '')}</div>`
+  if (kind === 'note') return `<div class="menu-note"${attrs}>${esc(spec.label ?? '')}</div>`
   const cls = kind === 'danger' ? ' class="menu-item danger"' : ' class="menu-item"'
   /**
    * 图标两种形态：
@@ -51,14 +54,13 @@ export const menuItemHtml = (spec) => {
         ? `<svg width="14" height="14" aria-hidden="true"><use href="#i-${esc(spec.icon)}" /></svg>`
         : `${String(spec.icon.raw ?? '')}`
   const trailing = typeof spec.trailing === 'string' && spec.trailing !== '' ? `<span class="menu-trailing">${esc(spec.trailing)}</span>` : ''
-  const attrs = typeof spec.attrs === 'string' ? spec.attrs : ''
   const isLink = /\bhref\s*=/.test(attrs)
   // 子菜单/浮窗触发器：用 aria-haspopup 标出来（与普通项区分）。
   const popup = kind === 'submenu' ? ' aria-haspopup="true" aria-expanded="false"' : ''
   const tag = isLink ? 'a' : 'button'
   const typeAttr = isLink ? '' : ' type="button"'
   const role = isLink ? ' role="menuitem"' : ''
-  return `<${tag}${typeAttr}${cls}${popup}${role} ${attrs}><span class="menu-grow">${icon}${esc(spec.label ?? '')}</span>${trailing}${kind === 'submenu' ? '<span class="menu-chevron" aria-hidden="true">›</span>' : ''}</${tag}>`
+  return `<${tag}${typeAttr}${cls}${popup}${role}${attrs}><span class="menu-grow">${icon}${esc(spec.label ?? '')}</span>${trailing}${kind === 'submenu' ? '<span class="menu-chevron" aria-hidden="true">›</span>' : ''}</${tag}>`
 }
 
 /**
