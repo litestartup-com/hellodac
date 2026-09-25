@@ -56,18 +56,28 @@ test('能力四 M1-7: join 命令——origin 与 token 注入，静态面分发
   assert.ok(cmd.includes('https://app.example.com/assets/agent/join.sh'), 'join.sh 走 manager 静态面')
   assert.ok(cmd.includes('MANAGER_URL=https://app.example.com'), 'MANAGER_URL 注入')
   assert.ok(cmd.includes('AGENT_JOIN_TOKEN=dac-join-xyz'), '一次性 token 注入')
-  assert.ok(cmd.includes('| MANAGER_URL='), '管道 + env 前缀执行')
-  assert.ok(cmd.trimEnd().endsWith('sudo bash'), 'bash 从 stdin 读脚本，且必须提权')
+  assert.ok(cmd.includes('| sudo '), '管道交给 sudo')
+  assert.ok(cmd.trimEnd().endsWith(' bash'), 'bash 从 stdin 读脚本')
 })
 
 /**
- * 事故回归（2026-09-25 ubuntu-focal 失联）：join.sh 装 systemd **system**
- * unit 后要求 root。生成的命令必须把 sudo 加在**读 stdin 的 bash** 上——
- * 漏了 sudo 则照 README 走的用户第一步就吃「需要 root」报错；加错地方
- * （sudo curl）则环境变量前缀失效、脚本下到 root 当前目录。
+ * 事故回归（2026-09-25，全新 Ubuntu 20.04 实测）：
+ *
+ * ① 必须提权——join.sh 装的是 systemd **system** unit，非 root 会被显式拒绝。
+ * ② **赋值必须在 sudo 右边**。`FOO=bar sudo bash` 里的 FOO 会被 sudo 的
+ *    `Defaults env_reset` 丢掉，脚本报「需要 MANAGER_URL」当场退出——这就是
+ *    一键命令在干净机器上第一步失败的原因。实测 `sudo FOO=bar bash` 才稳
+ *    （赋值作为 sudo 的命令参数）；`sudo -E` 依赖调用方 sudoers 允许，不可依赖。
  */
-test('事故回归: join 命令必须提权，且 sudo 作用于 bash 而非 curl', () => {
+test('事故回归: join 命令的 env 赋值必须在 sudo 右边，否则会被 env_reset 丢掉', () => {
   const cmd = joinCommand('https://app.example.com', 'dac-join-xyz')
-  assert.ok(/\|\s*MANAGER_URL=\S+ AGENT_JOIN_TOKEN=\S+ sudo bash$/.test(cmd), 'sudo 紧贴 bash（env 前缀在外层 shell 赋值）')
+  const afterPipe = cmd.slice(cmd.indexOf('|') + 1).trim()
+  assert.match(
+    afterPipe,
+    /^sudo MANAGER_URL=\S+ AGENT_JOIN_TOKEN=\S+ bash$/,
+    'sodu 右侧依次是 sudo / 两个赋值 / bash',
+  )
+  assert.ok(!/^MANAGER_URL=/.test(afterPipe), 'env 前缀绝不能出现在 sudo 左边（会被 env_reset 清掉）')
+  assert.ok(!cmd.includes('sudo -E'), '不依赖 -E：它取决于调用方 sudoers 是否允许')
   assert.ok(!cmd.includes('sudo curl'), 'sudo 不得落在 curl 上')
 })

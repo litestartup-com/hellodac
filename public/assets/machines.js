@@ -54,21 +54,23 @@ export const machineRowHtml = (m) => {
 }
 
 /**
- * join 命令（Linux 一条命令加入）：join.sh 由 manager 静态面分发，
- * MANAGER_URL 与一次性 token 走环境变量注入。
+ * join 命令（Linux 一条命令加入）：join.sh 由 manager 静态面分发。
  *
- * 事故回归（2026-09-25）：这里必须 `sudo bash`——join.sh 装的是 systemd
- * **system** unit（/etc/systemd/system），非 root 会被脚本显式拒绝。只给
- * `curl` 加 sudo 是没用的（提权的得是读 stdin 的那个 bash），而 `sudo curl`
- * 反而会把脚本下载到 root 的当前目录。env 前缀由外层 shell 赋值，sudo 默认
- * 放行，所以 token 能正常传进脚本。
+ * 事故回归（2026-09-25，全新机器实测抓到）：**env 前缀绝不能放在 sudo 左边**。
+ * sudo 默认 `Defaults env_reset`，会把 `FOO=bar sudo bash` 里的 FOO 直接丢掉，
+ * 脚本因而报「需要 MANAGER_URL」当场退出——照着命令做的用户第一步就失败。
+ * 实测三种写法（ubuntu 20.04 / sudo 1.8.31）：
+ *   FOO=bar sudo bash      → FOO 为空（错）
+ *   sudo -E FOO=bar bash   → FOO=bar（但 -E 依赖调用方 sudoers 允许，不可依赖）
+ *   sudo FOO=bar bash      → FOO=bar（赋值是 sudo 自己的命令参数，稳）
+ * 取第三种：提权的仍是读 stdin 的 bash，两个变量作为 sudo 参数注入，不依赖环境保留。
  *
  * @param {string} origin manager 站点源（如 https://app.example.com）
  * @param {string} token 一次性 join token
  * @returns {string}
  */
 export const joinCommand = (origin, token) =>
-  `curl -fsSL ${origin}/assets/agent/join.sh | MANAGER_URL=${origin} AGENT_JOIN_TOKEN=${token} sudo bash`
+  `curl -fsSL ${origin}/assets/agent/join.sh | sudo MANAGER_URL=${origin} AGENT_JOIN_TOKEN=${token} bash`
 
 /**
  * 本机行（UI 收尾 C-P1.5）：manager 宿主不是 node-agent 注册机器（机器目录
