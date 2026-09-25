@@ -13,7 +13,7 @@
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, statfsSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, statfsSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { hostname, totalmem, freemem, cpus, uptime } from 'node:os'
 import { currentAgentVersion } from './update.mjs'
@@ -254,6 +254,102 @@ export class AgentRuntime {
     return `${this.agentDir}/nodes/${nodeId}`
   }
 
+  /**
+   * 事故回归（2026-09-25）：nodeId 恒来自 manager，但它落盘后会被 resumeNodes
+   * 当路径拼回去——带上分隔符或 `..` 就能在 agent 进程权限下写到 nodes/ 之外。
+   * 路径字符集收紧到 /^[A-Za-z0-9._-]+$/ 且拒绝纯点，杜绝穿越。
+   */
+  static isSafeNodeId(nodeId) {
+    return typeof nodeId === 'string' && /^[A-Za-z0-9._-]+$/.test(nodeId) && !/^\.+$/.test(nodeId)
+  }
+
+  /** 读 node.pid（无文件/非法值 → null）。 */
+  readNodePid(nodeId) {
+    if (!AgentRuntime.isSafeNodeId(nodeId)) return null
+    const raw = this.fs.readFile(`${this.nodeHome(nodeId)}/node.pid`)
+    if (raw === null) return null
+    const pid = Number(raw.trim())
+    return Number.isInteger(pid) && pid > 0 ? pid : null
+  }
+
+  /**
+   * 事故回归（2026-09-25）：把 spawn 载荷落盘，作为「本机应有哪些节点」的
+   * 真相源。主机重启后内存全丢，只有磁盘还知道该拉什么；没有这份载荷，
+   * agent 就只能干等 manager 重新下发（默认对账 10 分钟）。
+   */
+  persistSpawnPayload(nodeId, payload) {
+    if (!AgentRuntime.isSafeNodeId(nodeId)) {
+      this.log(`拒绝落盘非法 nodeId：${String(nodeId)}`)
+      return
+    }
+    try {
+      this.fs.mkdir(this.nodeHome(nodeId))
+      this.fs.writeFile(`${this.nodeHome(nodeId)}/spawn.json`, JSON.stringify(payload))
+    } catch (error) {
+      this.log(`node ${nodeId}: spawn 载荷落盘失败（自恢复将不可用）：${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  /**
+   * 事故回归（2026-09-25）：开机自恢复。
+   *
+   * 节点是 agent 的子进程——主机重启后全灭。旧行为是「等 manager 发现节点死了
+   * 再重新下发」，于是恢复时间 = 整个对账周期（默认 10 分钟）。这里让 agent
+   * 自己按落盘的 spawn.json 把节点拉回来：进程一启动节点就回来了，manager 那边
+   * 只是随后探活确认，不参与恢复路径。
+   *
+   * 与 manager 失联时同样有效——恢复不依赖任何网络往返。
+   * `node.stop` 会删掉 spawn.json，所以人手动停掉的节点不会被复活。
+   */
+  async resumeNodes() {
+    const resumed = []
+    // 直接列举，不先 exists(nodes/)：目录存在与否由 listDir 一并回答，
+    // 少一个「目录语义」依赖（readdir 拿不到就是没有）。
+    for (const nodeId of this.listNodeIds()) {
+      let payload = null
+      try {
+        const raw = this.fs.readFile(`${this.nodeHome(nodeId)}/spawn.json`)
+        if (raw === null || raw === '') continue
+        const parsed = JSON.parse(raw)
+        // 载荷里的 nodeId 必须与所在目录一致：否则坏文件/被改文件能把恢复
+        // 变成「往任意 home 里拉进程」。
+        if (parsed === null || typeof parsed !== 'object' || parsed.nodeId !== nodeId) {
+          this.log(`node ${nodeId}: spawn.json 与目录不符，跳过自恢复`)
+          continue
+        }
+        payload = parsed
+      } catch (error) {
+        this.log(`node ${nodeId}: spawn.json 不可解析，跳过自恢复（${error instanceof Error ? error.message : String(error)}）`)
+        continue
+      }
+      try {
+        const outcome = await this.dispatchSpawn(payload)
+        if (outcome.ok) {
+          resumed.push(nodeId)
+          this.log(`node ${nodeId}: 已按落盘载荷自恢复（pid ${String(outcome.result?.pid ?? '?')}）`)
+        } else {
+          this.log(`node ${nodeId}: 自恢复失败——${String(outcome.result?.message ?? 'unknown')}`)
+        }
+      } catch (error) {
+        // 单个节点炸掉不得拖垮其余节点的恢复
+        this.log(`node ${nodeId}: 自恢复异常——${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+    return resumed
+  }
+
+  /** nodes/ 下的节点目录名（读不到目录 = 空）。 */
+  listNodeIds() {
+    const dir = `${this.agentDir}/nodes`
+    const entries = this.fs.listDir?.(dir)
+    if (!Array.isArray(entries)) {
+      // 降级：fs 桩没提供 listDir 时，只能看到本进程已知的节点
+      // （真实 defaultFs 恒有 listDir，自恢复不受影响）
+      return [...this.nodes.keys()].filter((name) => AgentRuntime.isSafeNodeId(name)).sort()
+    }
+    return entries.filter((name) => AgentRuntime.isSafeNodeId(name)).sort()
+  }
+
   /** 确保 DSH 钉版装在 agent 自有 prefix，返回 bin.js 绝对路径。 */
   async ensureDsh(dshVersion) {
     const version = typeof dshVersion === 'string' && dshVersion !== '' ? dshVersion : '0.1.2-rc.1'
@@ -268,10 +364,35 @@ export class AgentRuntime {
   async execSpawn(command) {
     const payload = command.payload ?? {}
     const nodeId = payload.nodeId
+    this.persistSpawnPayload(nodeId, payload)
+    return this.dispatchSpawn(payload)
+  }
+
+  /**
+   * 事故回归（2026-09-25 EADDRINUSE）：一次 spawn 的完整落地。
+   *
+   * 开头就是幂等闸门——manager 每轮对账都会重新入队 node.spawn，而「本机这个
+   * 节点是不是已经在跑」只有 agent 自己知道。没有这道闸门时，每轮对账都会再拉
+   * 一个 DSH 进程，两个进程抢同一个端口 = `EADDRINUSE 0.0.0.0:3197`。
+   * 闸门放在最前面：已经活着就连 profile 安装都不必重走。
+   */
+  async dispatchSpawn(payload) {
+    const nodeId = payload.nodeId
     const home = this.nodeHome(nodeId)
     const dshHome = payload.env?.DSH_HOME ?? home
     this.fs.mkdir(home)
     this.fs.mkdir(dshHome)
+
+    const runningPid = this.readNodePid(nodeId)
+    if (runningPid !== null && (await this.proc.alive(runningPid))) {
+      this.nodes.set(nodeId, {
+        pid: runningPid,
+        startedAt: this.nodes.get(nodeId)?.startedAt ?? Date.now(),
+        logOffset: this.nodes.get(nodeId)?.logOffset ?? 0,
+      })
+      this.log(`node ${nodeId} 已在运行（pid ${runningPid}）——跳过重复 spawn`)
+      return { ok: true, result: { pid: runningPid, alreadyRunning: true } }
+    }
     // 钥匙：spawn 载荷 env 里的 GW_KEY → DSH_HOME/settings.yaml（facade 只读
     // settings；容器 entrypoint 同款派生，单向下发）。
     // 舰队 M3：ALLOW_FULL_ACCESS=true（ops 节点）→ facade allowFullAccess 开锁
@@ -354,6 +475,14 @@ export class AgentRuntime {
       }
     }
     this.nodes.set(nodeId, { pid: null, startedAt: null, logOffset: node?.logOffset ?? 0 })
+    // 事故回归（2026-09-25）：停 = 意图，不只是当下动作。删掉落盘载荷，
+    // 否则 agent 一重启就会把「人明确停掉的节点」按 spawn.json 又拉回来。
+    // （node.restart 走 stop→spawn，紧随其后的 spawn 会重新落盘，不受影响。）
+    if (AgentRuntime.isSafeNodeId(nodeId)) {
+      try {
+        this.fs.remove(`${home}/spawn.json`)
+      } catch { /* 本来就没有 —— 无妨 */ }
+    }
     return { ok: true, result: { pid: pid ?? null } }
   }
 
@@ -489,6 +618,15 @@ export class AgentRuntime {
    * systemd Restart=always 不受影响；换装后的重启是设计内行为。
    */
   async run(opts = {}) {
+    // 事故回归（2026-09-25）：自恢复刻意排在注册之前——主机重启后节点应当
+    // 立刻回来，而不是等 manager 可达。恢复纯本地（读 spawn.json + spawn 进程），
+    // 不依赖任何网络往返；manager 稍后探活确认即可。
+    try {
+      const resumed = await this.resumeNodes()
+      if (resumed.length > 0) this.log(`开机自恢复：已拉起 ${resumed.join(', ')}`)
+    } catch (error) {
+      this.log(`开机自恢复失败（不阻断 agent 启动）：${error instanceof Error ? error.message : String(error)}`)
+    }
     await this.registerOnce()
     for (;;) {
       if (opts?.signal?.aborted === true) return
@@ -548,5 +686,13 @@ function defaultFs() {
     },
     rename: (from, to) => renameSync(from, to),
     remove: (p) => rmSync(p, { force: true }),
+    /** 事故回归（2026-09-25）：nodes/ 目录列举——重启后自恢复的发现入口。 */
+    listDir: (p) => {
+      try {
+        return readdirSync(p)
+      } catch {
+        return null
+      }
+    },
   }
 }
