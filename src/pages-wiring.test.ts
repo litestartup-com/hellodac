@@ -82,3 +82,28 @@ test('接线守卫: 登录页(独立页)引用的 DOM id 也存在', () => {
   const missing = [...idsReferencedBy('login.js')].filter((id) => !declared.has(id) && !DYNAMIC.some((re) => re.test(id)))
   assert.deepEqual(missing, [], `login.js 引用了登录页里不存在的 id：${missing.join(', ')}`)
 })
+
+/**
+ * 图标守卫：menuItemHtml({ icon }) / `<use href="#i-x">` 的图标名必须在图标精灵里有定义。
+ *
+ * 为什么值得一条断言：图标名写错**不报错**，`<use href="#i-typo">` 只是渲染不出东西，
+ * 页面上留一个空白图标位——「菜单看起来没做完」的典型成因，而且只有肉眼能发现。
+ * 上次删图标时正是先查了这份清单，才发现 stop/restart/tag 这些名字根本不存在
+ * （差点凑出四个错图标），所以把检查固化下来。
+ */
+test('接线守卫: 代码引用的图标名都在图标精灵里存在', () => {
+  const sprite = new Set([...readFileSync(join(publicDir, 'layout.html'), 'utf8').matchAll(/id="i-([a-z0-9-]+)"/g)].map((m) => m[1]))
+  assert.ok(sprite.size > 20, `图标精灵解析异常（只拿到 ${sprite.size} 个）`)
+
+  const offenders: string[] = []
+  for (const file of ['shell.js', 'node-row.js', 'nodes.js']) {
+    const text = readFileSync(join(publicDir, 'assets', file), 'utf8')
+    for (const m of text.matchAll(/\bicon:\s*'([^']+)'/g)) {
+      if (!sprite.has(m[1] as string)) offenders.push(`${file}: icon '${m[1]}'`)
+    }
+    for (const m of text.matchAll(/href="#i-([a-z0-9-]+)"/g)) {
+      if (!sprite.has(m[1] as string)) offenders.push(`${file}: #i-${m[1]}`)
+    }
+  }
+  assert.deepEqual(offenders, [], `这些图标名不存在（会渲染成空白图标位且不报错）：\n  ${offenders.join('\n  ')}`)
+})
