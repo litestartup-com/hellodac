@@ -4,7 +4,7 @@
 // being the dashboard's private property; every page owns the shell equally.
 
 import { $, ago, banner, esc, icon, setHtml, when, apiFetch, poll, t, loadI18n, brandInfo, availableLocales, currentLocale } from './ui.js'
-import { menuItemHtml } from './menu.js'
+import { menuItemHtml, placeSubmenu } from './menu.js'
 
 /**
  * 多语言与品牌：先取字典再画侧栏（顶层 await——首屏不该先显示键名再补译文）。
@@ -510,9 +510,9 @@ export const loadShell = async () => {
       if (!notifyPanel.hidden) renderNotifyPanel(notifications.items)
     }
 
-    // About 子项里的运行时版本（manager 版本）；槽位在菜单构建时留好。
+    // 设置浮窗里的运行时版本（manager 版本）；槽位在菜单构建时留好。
     if (typeof status.managerVersion === 'string' && status.managerVersion !== '') {
-      const slot = document.querySelector('#side-more-menu [data-version-slot]')
+      const slot = document.querySelector('#more-settings [data-version-slot]')
       if (slot !== null) slot.textContent = `v${status.managerVersion}`
     }
 
@@ -1123,14 +1123,17 @@ if (primaryNav !== null) primaryNav.innerHTML = PRIMARY_NAV.map(navLinkHtml).joi
 // 一个满高导航行）/ 品牌页脚（全称+口号+版本+GitHub 四行弱化文字）/ 独立红色登出
 // 按钮。用户的原话是「password 以下到 sign out 太乱」。
 //
-// 改后只保留两种语言：**菜单项**（图标位+文字+可选尾注）与**分组标题**。
-// 语言与关于各自收进子项（第二层），所以主菜单尺寸与语言数量彻底解耦——
-// 加到 20 个语言，主菜单还是 6 项。
+// 改后只保留两种语言：**菜单项**（图标 + 文字 + 可选尾注）与**分组标题**，
+// 语言与设置走**右侧浮窗**（第二层）。
+//
+// 为什么是右侧浮窗而不是就地展开：
+//   这个菜单锚在视口**底部、向上生长**（bottom 定位）。就地展开会改变菜单高度，
+//   于是整个菜单上移——用户正点的那个 item 会当场跳位。浮窗则让主菜单纹丝不动。
+//   顺带与节点行的 ⋮ 菜单变成同一套交互（那本来就是右侧浮窗），只学一次。
+//   主菜单尺寸也与语言数量彻底解耦：加到 20 个语言，主菜单还是 7 项。
 // ---------------------------------------------------------------------------
 
-/** 子项列表（默认收起）：用于「语言」「关于」的展开区。 */
-const subListHtml = (id, items) => `<div class="more-sub" id="${id}" hidden>${items.join('')}</div>`
-
+/** 语言浮窗的内容：每个语言一项，当前语言带勾。 */
 const langItems = availableLocales().map((tag) =>
   menuItemHtml({
     label: t(`lang.${tag}`),
@@ -1139,13 +1142,15 @@ const langItems = availableLocales().map((tag) =>
   }),
 )
 
-const aboutItems = [
+/** 设置浮窗的内容：版本（由 /api/status 回填）+ 仓库入口。 */
+const settingsItems = [
   menuItemHtml({ kind: 'note', label: `${brand.name} — ${brand.full}` }),
   ...(brand.tagline === '' ? [] : [menuItemHtml({ kind: 'note', label: brand.tagline })]),
-  menuItemHtml({ kind: 'note', label: `${t('nav.version')} …`, attrs: 'data-version-slot="1"' }),
+  menuItemHtml({ kind: 'sep' }),
+  menuItemHtml({ label: t('nav.version'), attrs: 'data-version-slot="1"', trailing: '—' }),
   ...(brand.repo === ''
     ? []
-    : [menuItemHtml({ label: 'GitHub', attrs: `href="${esc(brand.repo)}" target="_blank" rel="noopener noreferrer"`, trailing: '↗' })]),
+    : [menuItemHtml({ label: 'GitHub', icon: 'github', attrs: `href="${esc(brand.repo)}" target="_blank" rel="noopener noreferrer"`, trailing: '↗' })]),
 ]
 
 const moreMenu = document.createElement('div')
@@ -1153,43 +1158,67 @@ moreMenu.id = 'side-more-menu'
 moreMenu.className = 'side-more-menu menu-panel'
 moreMenu.setAttribute('aria-label', t('nav.more'))
 moreMenu.hidden = true
-moreMenu.innerHTML = `${MORE_NAV.map((item) => menuItemHtml({ label: item.label, attrs: `href="${item.href}" data-nav="${item.nav}"` })).join('')}
+moreMenu.innerHTML = `${MORE_NAV.map((item) => menuItemHtml({ label: item.label, icon: item.icon, attrs: `href="${item.href}" data-nav="${item.nav}"` })).join('')}
   ${menuItemHtml({ kind: 'sep' })}
-  ${menuItemHtml({ label: t('nav.language'), attrs: 'data-more-sub="langs" aria-controls="more-langs"', trailing: t(`lang.${currentLocale()}`) })}
-  ${subListHtml(
-    'more-langs',
-    langItems.length === 0 ? [menuItemHtml({ kind: 'note', label: t('nav.languageNone') })] : langItems,
-  )}
-  ${menuItemHtml({ label: t('nav.about'), attrs: 'data-more-sub="about" aria-controls="more-about"' })}
-  ${subListHtml('more-about', aboutItems)}
+  ${menuItemHtml({ label: t('nav.language'), icon: 'endpoint', trailing: t(`lang.${currentLocale()}`), attrs: 'data-more-flyout="more-langs" aria-haspopup="true" aria-expanded="false" data-more-flyout-side="right"' })}
+  ${menuItemHtml({ label: t('nav.settings'), icon: 'hive', attrs: 'data-more-flyout="more-settings" aria-haspopup="true" aria-expanded="false" data-more-flyout-side="right"' })}
   ${menuItemHtml({ kind: 'sep' })}
   <button id="logout" class="menu-item danger" type="button">
     <svg width="14" height="14" aria-hidden="true"><use href="#i-logout" /></svg>
     <span class="menu-grow">${esc(t('nav.logout'))}</span>
   </button>`
+
+// 两个浮窗与主菜单同级、同挂 body（脱离 .sidebar 的 overflow 与 transform）。
+const moreFlyouts = new Map([
+  ['more-langs', { panel: document.createElement('div'), items: langItems, label: t('nav.language'), owner: null }],
+  ['more-settings', { panel: document.createElement('div'), items: settingsItems, label: t('nav.settings'), owner: null }],
+])
+for (const [id, fly] of moreFlyouts) {
+  fly.panel.id = id
+  fly.panel.className = 'menu-panel menu-sub more-flyout'
+  fly.panel.setAttribute('role', 'menu')
+  fly.panel.setAttribute('aria-label', fly.label)
+  fly.panel.hidden = true
+  fly.panel.innerHTML = fly.items.join('')
+  document.body.appendChild(fly.panel)
+}
+
 document.body.appendChild(moreMenu)
 
-// 版本号由 /api/status 轮询回填（不在页面里写死）；About 里那一行留了槽位。
+// 版本号由 /api/status 轮询回填（不在页面里写死）；设置浮窗里那一行留了槽位。
 
-// 第二层：语言 / 关于，就地展开。就地而不是再叠一个浮窗——两层浮窗在 rail 收窄
-// 时容易互相压住，而且这一层本来就在抽屉底部，展开空间充足。
-const closeMoreSubs = (except) => {
-  for (const panel of moreMenu.querySelectorAll('.more-sub')) {
-    if (panel === except) continue
-    panel.hidden = true
-    moreMenu.querySelector(`[aria-controls="${panel.id}"]`)?.setAttribute('aria-expanded', 'false')
+// 第二层：语言 / 设置 —— 右侧浮窗。定位复用 menu.js 的 placeSubmenu（放不下会
+// 自动翻到左侧），所以窄屏也不会溢出视口。
+const closeMoreFlyouts = () => {
+  for (const [, fly] of moreFlyouts) {
+    fly.panel.hidden = true
+    fly.owner?.setAttribute('aria-expanded', 'false')
   }
 }
 
+const openMoreFlyout = (id, trigger) => {
+  const fly = moreFlyouts.get(id)
+  if (fly === undefined) return
+  const wasOpen = !fly.panel.hidden
+  closeMoreFlyouts()
+  if (wasOpen) return
+  fly.owner = trigger
+  fly.panel.hidden = false
+  trigger.setAttribute('aria-expanded', 'true')
+  const pos = placeSubmenu({
+    rect: trigger.getBoundingClientRect(),
+    width: fly.panel.offsetWidth,
+    height: fly.panel.offsetHeight,
+    viewport: { w: window.innerWidth, h: window.innerHeight },
+  })
+  fly.panel.style.left = `${pos.left}px`
+  fly.panel.style.top = `${pos.top}px`
+}
+
 moreMenu.addEventListener('click', (event) => {
-  const trigger = event.target.closest('[data-more-sub]')
+  const trigger = event.target.closest('[data-more-flyout]')
   if (trigger === null) return
-  const panel = document.getElementById(trigger.getAttribute('aria-controls') ?? '')
-  if (panel === null) return
-  const willOpen = panel.hidden
-  closeMoreSubs(willOpen ? panel : null)
-  panel.hidden = !willOpen
-  trigger.setAttribute('aria-expanded', String(willOpen))
+  openMoreFlyout(trigger.dataset.moreFlyout ?? '', trigger)
 })
 
 // 登出绑定在菜单入 DOM 之后（id 是同一套，绑定时机决定成败）。
@@ -1201,6 +1230,7 @@ $('logout')?.addEventListener('click', async () => {
 const moreBtn = $('side-more')
 
 const closeMoreMenu = () => {
+  closeMoreFlyouts()
   moreMenu.hidden = true
   moreBtn?.setAttribute('aria-expanded', 'false')
 }
@@ -1214,7 +1244,7 @@ const openMoreMenu = () => {
     moreMenu.style.bottom = `${window.innerHeight - rect.top + 8}px`
     moreMenu.style.left = `${Math.min(Math.max(rect.right - 224, 8), window.innerWidth - 232)}px`
   }
-  closeMoreSubs(null) // 每次打开从收起态开始，避免上次展开的语言/关于留在那儿
+  closeMoreFlyouts() // 每次打开从收起态开始，避免上次展开的语言/设置留在那儿
   moreMenu.hidden = false
   moreBtn?.setAttribute('aria-expanded', 'true')
   // 菜单打开焦点进首项（标准菜单行为）；Esc 关闭时归还按钮。

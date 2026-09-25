@@ -2500,23 +2500,12 @@ select.text-input {
   font-size: 14px;
 }
 
-/* 子项展开区（语言 / 关于）：就地展开，缩进一级，与父项形成层级。 */
-.side-more-menu .more-sub {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  margin: 1px 0 3px 10px;
-  padding-left: 8px;
-  border-left: 2px solid var(--border);
-}
-
-.side-more-menu .more-sub[hidden] {
-  display: none;
-}
-
-.side-more-menu .more-sub .menu-item {
-  min-height: 32px;
-  font-size: 13px;
+/* 第二层浮窗（语言 / 设置）：与节点菜单的子菜单同一套（menu-panel + menu-sub）。
+   挂 body、fixed 定位——抽屉在 <1024px 是 translateX 的 off-canvas，子元素若用
+   absolute 会跟着它一起被推出屏幕。定位走 menu.js 的 placeSubmenu（越界翻边）。 */
+.side-more-menu .more-flyout {
+  width: 196px;
+  max-width: 240px;
 }
 
 /* 关于项里的说明行：不占菜单项高度，纯文字。 */

@@ -203,3 +203,22 @@ test('菜单原语: 触发器默认隐藏（hidden），不会先闪一下再定
   assert.ok(!menuPanelHtml({ id: 'p', label: 'L', items: [], hidden: false }).includes('hidden'))
   assert.ok(triggerButtonHtml({ id: 't', label: 'More', controls: 'p' }).includes('aria-expanded="false"'))
 })
+
+// ---- 图标（用户反馈：浮窗 item 该有 svg 图标，去掉不好看）----
+
+test('菜单原语: 给了 icon 才渲染图标——导航项有图标，节点操作项保持纯文字', () => {
+  const withIcon = menuItemHtml({ label: 'Skills', icon: 'spark' })
+  assert.ok(withIcon.includes('<use href="#i-spark" />'), '导航项渲染图标')
+  assert.ok(withIcon.includes('Skills'), '文字照旧')
+
+  // 节点操作项没有对应语义图标（图标集里没有 stop/restart/tag），不给 icon
+  // 就不该凭空多一个 svg——否则会拿错图标表达错意思。
+  const plain = menuItemHtml({ label: 'Stop' })
+  assert.ok(!plain.includes('<svg'), '没给 icon 就不渲染 svg')
+})
+
+test('菜单原语: 图标名与文字都转义，不接受注入', () => {
+  const evil = menuItemHtml({ label: 'x', icon: '"><script>' })
+  assert.ok(!evil.includes('<script>'), '图标名不能逃出属性')
+  assert.ok(evil.includes('&quot;'), '引号被转义')
+})

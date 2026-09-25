@@ -19,9 +19,11 @@ export const triggerButtonHtml = ({ id, label, controls }) =>
 /**
  * 一行菜单项。
  *
- * 刻意**不带图标**：图标集里没有 stop/restart/tag 这些语义图标，硬凑会拿错图标
- * 表达错意思；而节点行原来的操作按钮本来也是纯文字，菜单保持一致更好读。
- * @param {{ kind?: 'item' | 'submenu' | 'danger' | 'sep' | 'note' | 'group', label?: string, attrs?: string, trailing?: string | null }} spec
+ * 图标是**可选**的，而且只在调用方明确给出时才渲染：节点行的操作项没有对应的
+ * 语义图标（图标集里没有 stop/restart/tag 这些），硬凑会拿错图标表达错意思
+ * ——那批菜单项保持纯文字；而侧栏导航项本来就有约定俗成的图标（spark/archive/
+ * coin/shield/pencil），丢了反而认不出来。
+ * @param {{ kind?: 'item' | 'submenu' | 'danger' | 'sep' | 'note' | 'group', label?: string, icon?: string | null, attrs?: string, trailing?: string | null }} spec
  * @returns {string}
  */
 export const menuItemHtml = (spec) => {
@@ -30,11 +32,15 @@ export const menuItemHtml = (spec) => {
   if (kind === 'group') return `<div class="menu-group">${esc(spec.label ?? '')}</div>`
   if (kind === 'note') return `<div class="menu-note">${esc(spec.label ?? '')}</div>`
   const cls = kind === 'danger' ? ' class="menu-item danger"' : ' class="menu-item"'
+  const icon =
+    typeof spec.icon === 'string' && spec.icon !== ''
+      ? `<svg width="14" height="14" aria-hidden="true"><use href="#i-${esc(spec.icon)}" /></svg>`
+      : ''
   const trailing = typeof spec.trailing === 'string' && spec.trailing !== '' ? `<span class="menu-trailing">${esc(spec.trailing)}</span>` : ''
   const attrs = typeof spec.attrs === 'string' ? spec.attrs : ''
   // 子菜单项：点开第二层，用 aria-haspopup 标出来（与普通项区分）。
   const popup = kind === 'submenu' ? ' aria-haspopup="true" aria-expanded="false"' : ''
-  return `<button type="button"${cls}${popup} ${attrs}><span class="menu-grow">${esc(spec.label ?? '')}</span>${trailing}${kind === 'submenu' ? '<span class="menu-chevron" aria-hidden="true">›</span>' : ''}</button>`
+  return `<button type="button"${cls}${popup} ${attrs}><span class="menu-grow">${icon}${esc(spec.label ?? '')}</span>${trailing}${kind === 'submenu' ? '<span class="menu-chevron" aria-hidden="true">›</span>' : ''}</button>`
 }
 
 /**
