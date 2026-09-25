@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { guiTunnelCommand, guiCardHtml, guiDirectCardHtml, guiSetupButton } from './gui-access.js'
+import { guiTunnelCommand } from './gui-access.js'
 
 import { useTestDictionary } from './test-i18n.mjs'
 
@@ -28,29 +28,7 @@ test('体验优化回归: 私钥路径——配置了 ssh_key 命令带 -i，留
   assert.ok(!guiTunnelCommand({ ...ACCESS, sshKey: '' }).includes(' -i '))
 })
 
-test('债务 P1 回归: GUI 卡——命令+打开按钮；guiUrl 为空时按钮禁用并提示', () => {
-  const ready = guiCardHtml('brain', ACCESS, 'http://127.0.0.1:3088/?token=tok-1')
-  assert.ok(ready.includes('ssh -N -o ExitOnForwardFailure=yes -L 127.0.0.1:3088:127.0.0.1:3080 ubuntu@10.0.0.5'), '卡片含隧道命令')
-  assert.ok(ready.includes('data-gui-open="brain"'), '打开按钮挂节点 id')
-  assert.ok(ready.includes('http://127.0.0.1:3088/?token=tok-1'), '打开 URL 拼入')
-  assert.ok(!ready.includes('disabled'), '有 guiUrl 时按钮不禁用')
-  assert.ok(ready.includes('Permission denied'), '含私钥提示语')
-
-  const booting = guiCardHtml('brain', ACCESS, null)
-  assert.ok(booting.includes('disabled'), '节点未就绪时打开按钮禁用')
-})
-
-test('体验优化回归: 本机直连卡——无需隧道命令，直接打开 + 配置隧道入口', () => {
-  const html = guiDirectCardHtml('personal', 'http://127.0.0.1:3081/?token=tok-9')
-  assert.ok(html.includes('direct on this host'), '标题注明直连形态')
-  assert.ok(!html.includes('ssh -N'), '不出现隧道命令')
-  assert.ok(html.includes('data-gui-open="personal"'), '打开按钮挂节点 id')
-  assert.ok(html.includes('http://127.0.0.1:3081/?token=tok-9'), '打开 URL 拼入')
-  assert.ok(html.includes('data-node-access="personal"'), '仍可切换到隧道配置')
-})
-
-test('债务 P1 回归: 未配置 access 的非本机节点显示「配置原生访问」入口', () => {
-  const html = guiSetupButton('personal')
-  assert.ok(html.includes('data-node-access="personal"'), '配置入口挂节点 id')
-  assert.ok(html.includes('Set up native access'), '文案')
-})
+// UI 精简（DAC v1.0.0）：原「原生 GUI 卡」三张（隧道卡/直连卡/配置入口按钮）是
+// 节点行右侧的常显区块，行改成「状态 + ID + ⋮ 菜单」后已无调用方，随行内 UI
+// 一起删除；隧道命令与「打开 GUI」搬进原生访问抽屉（那里从表单值实时计算命令）。
+// 所以这里只剩命令拼装的回归——它仍是生产代码，卡片渲染不再是。

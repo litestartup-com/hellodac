@@ -204,6 +204,20 @@
             <input id="f-acc-key" class="text-input mono" maxlength="256" placeholder="C:\Users\you\.ssh\id_ed25519" />
           </label>
           <p class="muted small">{{t:nodes.access.hint}}</p>
+
+          <!-- 连接区（UI 精简）：原来节点行常显一张 330px 的卡放隧道命令，
+               现在行里只留一个「原生访问」入口，命令与打开按钮搬到这儿——
+               配一次、用一次，本来就该在一起。 -->
+          <div class="access-conn" id="f-acc-conn" hidden>
+            <div class="access-conn-head">
+              <span class="field-label grow">{{t:nodes.access.connect}}</span>
+              <button type="button" class="btn-quiet btn-sm" id="f-acc-copy">{{t:common.copy}}</button>
+              <button type="button" class="btn btn-sm" id="f-acc-open">{{t:gui.open}}</button>
+            </div>
+            <code class="node-gui-cmd" id="f-acc-cmd"></code>
+            <span class="muted small" id="f-acc-conn-hint"></span>
+          </div>
+
           <div id="f-acc-warn"></div>
           <div class="form-actions">
             <button type="button" id="f-acc-cancel" class="btn-quiet btn-sm">{{t:common.cancel}}</button>

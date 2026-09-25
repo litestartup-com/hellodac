@@ -9,86 +9,89 @@ import { $, esc, setHtml, apiJson, poll, t, loadI18n } from './ui.js'
 // 动态文案走客户端字典（服务端已渲染静态文案；字典由 /api/i18n/<lang> 提供）。
 // 顶层 await：首屏渲染前字典就位，避免先显示键名再补译文。
 await loadI18n()
-import { guiCardHtml, guiDirectCardHtml, guiSetupButton } from './gui-access.js'
-import { nodeCreatePayload, hostRunnerConfirmText, dangerSandboxConfirmText, versionOptionsHtml } from './node-form.js'
+import { nodeCreatePayload, hostRunnerConfirmText, dangerSandboxConfirmText } from './node-form.js'
 import { machineRowHtml, joinCommand, localMachineRowHtml } from './machines.js'
 import { topologyHtml, edgePairs, drawTopoEdges } from './topology.js'
+import { nodeRow, nodeMenuHtml, nodeMenuId, nodeVersionMenuId } from './node-row.js'
+import { placePanel, placeSubmenu } from './menu.js'
+import { guiTunnelCommand } from './gui-access.js'
 
-const NODE_STATE_DOT = { live: 'ok', cold: 'muted', starting: 'warn', restarting: 'warn', offline: 'bad' }
-const NODE_STATE_LABEL = {
-  live: 'live',
-  cold: t('nodes.state.cold'),
-  starting: t('nodes.state.starting'),
-  restarting: t('nodes.state.restarting'),
-  offline: 'offline',
+// 节点行本体与它的 ⋮ 菜单在 node-row.js（纯函数层，可单测）。这里只剩装配：
+// 行 + 该行的两个浮层（主菜单、版本子菜单），浮层挂 body 以免被 .card 裁剪。
+const renderNodes = (nodes) => {
+  // 每 15 秒重绘一次列表，而菜单浮层挂在 body、不在列表里：不显式关掉的话，
+  // 重绘会留下一个指向旧行的孤儿浮层（下次点 ⋮ 才消失）。
+  closeNodeMenu()
+  setHtml(
+    'nodes-list',
+    nodes.length === 0
+      ? `<p class="muted small">${esc(t('nodes.empty'))}</p>`
+      : nodes.map((n) => nodeRow(n, (host) => agentHostnames.get(host) ?? host) + nodeMenuHtml(n, versionList)).join(''),
+  )
 }
 
-const nodeRow = (n) => {
-  const dot = NODE_STATE_DOT[n.state] ?? 'muted'
-  const label = NODE_STATE_LABEL[n.state] ?? n.state
-  const agents = Array.isArray(n.agents) && n.agents.length > 0 ? n.agents.join(' / ') : '—'
-  const meta = [n.managed ? t('nodes.managed') : t('nodes.external'), typeof n.pid === 'number' && n.pid !== null ? `pid ${n.pid}` : null]
-    .filter(Boolean)
-    .join(' · ')
-  const err = typeof n.lastError === 'string' && n.lastError !== '' ? ` — ${n.lastError}` : ''
-  // 蜂群2计划 P1：DSH 版本与验证版本不符 → 黄标（照跑不装瞎）
-  const versionWarn =
-    typeof n.dshVersion === 'string' && n.dshVersion !== '' && n.dshCompatible === false
-      ? `<span class="pill-mini warn" title="${esc(t('nodes.versionWarnTitle', { version: n.dshVersion }))}">${esc(t('nodes.versionWarn'))}</span>`
-      : ''
-  // 能力二：profile 种子与配置钉版不一致 = 漂移（对齐按钮入口）
-  const driftWarn =
-    n.dshDrift === true
-      ? `<span class="pill-mini warn" title="${esc(t('nodes.driftWarnTitle'))}">${esc(t('nodes.driftWarn'))}</span>`
-      : ''
-  // 版本信息：容器形态先展示镜像标签（tag 即 DSH 版本），再补 DSH 版本行。
-  const versionBits = []
-  if (typeof n.image === 'string' && n.image !== '') versionBits.push(esc(n.image))
-  if (typeof n.dshVersion === 'string' && n.dshVersion !== '') versionBits.push(`DSH ${esc(n.dshVersion)}`)
-  // 显式钉版值得展示；跟随默认（null）不显示
-  if (typeof n.configuredDshVersion === 'string' && n.configuredDshVersion !== '') versionBits.push(esc(t('nodes.pinned', { version: n.configuredDshVersion })))
-  // 能力四（M1-7）：舰队节点显示执行主机（hostname 映射，未知回退 id）
-  if (typeof n.host === 'string' && n.host !== '') versionBits.push(esc(t('nodes.hostBit', { host: agentHostnames.get(n.host) ?? n.host })))
-  const detail = `agent：${esc(agents)}${versionBits.length > 0 ? ` · ${versionBits.join(' · ')}` : ''}`
-  const starting = n.state === 'starting'
-  const alignBtn =
-    n.dshDrift === true
-      ? `<button type="button" class="btn-quiet btn-sm" data-node-align="${esc(n.id)}" title="${esc(t('nodes.action.alignTitle'))}">${esc(t('nodes.action.align'))}</button>`
-      : ''
-  // 能力二/P1：版本切换下拉（矩阵数据源；跟随默认 = 未显式钉版）
-  const versionSel =
-    n.managed
-      ? `<select class="node-version-select" data-node-version="${esc(n.id)}" title="${esc(t('nodes.action.versionTitle'))}">${versionOptionsHtml(versionList, n.configuredDshVersion)}</select>`
-      : ''
-  const controls = n.managed
-    ? `<div class="node-actions">
-        ${
-          n.state === 'cold' || n.state === 'offline'
-            ? `<button type="button" class="btn-quiet btn-sm" data-node-up="${esc(n.id)}">${esc(t('nodes.action.start'))}</button>`
-            : `<button type="button" class="btn-quiet btn-sm" data-node-down="${esc(n.id)}" ${starting ? 'disabled' : ''}>${esc(t('nodes.action.stop'))}</button>
-               <button type="button" class="btn-quiet btn-sm" data-node-restart="${esc(n.id)}" ${starting ? 'disabled' : ''}>${esc(t('nodes.action.restart'))}</button>`
-        }
-        ${alignBtn}
-        <button type="button" class="btn-quiet btn-sm" data-node-logs="${esc(n.id)}">${esc(t('nodes.action.logs'))}</button>
-        <button type="button" class="btn-quiet btn-sm" data-node-rm="${esc(n.id)}" title="${esc(t('nodes.action.removeTitle'))}">${esc(t('nodes.action.remove'))}</button>
-      </div>`
-    : `<span class="muted small">${esc(t('nodes.externalManual'))}</span>`
-  // 能力三 v1：原生 GUI 卡（隧道 / 本机直连 / 配置入口 三形态）。
-  const guiBits =
-    n.access !== null && n.access !== undefined
-      ? `<div class="node-side">${guiCardHtml(n.id, n.access, n.guiUrl)}</div>`
-      : n.guiUrl !== null && n.guiUrl !== undefined
-        ? `<div class="node-side">${guiDirectCardHtml(n.id, n.guiUrl)}</div>`
-        : `<div class="node-side">${guiSetupButton(n.id)}</div>`
-  return `<div class="node-row" data-node-row="${esc(n.id)}">
-    <div class="node-main">
-      <div class="node-title"><span class="dot ${dot}"></span>${esc(n.id)} <span class="muted">· ${esc(label)}</span> ${versionWarn} ${driftWarn}</div>
-      <div class="node-meta">${esc(meta)}${esc(err)}</div>
-      <div class="node-detail">${detail}${versionSel}</div>
-    </div>
-    ${controls}
-    ${guiBits}
-  </div>`
+// ---- 节点 ⋮ 菜单：开合、定位、子菜单 ----
+
+/** 当前打开的节点菜单（id 与所属节点）。同一时刻只允许一个。 */
+let openMenuNode = null
+/** 主菜单里展开的子菜单项（null = 没展开）。 */
+let openSub = null
+
+const panelOf = (id) => document.getElementById(id)
+
+const hideSub = () => {
+  if (openSub === null) return
+  const panelId = openSub.getAttribute('aria-controls')
+  if (panelId !== null && panelId !== '') panelOf(panelId)?.setAttribute('hidden', '')
+  openSub.setAttribute('aria-expanded', 'false')
+  openSub = null
+}
+
+const closeNodeMenu = () => {
+  if (openMenuNode === null) return
+  hideSub()
+  panelOf(nodeMenuId(openMenuNode))?.setAttribute('hidden', '')
+  document.getElementById(`node-more-${openMenuNode}`)?.setAttribute('aria-expanded', 'false')
+  openMenuNode = null
+}
+
+const openNodeMenu = (nodeId) => {
+  const panel = panelOf(nodeMenuId(nodeId))
+  const trigger = document.getElementById(`node-more-${nodeId}`)
+  if (panel === null || trigger === null) return
+  openMenuNode = nodeId
+  trigger.setAttribute('aria-expanded', 'true')
+  panel.removeAttribute('hidden')
+  const pos = placePanel({
+    rect: trigger.getBoundingClientRect(),
+    width: panel.offsetWidth,
+    height: panel.offsetHeight,
+    viewport: { w: window.innerWidth, h: window.innerHeight },
+  })
+  panel.style.left = `${pos.left}px`
+  panel.style.top = `${pos.top}px`
+  panel.querySelector('.menu-item')?.focus()
+}
+
+/** 主菜单里的子菜单项被点开：贴在主菜单右侧（放不下翻到左侧）。 */
+const openSubmenu = (item) => {
+  const panelId = item.getAttribute('aria-controls')
+  if (panelId === null || panelId === '') return
+  hideSub()
+  const panel = panelOf(panelId)
+  if (panel === null) return
+  openSub = item
+  item.setAttribute('aria-expanded', 'true')
+  panel.removeAttribute('hidden')
+  const pos = placeSubmenu({
+    rect: item.getBoundingClientRect(),
+    width: panel.offsetWidth,
+    height: panel.offsetHeight,
+    viewport: { w: window.innerWidth, h: window.innerHeight },
+  })
+  panel.style.left = `${pos.left}px`
+  panel.style.top = `${pos.top}px`
+  panel.querySelector('.menu-item')?.focus()
 }
 
 // 蜂群 P5.1：节点管控（起/停/重启）+ 日志抽屉。
@@ -148,6 +151,17 @@ const closeLogs = () => {
 }
 
 $('nodes-list').addEventListener('click', (event) => {
+  // ⋮ 触发器：开/关该节点菜单（菜单项自身不在 #nodes-list 内，另有委托）。
+  const more = event.target.closest('.menu-trigger')
+  if (more !== null) {
+    const nodeId = more.id.replace(/^node-more-/, '')
+    if (openMenuNode === nodeId) closeNodeMenu()
+    else {
+      closeNodeMenu()
+      openNodeMenu(nodeId)
+    }
+    return
+  }
   const up = event.target.closest('[data-node-up]')
   if (up !== null) return void nodeAction(up.dataset.nodeUp, 'up')
   const down = event.target.closest('[data-node-down]')
@@ -160,57 +174,59 @@ $('nodes-list').addEventListener('click', (event) => {
   if (logs !== null) return void openLogs(logs.dataset.nodeLogs)
   const rm = event.target.closest('[data-node-rm]')
   if (rm !== null) return void removeNode(rm.dataset.nodeRm)
-  // 能力三 v1：原生 GUI 卡操作
-  const guiOpen = event.target.closest('[data-gui-open]')
-  if (guiOpen !== null) {
-    const url = guiOpen.dataset.guiUrl
-    if (typeof url === 'string' && url !== '') window.open(url, '_blank', 'noopener')
-    return
-  }
-  const guiCopy = event.target.closest('[data-gui-copy]')
-  if (guiCopy !== null) {
-    const command = guiCopy.dataset.guiCmd ?? ''
-    navigator.clipboard
-      ?.writeText(command)
-      .then(() => alert(t('nodes.tunnel.copied')))
-      .catch(() => alert(t('nodes.tunnel.copyFailed', { command })))
-    return
-  }
   const access = event.target.closest('[data-node-access]')
   if (access !== null) return void openAccessEditor(access.dataset.nodeAccess)
 })
 
-// 能力二/P1：版本切换下拉——确认后 POST /api/nodes/:id/version（202 = 受理，异步重建/重装）
-$('nodes-list').addEventListener('change', (event) => {
-  const sel = event.target.closest('[data-node-version]')
-  if (sel === null) return
-  const id = sel.dataset.nodeVersion
-  const followDefault = sel.value === ''
-  const target = followDefault ? (versionList[0]?.dsh ?? '') : sel.value
+// 浮层菜单项的点击：菜单挂 body，所以委托在 document 上。
+// 「原生访问」这一项在主菜单里，点它先收菜单再开编辑器（否则浮层压在抽屉上）。
+document.addEventListener('click', (event) => {
+  const sub = event.target.closest('[data-node-version-menu]')
+  if (sub !== null) return openSubmenu(sub)
+  const set = event.target.closest('[data-node-version-set]')
+  if (set !== null) {
+    const owner = set.closest('.menu-panel')?.id ?? ''
+    const nodeId = owner.replace(/^node-version-menu-/, '')
+    closeNodeMenu()
+    return void setNodeVersion(nodeId, set.dataset.nodeVersionSet ?? '')
+  }
+  const item = event.target.closest('.menu-panel .menu-item')
+  if (item !== null) closeNodeMenu()
+  // 点到浮层与触发器之外 = 关掉（触发器自身在上面那个委托里处理开合）。
+  if (event.target.closest('.menu-panel') === null && event.target.closest('.menu-trigger') === null) closeNodeMenu()
+})
+
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape' || openMenuNode === null) return
+  const trigger = document.getElementById(`node-more-${openMenuNode}`)
+  closeNodeMenu()
+  trigger?.focus() // 键盘用户关掉菜单后应回到触发器，而不是被丢回文档开头
+})
+
+// 能力二/P1：版本切换——确认后 POST /api/nodes/:id/version（202 = 受理，异步重建/重装）。
+// 入口从「常显下拉框」改为「⋮ 菜单 → 版本 子菜单」，逻辑不变（同一个矩阵数据源）。
+const setNodeVersion = async (id, value) => {
+  const followDefault = value === ''
+  const target = followDefault ? (versionList[0]?.dsh ?? '') : value
   if (target === '') return
   const note = followDefault ? t('nodes.version.noteDefault') : ''
-  if (!window.confirm(t('nodes.version.confirm', { id, version: target, note }))) {
-    void load() // 取消选择 → 还原下拉
-    return
-  }
-  void (async () => {
-    try {
-      const r = await apiJson(`/api/nodes/${encodeURIComponent(id)}/version`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ dsh_version: target }),
-      })
-      if (!r.ok) alert(r.detail)
-      else {
-        const rData = r.data ?? {}
-        alert(typeof rData.image === 'string' ? t('nodes.version.switchedImage', { image: rData.image }) : t('nodes.version.switchedDsh', { version: rData.version }))
-      }
-    } catch (error) {
-      alert(t('common.opFailed', { message: error.message }))
+  if (!window.confirm(t('nodes.version.confirm', { id, version: target, note }))) return
+  try {
+    const r = await apiJson(`/api/nodes/${encodeURIComponent(id)}/version`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ dsh_version: target }),
+    })
+    if (!r.ok) alert(r.detail)
+    else {
+      const rData = r.data ?? {}
+      alert(typeof rData.image === 'string' ? t('nodes.version.switchedImage', { image: rData.image }) : t('nodes.version.switchedDsh', { version: rData.version }))
     }
-    await load()
-  })()
-})
+  } catch (error) {
+    alert(t('common.opFailed', { message: error.message }))
+  }
+  await load()
+}
 
 $('node-logs-refresh').addEventListener('click', () => void refreshLogs())
 $('node-logs-close').addEventListener('click', closeLogs)
@@ -346,8 +362,51 @@ $('node-form').addEventListener('submit', async (event) => {
 
 /** @type {Record<string, { sshUser: string, sshHost: string, sshPort: number, guiPort: number, localPort: number, sshKey: string | null } | null>} */
 let accessById = {}
+/** @type {Record<string, string | null>} 节点原生 GUI 地址（后端按请求拼好，含 token）。 */
+let guiUrlById = {}
 /** @type {string | null} 编辑器当前编辑的节点 id。 */
 let accessNode = null
+
+/**
+ * 抽屉里的「连接」区：隧道命令 + 打开 GUI，**从表单当前值实时算**。
+ *
+ * 这一段原来常显在节点行里（330px 的卡，每个节点都给一条终端命令）；行精简后
+ * 搬到这里——命令与「用这条命令做什么」放在一起，比摊在列表里合理。
+ *
+ * 用表单值而不是已保存的 access 计算：配置过程中就能看到会生成什么命令，
+ * 不必先保存再回来看（纯配置表单是「盲填」的）。
+ */
+const renderAccessConn = () => {
+  const box = $('f-acc-conn')
+  const user = $('f-acc-user').value.trim()
+  const host = $('f-acc-host').value.trim()
+  const local = Number($('f-acc-local').value)
+  const gui = Number($('f-acc-gui').value)
+  const sshPort = Number($('f-acc-sshport').value)
+  // 三个必需字段（与后端校验一致：user / host / local port）齐了才给命令。
+  if (user === '' || host === '' || !Number.isInteger(local) || local <= 0) {
+    box.hidden = true
+    return
+  }
+  box.hidden = false
+  const command = guiTunnelCommand({
+    sshUser: user,
+    sshHost: host,
+    sshPort: Number.isInteger(sshPort) && sshPort > 0 ? sshPort : 22,
+    guiPort: Number.isInteger(gui) && gui > 0 ? gui : 3080,
+    localPort: local,
+    sshKey: $('f-acc-key').value.trim(),
+  })
+  $('f-acc-cmd').textContent = command
+  const url = accessNode === null ? null : (guiUrlById[accessNode] ?? null)
+  $('f-acc-open').disabled = url === null
+  $('f-acc-conn-hint').textContent = url === null ? t('gui.notReady') : t('gui.tunnelHint')
+}
+
+// 表单任一项变化都重算命令（输入即所见，不用先保存）。
+for (const id of ['f-acc-user', 'f-acc-host', 'f-acc-sshport', 'f-acc-gui', 'f-acc-local', 'f-acc-key']) {
+  $(id).addEventListener('input', () => renderAccessConn())
+}
 
 const openAccessEditor = (id) => {
   accessNode = id
@@ -360,9 +419,23 @@ const openAccessEditor = (id) => {
   $('f-acc-local').value = current !== null && current !== undefined ? String(current.localPort) : ''
   $('f-acc-key').value = current?.sshKey ?? ''
   $('f-acc-warn').textContent = ''
+  renderAccessConn()
   $('node-access-editor').hidden = false
   $('f-acc-user').focus()
 }
+
+$('f-acc-copy').addEventListener('click', () => {
+  const command = $('f-acc-cmd').textContent ?? ''
+  navigator.clipboard
+    ?.writeText(command)
+    .then(() => alert(t('nodes.tunnel.copied')))
+    .catch(() => alert(t('nodes.tunnel.copyFailed', { command })))
+})
+
+$('f-acc-open').addEventListener('click', () => {
+  const url = accessNode === null ? null : (guiUrlById[accessNode] ?? null)
+  if (url !== null) window.open(url, '_blank', 'noopener')
+})
 
 const closeAccessEditor = () => {
   accessNode = null
@@ -691,20 +764,16 @@ const load = async () => {
         }
       }
     }
-    // 能力三 v1：access 真相缓存（编辑器预填用）
+    // 能力三 v1：access 真相缓存（编辑器预填用）+ GUI 地址缓存（连接区用）
     accessById = Object.fromEntries(nodes.map((n) => [n.id, n.access ?? null]))
+    guiUrlById = Object.fromEntries(nodes.map((n) => [n.id, typeof n.guiUrl === 'string' && n.guiUrl !== '' ? n.guiUrl : null]))
     const live = nodes.filter((n) => n.state === 'live').length
     const abnormal = nodes.filter((n) => n.state !== 'live').length
     $('nodes-count').textContent =
       abnormal > 0
         ? t('nodes.countAbnormal', { live, total: nodes.length, abnormal })
         : t('nodes.count', { live, total: nodes.length })
-    setHtml(
-      'nodes-list',
-      nodes.length === 0
-        ? `<p class="muted small">${esc(t('nodes.empty'))}</p>`
-        : nodes.map(nodeRow).join(''),
-    )
+    renderNodes(nodes)
 
     $('nodes-refresh').textContent = t('nodes.refreshAt', { time: new Date().toLocaleTimeString(undefined, { hour12: false }) })
   } catch {
