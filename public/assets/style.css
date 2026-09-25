@@ -2138,6 +2138,9 @@ button:disabled {
   text-align: left;
   cursor: pointer;
   transition: background-color var(--motion);
+  /* 菜单项有 <a> 形态（带 href 的是真链接）：全局 a 只染 accent 色，下划线是
+     浏览器默认的——菜单里不该出现下划线（它看起来像正文里的链接，而不是菜单项）。 */
+  text-decoration: none;
 }
 
 .menu-item:hover:not(:disabled) {
@@ -2188,6 +2191,43 @@ button:disabled {
    看不见却占位的空白（否则图标/文字看着偏左）。 */
 .menu-trailing:empty {
   display: none;
+}
+
+/* 邮箱复制反馈：浮在邮箱项上的小气泡，不用 alert 打断操作（用户明确要求）。
+   气泡是 .menu-item 的子元素，absolute 右对齐，在菜单项内不挡其它行；
+   淡入后 1.6s 自行淡出。 */
+.menu-item {
+  position: relative;
+}
+
+.copy-pop {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  max-width: 220px;
+  padding: 3px 8px;
+  border-radius: var(--r-sm);
+  background: var(--text);
+  color: var(--surface);
+  font-size: 11.5px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--motion);
+}
+
+.copy-pop.copy-pop-bad {
+  background: var(--bad-bg);
+  color: var(--bad);
+  border: 1px solid var(--bad-border);
+  /* 失败提示带完整邮箱地址：允许换行，别把气泡顶穿面板 */
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.copy-pop.copy-pop-on {
+  opacity: 1;
 }
 
 .menu-chevron {

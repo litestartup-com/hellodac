@@ -250,3 +250,20 @@ test('事件委托前提: 链接项带 data 属性时仍可原样生成', () => 
   assert.ok(link.startsWith('<a '), '外链也是 a')
   assert.ok(link.includes('target="_blank"') && link.includes('rel="noopener noreferrer"'), '外链属性保留')
 })
+
+// ---- 内联 SVG 图标（精灵里没有的字形，如信封；加进精灵需要改 layout 并重启）----
+
+test('菜单原语: icon 传对象时按内联 SVG 渲染，不走精灵', () => {
+  const raw = '<svg viewBox="0 0 16 16"><rect x="1" y="3" width="14" height="10"/></svg>'
+  const item = menuItemHtml({ label: 'support@x.com', icon: { raw } })
+  assert.ok(item.includes(raw), '内联 SVG 原样嵌入')
+  assert.ok(!item.includes('<use href="#i-'), '不生成精灵引用')
+})
+
+test('事故回归: 邮箱项渲染为 <button>（点击复制动作）且带内联信封图标', () => {
+  const raw = '<svg width="14" height="14" viewBox="0 0 16 16"><rect x="1.75" y="3.5" width="12.5" height="9"/></svg>'
+  const item = menuItemHtml({ label: 'support@hellodac.com', icon: { raw }, attrs: 'data-about-email="support@hellodac.com"' })
+  assert.ok(item.startsWith('<button '), '邮箱是按钮（复制动作），不是链接')
+  assert.ok(item.includes(raw), '信封图标在')
+  assert.ok(!item.includes('<use'), '信封不走精灵（精灵没有这个字形）')
+})

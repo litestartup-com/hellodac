@@ -38,10 +38,18 @@ export const menuItemHtml = (spec) => {
   if (kind === 'group') return `<div class="menu-group">${esc(spec.label ?? '')}</div>`
   if (kind === 'note') return `<div class="menu-note">${esc(spec.label ?? '')}</div>`
   const cls = kind === 'danger' ? ' class="menu-item danger"' : ' class="menu-item"'
+  /**
+   * 图标两种形态：
+   *   icon: 'spark'      → 精灵图标 <use href="#i-spark">（与侧栏同一套字形）
+   *   icon: { raw: svg } → 内联 SVG（用于精灵里没有的字形，如信封——加进精灵
+   *                        需要改 layout.html 并重启，内联则完全不受此限）
+   */
   const icon =
-    typeof spec.icon === 'string' && spec.icon !== ''
-      ? `<svg width="14" height="14" aria-hidden="true"><use href="#i-${esc(spec.icon)}" /></svg>`
-      : ''
+    spec.icon === null || spec.icon === undefined || spec.icon === ''
+      ? ''
+      : typeof spec.icon === 'string'
+        ? `<svg width="14" height="14" aria-hidden="true"><use href="#i-${esc(spec.icon)}" /></svg>`
+        : `${String(spec.icon.raw ?? '')}`
   const trailing = typeof spec.trailing === 'string' && spec.trailing !== '' ? `<span class="menu-trailing">${esc(spec.trailing)}</span>` : ''
   const attrs = typeof spec.attrs === 'string' ? spec.attrs : ''
   const isLink = /\bhref\s*=/.test(attrs)

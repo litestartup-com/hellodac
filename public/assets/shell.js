@@ -1160,7 +1160,18 @@ const aboutItems = [
   menuItemHtml({ kind: 'note', label: brand.name, attrs: 'data-about-version' }),
   ...(brand.supportEmail === ''
     ? []
-    : [menuItemHtml({ label: brand.supportEmail, icon: 'chat', attrs: `data-about-email="${esc(brand.supportEmail)}"` })]),
+    : [
+        menuItemHtml({
+          label: brand.supportEmail,
+          // 精灵里没有信封图标；改 layout.html 加字形需要重启，所以这里内联
+          //（menuItemHtml 支持 icon: { raw: <svg> }）。样式与精灵图标同源：
+          // 14px、stroke=currentColor、round 线帽。
+          icon: {
+            raw: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><rect x="1.75" y="3.5" width="12.5" height="9" rx="1.4"/><path d="m2.5 4.6 5.5 4.4 5.5-4.4"/></svg>',
+          },
+          attrs: `data-about-email="${esc(brand.supportEmail)}"`,
+        }),
+      ]),
   ...(brand.repo === ''
     ? []
     : [menuItemHtml({ label: t('nav.starOnGithub'), icon: 'github', attrs: `href="${esc(brand.repo)}" target="_blank" rel="noopener noreferrer"` })]),
@@ -1235,17 +1246,35 @@ moreMenu.addEventListener('click', (event) => {
 })
 
 // 支持邮箱：点击复制（不是 mailto——桌面端会弹一个没配过的邮件客户端，而这里
-// 更常见的诉求是把地址填到别处）。提示文案与节点隧道命令的复制共用同一套。
+// 更常见的诉求是把地址填到别处）。
+//
+// 反馈**不用 alert**（用户明确不要这种打断式弹窗）：在邮箱项上浮出一个小气泡
+// 「已复制」，1.6 秒后自行淡出。失败时气泡显示完整地址，让用户可以手动抄。
 const bindEmailCopy = (root) => {
   for (const el of root.querySelectorAll('[data-about-email]')) {
     el.addEventListener('click', () => {
       const email = el.dataset.aboutEmail ?? ''
       navigator.clipboard
         ?.writeText(email)
-        .then(() => alert(t('about.emailCopied', { email })))
-        .catch(() => alert(t('about.emailCopyFailed', { email })))
+        .then(() => flashCopied(el, t('about.emailCopied', { email })))
+        .catch(() => flashCopied(el, t('about.emailCopyFailed', { email }), true))
     })
   }
+}
+
+/** 在菜单项上浮出短提示气泡；气泡在 item 内（.menu-item 是 relative），不挡其它行。 */
+const flashCopied = (el, text, isError = false) => {
+  const old = el.querySelector('.copy-pop')
+  if (old !== null) old.remove()
+  const pop = document.createElement('span')
+  pop.className = `copy-pop${isError ? ' copy-pop-bad' : ''}`
+  pop.textContent = text
+  el.appendChild(pop)
+  requestAnimationFrame(() => pop.classList.add('copy-pop-on'))
+  window.setTimeout(() => {
+    pop.classList.remove('copy-pop-on')
+    window.setTimeout(() => pop.remove(), 200)
+  }, 1_600)
 }
 bindEmailCopy(moreMenu)
 for (const [, fly] of moreFlyouts) bindEmailCopy(fly.panel)
