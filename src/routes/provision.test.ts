@@ -12,6 +12,11 @@ import type { NodeSupervisor } from '../nodes/supervisor.js'
 import { registerProvisionRoutes, installNodeDepsAsync } from './provision.js'
 import { GATEWAY_REF, _setMatrixForTest, _resetMatrixForTest } from '../dsh-matrix.js'
 
+// 事故回归（2026-09-26 CI 红）：loadConfig 校验 envSchema，SESSION_SECRET 必填。
+// 本地跑时有 gitignored 的 .env 兜着，CI checkout 里没有——测试必须自足，这里
+// 与 config.test.ts 同款兜底（dotenv 不覆盖既有变量，测试局部设置优先）。
+if (process.env.SESSION_SECRET === undefined) process.env.SESSION_SECRET = 'x'.repeat(32)
+
 const configFor = (): AppConfig => ({
   listen: { host: '127.0.0.1', port: 8080 },
   endpoints: {},
@@ -407,13 +412,22 @@ test('事故回归: docker spawn 真相文件必须能读回（host 缺省合法
   writeFileSync(good, valid, 'utf8')
   writeFileSync(bad, valid.replace('      runner: docker\n', '      runner: docker\n      host: null\n'), 'utf8')
 
-  const reread = loadConfig(good)
-  assert.equal(reread.endpoints['product']?.spawn?.runner, 'docker')
-  assert.equal(reread.endpoints['product']?.spawn?.host, null, '缺省 host → 解析成 null（内存形态合法）')
+  // key_ref/sandbox_key_ref 动态寻址的 GW_KEY_* 由 loadConfig 逐个校验非空，
+  // CI 上不存在该变量（本地 .env 兜着）——测试自己提供，跑完恢复。
+  const prevKey = process.env.GW_KEY_PRODUCT
+  process.env.GW_KEY_PRODUCT = 'apigw-test-key'
+  try {
+    const reread = loadConfig(good)
+    assert.equal(reread.endpoints['product']?.spawn?.runner, 'docker')
+    assert.equal(reread.endpoints['product']?.spawn?.host, null, '缺省 host → 解析成 null（内存形态合法）')
 
-  // 反向：把 host: null 落进文件 = 读不回来。这正是 2026-09-26 compose-e2e
-  // 红的那条链：动态开通 worker 后写出的文件在备份/恢复时炸掉。
-  assert.throws(() => loadConfig(bad), /host/, 'host: null 落文件必须被 schema 拒绝')
+    // 反向：把 host: null 落进文件 = 读不回来。这正是 2026-09-26 compose-e2e
+    // 红的那条链：动态开通 worker 后写出的文件在备份/恢复时炸掉。
+    assert.throws(() => loadConfig(bad), /host/, 'host: null 落文件必须被 schema 拒绝')
+  } finally {
+    if (prevKey === undefined) delete process.env.GW_KEY_PRODUCT
+    else process.env.GW_KEY_PRODUCT = prevKey
+  }
   rmSync(good, { force: true })
   rmSync(bad, { force: true })
 })
