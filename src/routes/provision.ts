@@ -419,7 +419,11 @@ export const registerProvisionRoutes = (
             spawnYaml: {
               managed: true,
               runner: 'docker',
-              host: null,
+              // 事故回归（2026-09-26 compose-e2e 红）：不写 `host: null`。
+              // spawnSchema 的 host 只接受 string 或缺省（refine 还要求 docker
+              // 的 host === undefined），null 会让真相文件读不回来——重启/备份/
+              // 恢复全部连锁失败。解析后的内存形态 host 本来就是 null，文件里
+              // 只需**缺省**。
               ready_timeout_ms: 30_000,
               docker: dockerSpec,
               // 能力二：显式钉版才写真相源（缺省跟随全局默认，不冻结）

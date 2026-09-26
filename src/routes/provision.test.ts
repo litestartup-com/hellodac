@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AppConfig } from '../config.js'
+import { loadConfig } from '../config.js'
 import { DEFAULT_PRICING } from '../pricing.js'
 import { openDb, schema, type Db } from '../db/index.js'
 import type { NodeSupervisor } from '../nodes/supervisor.js'
@@ -386,6 +387,11 @@ test('蜂群2计划 P6: 容器模式新节点 = docker runner（不找 DSH bin�
   assert.match(yaml, /key_ref: GW_KEY_PRODUCT/, 'yaml 端点的 key_ref 必须是本节点钥匙（旧接线空 key_ref 探活 401）')
   assert.match(yaml, /prefix: \/api-gw\/v1\/proxy/, 'yaml 端点的 prefix 必须是 facade 前缀')
   assert.match(readFileSync(join(dir, '.env'), 'utf8'), /GW_KEY_PRODUCT=/)
+  // 事故回归（2026-09-26 compose-e2e 红）：docker 分支不得把 host: null 写进
+  // 真相文件——spawnSchema 只认 string 或缺省，null 会让 loadConfig 读不回来
+  // （重启/备份/恢复连锁失败）。内存形态 host=null 合法（解析时缺省→null），
+  // 文件里只需**缺省**。完整读回闭环见下方独立测试。
+  assert.doesNotMatch(yaml, /host: null/, 'yaml 里不得出现 host: null')
 
   stopped.push(supervisors.get('product')!)
   const removed = await app.inject({ method: 'DELETE', url: '/api/nodes/product' })
@@ -393,8 +399,26 @@ test('蜂群2计划 P6: 容器模式新节点 = docker runner（不找 DSH bin�
   assert.doesNotMatch(readFileSync(join(dir, 'manager.config.yaml'), 'utf8'), /product/)
 })
 
-test('蜂群2计划 P6 回归: 容器模式新建节点同步镜像进 DB（chat 外键不再炸）', async () => {
-  const { app, config, db } = await boot()
+test('事故回归: docker spawn 真相文件必须能读回（host 缺省合法、host:null 非法）', () => {
+  // 与 writeNodeTruth 写出的形状同构：docker runner + 完整 agents 段。
+  const valid = `listen:\n  host: 127.0.0.1\n  port: 8080\nendpoints:\n  product:\n    url: http://node-product:3090\n    driver: apiproxy\n    prefix: /api-gw/v1/proxy\n    key_ref: GW_KEY_PRODUCT\n    sandbox_base: http://node-product:3090/api-gw/v1\n    sandbox_key_ref: GW_KEY_PRODUCT\n    spawn:\n      managed: true\n      runner: docker\n      ready_timeout_ms: 30000\n      docker:\n        image: hellodac/dac-node:0.1.5-rc.2\n        network: dac-hive\n        port: 3090\nagents:\n  product:\n    name: Product\n    endpoint: product\n    workspace: /opt/dac/workspaces/product\n    public: false\n    preset: standard\n    sandbox_mode: workspace-write\n`
+  const good = join(dir, 'recheck-good.yaml')
+  const bad = join(dir, 'recheck-bad.yaml')
+  writeFileSync(good, valid, 'utf8')
+  writeFileSync(bad, valid.replace('      runner: docker\n', '      runner: docker\n      host: null\n'), 'utf8')
+
+  const reread = loadConfig(good)
+  assert.equal(reread.endpoints['product']?.spawn?.runner, 'docker')
+  assert.equal(reread.endpoints['product']?.spawn?.host, null, '缺省 host → 解析成 null（内存形态合法）')
+
+  // 反向：把 host: null 落进文件 = 读不回来。这正是 2026-09-26 compose-e2e
+  // 红的那条链：动态开通 worker 后写出的文件在备份/恢复时炸掉。
+  assert.throws(() => loadConfig(bad), /host/, 'host: null 落文件必须被 schema 拒绝')
+  rmSync(good, { force: true })
+  rmSync(bad, { force: true })
+})
+
+test('蜂群2计划 P6 回归: 容器模式新建节点同步镜像进 DB（chat 外键不再炸）', async () => {  const { app, config, db } = await boot()
   config.endpoints['personal'] = {
     id: 'personal',
     url: 'http://node-personal:3081',
