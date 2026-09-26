@@ -8,7 +8,7 @@ Cluster), an MIT control plane for fleets of containerized agent nodes across se
 What ships in 1.0.0:
 
 - **Fleet management** — one manager, machines joined by a node agent (Linux `join.sh` with a
-  systemd user unit, Windows `join.ps1` with a scheduled task), nodes as container workers or
+  systemd system service, Windows `join.ps1` with a scheduled task), nodes as container workers or
   host processes, with start/stop/restart/logs, per-node DSH version pinning, and a live
   topology view (manager → machines → nodes, heartbeat edges).
 - **Unified conversation** — streaming chat against any node, tool cards, inline question and
@@ -36,6 +36,30 @@ Changes made *for* the public release, relative to the pre-release internal line
 - Made English the default language and moved every user-visible string into translatable
   locale files (UI, API error details, notification text, CLI output, workspace templates).
 - Added `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, issue and PR templates.
+
+Hardening and UI polish landed on the public line before the tag (2026-09-25/26):
+
+- **Fleet reliability** — the node-agent now installs as a systemd *system* service (the
+  user-unit form never started on boot and raced itself on every SSH login); node spawn is
+  idempotent so reconcile sweeps cannot double-start a node, and a machine's nodes resume
+  from disk on their own after a reboot without waiting for the manager. Verified on a
+  clean machine: join → reboot → nodes back in seconds, zero manager involvement.
+- **Language switching actually works** — `?lang=` was processed after the auth guard on
+  protected pages, which swallowed the cookie before the redirect; the switch now runs as a
+  global request hook ahead of every preHandler.
+- **Nodes UI decluttered** — a row now shows status, id, owner and running version, with
+  start/stop/restart, version switching, logs and native access moved into a ⋮ menu; the
+  sidebar overflow menu became a fixed two-level structure with Language and About as
+  flyouts; run summaries clamp to two lines with expand/collapse.
+- **Audit & password pages restyled** — the audit log is a hairline timeline with semantic
+  state dots instead of stacked cards; the password page's submit button is deep ink rather
+  than accent blue (the login button stays blue).
+- **Docs & polish** — product screenshots in both READMEs; the tagline split from the
+  description; the sidebar tagline localized (统一调度的智能体集群 in Chinese); icon
+  spacing, a proper mail glyph and an inline copy bubble in the About flyout.
+- **Guards** — new tests pin the anchor-vs-button contract, icon-sprite names, DOM wiring
+  against the built pages, the password-button colour contract, the view-switch contrast,
+  and the `?lang=` hook ordering, so these regressions fail in CI rather than in a browser.
 
 ## 未发布（1.1.2 候选 · 升级零手改配置，2026-09-22）
 
