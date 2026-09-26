@@ -109,6 +109,29 @@ export const convergeRuns = (db: Db): number => {
   return stale.changes
 }
 
+/**
+ * 发布前优化（2026-09-26）：中断在投递窗口里的指令同属"上一个进程的遗留"。
+ *
+ * boot 时仍挂 `delivered` 的行 = agent 领走了却没能回报（多半是 manager 重启打断，
+ * 2026-09-24/26 两次维护窗口各留 2 行）。此后它既不会被重投（claimCommands 只取
+ * pending）、也不会被读，却带着整份 DSH profile bundle 永久占库——生产实测
+ * 273 KB/条，清完存量后这 339 KB 反而成了库里最大的一块。
+ * 收敛为 failed 并**清 payload**；`pending` 不动：那是真没送达的，仍要投。
+ */
+export const convergeAgentCommands = (db: Db): number => {
+  const stale = db
+    .update(schema.agentCommand)
+    .set({
+      state: 'failed',
+      doneAt: Date.now(),
+      result: JSON.stringify({ message: 'manager restarted while this command was in flight' }),
+      payload: '{}',
+    })
+    .where(eq(schema.agentCommand.state, 'delivered'))
+    .run()
+  return stale.changes
+}
+
 /** 孤儿会话归档：agent 已从配置删除的会话永远 409 agent_gone。 */
 export const convergeOrphanChats = (db: Db, config: AppConfig): number =>
   archiveOrphanChats(db, new Set(Object.keys(config.agents)))
@@ -215,6 +238,8 @@ export const reconcileAll = async (
   if (opts.runHygiene === true) {
     const stale = convergeRuns(db)
     if (stale > 0) log(`marked ${stale} interrupted run(s) as failed`)
+    const dropped = convergeAgentCommands(db)
+    if (dropped > 0) log(`marked ${dropped} interrupted agent command(s) as failed (payload cleared)`)
     const orphan = convergeOrphanChats(db, config)
     if (orphan > 0) log(`archived ${orphan} orphan chat(s) whose agent left the config`)
   }

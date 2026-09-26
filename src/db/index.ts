@@ -310,6 +310,15 @@ const MIGRATIONS: readonly string[][] = [
      )`,
     `CREATE INDEX IF NOT EXISTS agent_metric_agent_at ON agent_metric(agent_id, at)`,
   ],
+  // 21 -- 发布前优化（2026-09-26）：清掉存量指令的 payload。
+  // `agent_command.payload` 是 DB 体积唯一的大头：生产实测 126 行占 32.8 MB /
+  // 全库 34 MB，其中 99 条 node.spawn 平均 273 KB（整份 DSH profile bundle 塞在
+  // payload.profile 里）。领取路径只读 state='pending'，终态行再也没人读 payload，
+  // 但行永久保留，并同步放大每一次加密备份（备份是全库快照）。
+  // 新写入由 routes/agents.ts 的终态更新就地清空；这条只处理存量，幂等可重跑。
+  [
+    `UPDATE agent_command SET payload = '{}' WHERE state IN ('done', 'failed')`,
+  ],
 ]
 
 export interface OpenDbResult {

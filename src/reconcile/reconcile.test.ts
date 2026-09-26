@@ -12,7 +12,7 @@ import { stringify } from 'yaml'
 import { loadConfig } from '../config.js'
 import { openDb, schema } from '../db/index.js'
 import type { NodeSupervisor } from '../nodes/supervisor.js'
-import { convergeNodes, convergeRuns, mirrorAgentRow, mirrorAgents, startPeriodicReconcile } from './index.js'
+import { convergeAgentCommands, convergeNodes, convergeRuns, mirrorAgentRow, mirrorAgents, startPeriodicReconcile } from './index.js'
 import { FLEET_FILE } from '../workspace/fleet-doc.js'
 // 债务 C3:临时目录收敛进 test-harness(makeDb 不落 agent 行,openDb 裸开)。
 import { tempDir } from '../test-harness.js'
@@ -75,6 +75,34 @@ test('convergeRuns: 上一个进程遗留的 pending/running 行收敛为 failed
   assert.deepEqual(rows.filter((r) => r.state === 'failed').map((r) => r.id).sort(), ['r1', 'r2'])
   assert.equal(rows.find((r) => r.id === 'r3')?.state, 'done', '已终态行不动')
   assert.match(rows.find((r) => r.id === 'r1')?.error ?? '', /manager restarted/)
+})
+
+/**
+ * 发布前优化（2026-09-26）：中断在投递窗口里的指令同样是"上一个进程的遗留"。
+ * 一条 delivered 行意味着 agent 领走了却没能回报（多半是 manager 重启打断），
+ * 此后既不会被重投也不会被读，却带着整份 profile bundle 永久占库（生产实测
+ * 339 KB / 2 行，清完存量后成了库里最大的一块）。boot 收敛为 failed 并清 payload。
+ */
+test('convergeAgentCommands: 重启遗留的 delivered 指令收敛为 failed 且清 payload，pending 不动', () => {
+  const db = makeDb()
+  const bundle = 'x'.repeat(50_000)
+  const mk = (state: string) => ({ agentId: 'agent-x', type: 'node.spawn', payload: JSON.stringify({ nodeId: 'n', profile: bundle }), state, result: null, createdAt: Date.now(), deliveredAt: Date.now(), doneAt: null })
+  db.insert(schema.agentCommand).values(mk('pending')).run()
+  db.insert(schema.agentCommand).values(mk('delivered')).run()
+  db.insert(schema.agentCommand).values(mk('done')).run()
+
+  const marked = convergeAgentCommands(db)
+  assert.equal(marked, 1, '只收敛 delivered')
+
+  const rows = db.select().from(schema.agentCommand).all()
+  const byState = (s: string) => rows.find((r) => r.state === s)
+  assert.equal(byState('pending')?.payload.includes('profile'), true, 'pending 是真没送达的，payload 必须留着')
+  assert.equal(byState('delivered'), undefined, 'delivered 已收敛')
+  const failed = rows.find((r) => r.state === 'failed')
+  assert.equal(failed?.payload, '{}', '收敛时必须清 payload')
+  assert.match(failed?.result ?? '', /manager restarted/, 'result 说明原因')
+  assert.ok((failed?.doneAt ?? 0) > 0, 'doneAt 落时间')
+  assert.equal(byState('done')?.payload.includes('profile'), true, '终态行不重复处理')
 })
 
 test('修路 A2/A3: convergeNodes healOnly——cold 不动、offline restart 自愈、live 探活翻转后同 tick 自愈', async () => {

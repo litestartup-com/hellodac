@@ -304,8 +304,19 @@ export const registerAgentsRoutes = (
       for (const event of parsed.data.events) {
         if (event.type === 'command_result') {
           // 只认领自己 agent 的 delivered 指令；幂等（重复回报被条件更新忽略）
+          //
+          // payload 只服务于投递：领取路径只读 `state='pending'`（claimCommands），
+          // 终态之后没有任何读取点。而 node.spawn 的 payload 里带**整份 DSH profile
+          // bundle**——生产实测 99 条平均 273 KB，占了整个库 34 MB 里的 32.8 MB，
+          // 且每次加密备份都会把它一起复制。所以进终态就地清空（列是 notNull，
+          // 用空 JSON 保契约）；历史靠 type/state/result/doneAt 保留。
           const updated = db.update(schema.agentCommand)
-            .set({ state: event.ok ? 'done' : 'failed', result: JSON.stringify(event.result ?? null), doneAt: Date.now() })
+            .set({
+              state: event.ok ? 'done' : 'failed',
+              result: JSON.stringify(event.result ?? null),
+              doneAt: Date.now(),
+              payload: '{}',
+            })
             .where(and(
               eq(schema.agentCommand.id, event.commandId),
               eq(schema.agentCommand.agentId, agentId),

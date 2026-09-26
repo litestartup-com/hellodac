@@ -70,6 +70,59 @@ test('能力四 M1-3: 指令队列——入队→长轮询领取→确认，一�
   assert.equal(row2?.state, 'failed')
 })
 
+/**
+ * 发布前优化（2026-09-26）：`agent_command.payload` 是 DB 体积唯一的大头——生产实测
+ * 126 行占 32.8 MB / 34 MB，其中 99 条 node.spawn 平均 273 KB（`payload.profile`
+ * 就是整份 DSH profile bundle）。领取路径只读 `state='pending'`（claimCommands），
+ * 所以**终态行的 payload 再也不会被读**，但行会永久保留，同步放大每一次加密备份。
+ *
+ * 规则：**进终态即清 payload**；在途（pending/delivered）原样保留——agent 崩在投递
+ * 中间时还要靠它排查；历史（type/state/result/doneAt）一律不动。
+ */
+test('发布前优化: 指令进终态即清空 payload，在途保留、历史字段不动', async () => {
+  const { db } = openDb(':memory:')
+  const app = buildApp(db)
+  const { agentId, agentToken } = await register(app)
+
+  const bundle = 'x'.repeat(200_000) // 模拟真实 node.spawn 的 profile bundle
+  const read = (id: number) => db.select().from(schema.agentCommand).where(eq(schema.agentCommand.id, id)).all()[0]
+  const ack = async (id: number, ok: boolean, result: unknown) =>
+    app.inject({
+      method: 'POST',
+      url: `/api/internal/agents/${agentId}/events`,
+      headers: { ...bearer(agentToken), 'content-type': 'application/json' },
+      payload: { events: [{ type: 'command_result', commandId: id, ok, result }] },
+    })
+  const claim = () => app.inject({ method: 'GET', url: `/api/internal/agents/${agentId}/commands?wait=100`, headers: bearer(agentToken) })
+
+  // pending：还没送达，payload 必须原样在
+  const id = await enqueueAgentCommand(db, agentId, 'node.spawn', { nodeId: 'ops01', profile: bundle })
+  assert.equal(read(id)?.state, 'pending')
+  assert.ok((read(id)?.payload ?? '').length > 200_000, 'pending 的 payload 不能被清')
+
+  // delivered（已领取、尚未回报）：同样保留
+  assert.equal((await claim()).statusCode, 200)
+  assert.equal(read(id)?.state, 'delivered')
+  assert.ok((read(id)?.payload ?? '').length > 200_000, 'delivered 的 payload 不能被清')
+
+  // done：payload 清空，历史字段保留
+  await ack(id, true, { pid: 7 })
+  const done = read(id)
+  assert.equal(done?.state, 'done')
+  assert.equal(done?.payload, '{}', '终态后 payload 必须是空 JSON（列为 notNull，保契约）')
+  assert.deepEqual(JSON.parse(done?.result ?? 'null'), { pid: 7 }, 'result 历史保留')
+  assert.ok((done?.doneAt ?? 0) > 0, 'doneAt 历史保留')
+
+  // failed 走同一条路
+  const id2 = await enqueueAgentCommand(db, agentId, 'node.spawn', { nodeId: 'ops02', profile: bundle })
+  await claim()
+  await ack(id2, false, { message: 'boom' })
+  const failed = read(id2)
+  assert.equal(failed?.state, 'failed')
+  assert.equal(failed?.payload, '{}', '失败终态同样清 payload')
+  assert.deepEqual(JSON.parse(failed?.result ?? 'null'), { message: 'boom' })
+})
+
 test('能力四 M1-3: 长轮询被入队唤醒——不等满 wait 即返回', async () => {
   const { db } = openDb(':memory:')
   const app = buildApp(db)
