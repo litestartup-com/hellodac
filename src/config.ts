@@ -235,6 +235,16 @@ export const fileSchema = z.object({
         label: z.string().min(1),
         workers: z.array(z.string().min(1)).min(1),
         surfaces: z.array(z.enum(['tasks', 'conversations'])).min(1).default(['tasks', 'conversations']),
+        // 服务级调度声明（设计稿 manager/topics/service-model.md §2/§5）：
+        // 坐席数（副本）+ 每席并发上限 + 放置策略 + 每机坐席上限。
+        seats: z.number().int().min(1).default(1),
+        capacity: z
+          .object({ max_sessions_per_seat: z.number().int().min(1).default(4) })
+          .default({ max_sessions_per_seat: 4 }),
+        placement: z.enum(['spread', 'pack', 'pin']).default('spread'),
+        /** placement: pin 时必填：只把这些机器作为落点。 */
+        machines: z.array(z.string().min(1)).default([]),
+        max_seats_per_machine: z.number().int().min(1).default(4),
         knowledge: z
           .array(
             z.object({
@@ -339,6 +349,15 @@ export interface ResolvedService {
   surfaces: Array<'tasks' | 'conversations'>
   /** 只读手册的挂载声明（挂载层在 P3 落实；此处先作为真相源校验并展示）。 */
   knowledge: Array<{ host: string; mount: string; readOnly: boolean }>
+  /**
+   * 服务级调度声明。**loadConfig 恒有值**；测试里手写的字面量可省略，
+   * 读取方统一 `?? 默认`（默认值见 fileSchema：1 席 / 每席 4 并发 / spread / 每机 4 席）。
+   */
+  seats?: number
+  maxSessionsPerSeat?: number
+  placement?: 'spread' | 'pack' | 'pin'
+  machines?: string[]
+  maxSeatsPerMachine?: number
 }
 
 /**
@@ -696,7 +715,39 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
       workers: [...svc.workers],
       surfaces: [...svc.surfaces],
       knowledge: svc.knowledge.map((k) => ({ host: k.host, mount: k.mount, readOnly: k.read_only })),
+      seats: svc.seats,
+      maxSessionsPerSeat: svc.capacity.max_sessions_per_seat,
+      placement: svc.placement,
+      machines: [...svc.machines],
+      maxSeatsPerMachine: svc.max_seats_per_machine,
     })
+
+    // 服务级调度的声明校验（service-model.md §5）。全部 fail-loud：
+    // 这类错误若被静默忽略，表现是"坐席少了/铺错机器了"，事后极难追。
+    if (svc.placement === 'pin' && svc.machines.length === 0) {
+      throw new Error(`service "${svc.id}": placement "pin" needs machines: [<machine ids>]`)
+    }
+    if (svc.placement !== 'pin' && svc.machines.length > 0) {
+      throw new Error(
+        `service "${svc.id}": machines is only meaningful with placement "pin" (got ${svc.placement}); ` +
+          'otherwise the list would be silently ignored.',
+      )
+    }
+    if (svc.placement === 'pin' && svc.seats > svc.machines.length * svc.max_seats_per_machine) {
+      throw new Error(
+        `service "${svc.id}": ${svc.seats} seats cannot fit on ${svc.machines.length} pinned machine(s) ` +
+          `at ${svc.max_seats_per_machine} seats each; raise max_seats_per_machine or add machines`,
+      )
+    }
+    // 阶段边界（P0.5 第一片）：按声明自动拉起坐席副本尚未实现，这里先要求 workers 列全，
+    // 否则"声明 3 个坐席、实际只有 1 个在跑"会变成静默少配。
+    if (svc.seats !== svc.workers.length) {
+      throw new Error(
+        `service "${svc.id}": seats=${svc.seats} but ${svc.workers.length} worker(s) listed. ` +
+          'Automatic seat provisioning is not implemented yet — list every worker, or set seats to ' +
+          'the number of workers (see plan-public-api.md P0.5).',
+      )
+    }
   }
 
   // 门面与后台不能同端口：真撞上时门面永远起不来，而"API 不见了"比启动失败更难查。

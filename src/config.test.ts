@@ -526,3 +526,53 @@ test('对外 API: 门面端口与后台端口相同 = fail-loud（否则门面�
   assert.throws(() => loadWithKeyEnv(clash), /same as listen\.port/)
 })
 
+
+/**
+ * 服务级调度声明（设计稿 manager/topics/service-model.md §5）：
+ * 坐席数 / 每席并发 / 放置策略的默认值与非法组合必须 fail-loud。
+ */
+test('服务调度声明: 默认值（1 席 · 每席 4 并发 · spread · 每机 4 席）', () => {
+  const cfg = loadWithKeyEnv(gatewayConfig({ services: [{ id: 'support', label: '客服', workers: ['worker-1'] }] }))
+  const svc = cfg.services?.[0]
+  assert.equal(svc?.seats, 1)
+  assert.equal(svc?.maxSessionsPerSeat, 4)
+  assert.equal(svc?.placement, 'spread')
+  assert.deepEqual(svc?.machines, [])
+  assert.equal(svc?.maxSeatsPerMachine, 4)
+})
+
+test('服务调度声明: pin 必须给 machines；非 pin 给 machines = fail-loud（不静默忽略）', () => {
+  assert.throws(
+    () => loadWithKeyEnv(gatewayConfig({ services: [{ id: 's', label: 'x', workers: ['worker-1'], placement: 'pin' }] })),
+    /needs machines/,
+  )
+  assert.throws(
+    () => loadWithKeyEnv(
+      gatewayConfig({ services: [{ id: 's', label: 'x', workers: ['worker-1'], placement: 'spread', machines: ['m1'] }] }),
+    ),
+    /only meaningful with placement/,
+  )
+  const ok = loadWithKeyEnv(
+    gatewayConfig({ services: [{ id: 's', label: 'x', workers: ['worker-1'], placement: 'pin', machines: ['m1'] }] }),
+  )
+  assert.equal(ok.services?.[0]?.placement, 'pin')
+})
+
+test('服务调度声明: pin 装不下声明的坐席数 = fail-loud', () => {
+  assert.throws(
+    () =>
+      loadWithKeyEnv(
+        gatewayConfig({
+          services: [{ id: 's', label: 'x', workers: ['worker-1'], placement: 'pin', machines: ['m1'], seats: 5, max_seats_per_machine: 4 }],
+        }),
+      ),
+    /cannot fit on 1 pinned machine/,
+  )
+})
+
+test('服务调度声明: seats 与 workers 数不符 = fail-loud（自动拉起坐席尚未实现，别静默少配）', () => {
+  assert.throws(
+    () => loadWithKeyEnv(gatewayConfig({ services: [{ id: 's', label: 'x', workers: ['worker-1'], seats: 3 }] })),
+    /Automatic seat provisioning is not implemented yet/,
+  )
+})
