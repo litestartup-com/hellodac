@@ -271,6 +271,9 @@ const main = async (): Promise<void> => {
   // 蜂群2计划 P3：改密页（强制改密期间的落点）与审计页
   app.get('/password', { preHandler: requirePage }, page('password'))
   app.get('/audit', { preHandler: requirePage }, page('audit'))
+  // 对外 API：钥匙管理页（后台面；客户面是 8081 的 /v1，两扇门不互认）。
+  // 漏了这一行 = /keys 404 而 /api/keys 正常——pages-routes.test.ts 现在守着这条。
+  app.get('/keys', { preHandler: requirePage }, page('keys'))
 
   // P1-5：改密成功后抹掉 .env 里的初始口令。
   // 债务 R6:路径改用 config.envPath(真相源单一推导;旧代码 dist/../.env 在

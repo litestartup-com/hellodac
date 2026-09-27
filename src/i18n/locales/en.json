@@ -317,6 +317,7 @@
   "keys.lastUsed": "last used",
   "keys.createdLabel": "created",
   "keys.nameRequired": "Please give the key a name.",
+  "keys.noServices": "No services are defined yet — add a services: block to manager.config.yaml first.",
   "keys.serviceRequired": "Please pick at least one service.",
   "keys.created": "Key created.",
   "keys.createFailed": "Could not create the key",

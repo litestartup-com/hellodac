@@ -3068,3 +3068,21 @@ select.text-input {
 .side-link .warn { color: var(--warn); font-weight: 600; }
 
 .dot.muted { background: var(--muted); }
+
+/* 对外 API 钥匙页：一次性明文展示区——创建后只出现这一次，必须醒目、可整段复制。 */
+.token-reveal {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--ok, #2e7d32);
+  border-radius: 8px;
+}
+.token-value {
+  display: block;
+  margin: 6px 0;
+  padding: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+  user-select: all;
+  background: var(--bg-elev, rgba(127, 127, 127, 0.12));
+  border-radius: 6px;
+}

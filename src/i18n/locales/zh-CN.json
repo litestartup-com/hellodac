@@ -317,6 +317,7 @@
   "keys.lastUsed": "最近使用",
   "keys.createdLabel": "创建于",
   "keys.nameRequired": "请给这把钥匙起个名字。",
+  "keys.noServices": "还没有定义服务——先在 manager.config.yaml 里加 services: 段。",
   "keys.serviceRequired": "请至少勾选一个服务。",
   "keys.created": "已签发。",
   "keys.createFailed": "签发失败",

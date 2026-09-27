@@ -23,7 +23,7 @@ const keyRow = (key) => `<div class="node-row">
     <div class="node-meta">${esc(key.scopes.join(', '))} · ${key.quotaRunsDay === null ? esc(t('keys.unlimited')) : `${key.quotaRunsDay}${esc(t('keys.perDay'))}`} · ${key.rateLimitRpm}${esc(t('keys.perMinute'))}</div>
     <div class="node-meta">${esc(t('keys.lastUsed'))}: ${esc(stamp(key.lastUsedAt))} · ${esc(t('keys.createdLabel'))}: ${esc(stamp(key.createdAt))}</div>
   </div>
-  ${key.revokedAt === null ? `<div class="row-actions"><button class="btn" type="button" data-revoke="${esc(key.id)}">${esc(t('keys.revoke'))}</button></div>` : ''}
+  ${key.revokedAt === null ? `<div class="form-actions"><button class="btn" type="button" data-revoke="${esc(key.id)}">${esc(t('keys.revoke'))}</button></div>` : ''}
 </div>`
 
 const renderListener = (state) => {
@@ -48,6 +48,11 @@ const load = async () => {
   if (services !== null && services.options.length === 0) {
     services.innerHTML = data.services.map((s) => `<option value="${esc(s.id)}">${esc(s.label)} (${esc(s.id)})</option>`).join('')
   }
+  // 配置里还没有服务时，创建表单无法提交——给出明确指引，而不是让按钮点了没反应。
+  const createButton = $('key-create')
+  const msg = $('key-create-msg')
+  if (createButton !== null) createButton.disabled = data.services.length === 0
+  if (msg !== null && data.services.length === 0) msg.textContent = t('keys.noServices')
   const scopes = $('key-scopes')
   if (scopes !== null && scopes.options.length === 0) {
     scopes.innerHTML = SCOPES.map((s) => `<option value="${esc(s)}"${s === 'services:read' || s === 'usage:read' ? ' selected' : ''}>${esc(s)}</option>`).join('')
