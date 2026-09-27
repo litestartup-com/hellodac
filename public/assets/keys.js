@@ -2,11 +2,13 @@
 //
 // 明文只在创建响应里出现一次：创建成功后立刻显示在 token-reveal 区并提示"只显示这一次"，
 // 列表永远拿不到它（服务端结构上就没有这个字段）。
+//
+// 数据面约定（2026-09-27 事故修正）：`apiJson` 返回的是 `{ok, status, data}`（失败时
+// `{ok:false, error, detail}`），**不是 Response**——错误地把 `.json()` 挂在它上面会让
+// 整个页面停在 "Loading…"（keys-page.test.mjs 现在是这条的运行时守卫）。
 import { $, esc, setHtml, apiJson, poll, t, loadI18n } from './ui.js'
 
 await loadI18n()
-
-const SCOPES = ['services:read', 'usage:read', 'tasks:write', 'conversations:write', 'interactions:write']
 
 const stamp = (ms) => (ms === null || ms === undefined ? '—' : new Date(ms).toLocaleString())
 
@@ -38,10 +40,17 @@ const renderListener = (state) => {
   el.innerHTML = `${esc(state.status === 'disabled' ? t('keys.listenerOff') : t('keys.listenerFailed'))}${reason}`
 }
 
+const setMessage = (text) => {
+  const msg = $('key-create-msg')
+  if (msg === null) return
+  msg.hidden = text === ''
+  msg.textContent = text
+}
+
 const load = async () => {
   const r = await apiJson('/api/keys')
   if (!r.ok) return
-  const data = await r.json()
+  const data = r.data ?? { keys: [], publicApi: { status: 'failed', host: '?', port: 0, detail: null }, services: [] }
   renderListener(data.publicApi)
 
   const services = $('key-services')
@@ -50,76 +59,71 @@ const load = async () => {
   }
   // 配置里还没有服务时，创建表单无法提交——给出明确指引，而不是让按钮点了没反应。
   const createButton = $('key-create')
-  const msg = $('key-create-msg')
   if (createButton !== null) createButton.disabled = data.services.length === 0
-  if (msg !== null && data.services.length === 0) msg.textContent = t('keys.noServices')
-  const scopes = $('key-scopes')
-  if (scopes !== null && scopes.options.length === 0) {
-    scopes.innerHTML = SCOPES.map((s) => `<option value="${esc(s)}"${s === 'services:read' || s === 'usage:read' ? ' selected' : ''}>${esc(s)}</option>`).join('')
-  }
+  setMessage(data.services.length === 0 ? t('keys.noServices') : '')
 
-  const list = $('keys-list')
-  if (list === null) return
-  setHtml(list, data.keys.length === 0 ? `<p class="muted small">${esc(t('keys.empty'))}</p>` : data.keys.map(keyRow).join(''))
+  setHtml('keys-list', data.keys.length === 0 ? `<p class="muted small">${esc(t('keys.empty'))}</p>` : data.keys.map(keyRow).join(''))
   const refreshed = $('keys-refresh')
   if (refreshed !== null) refreshed.textContent = new Date().toLocaleTimeString()
 }
 
-const selected = (id) => Array.from($(id)?.selectedOptions ?? []).map((o) => o.value)
+const checkedScopes = () =>
+  Array.from(document.querySelectorAll('#key-scopes input:checked'))
+    .map((input) => input.value)
+    .filter((value) => value !== '')
 
 const create = async () => {
-  const msg = $('key-create-msg')
-  const name = $('key-name')?.value.trim() ?? ''
+  const nameEl = $('key-name')
+  const name = nameEl === null ? '' : String(nameEl.value).trim()
   if (name === '') {
-    if (msg !== null) msg.textContent = t('keys.nameRequired')
+    setMessage(t('keys.nameRequired'))
     return
   }
-  const services = selected('key-services')
-  if (services.length === 0) {
-    if (msg !== null) msg.textContent = t('keys.serviceRequired')
+  const service = $('key-services')?.value ?? ''
+  if (service === '') {
+    setMessage(t('keys.serviceRequired'))
     return
   }
   const quotaRaw = Number($('key-quota')?.value ?? '200')
-  const body = {
-    name,
-    services,
-    scopes: selected('key-scopes'),
-    quotaRunsDay: Number.isFinite(quotaRaw) && quotaRaw > 0 ? quotaRaw : null,
-  }
   const response = await apiJson('/api/keys', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      name,
+      services: [service],
+      scopes: checkedScopes(),
+      quotaRunsDay: Number.isFinite(quotaRaw) && quotaRaw > 0 ? quotaRaw : null,
+    }),
   })
-  const payload = await response.json().catch(() => ({}))
   if (!response.ok) {
-    if (msg !== null) msg.textContent = `${t('keys.createFailed')}: ${payload.detail ?? response.status}`
+    setMessage(`${t('keys.createFailed')}: ${response.detail ?? response.status}`)
     return
   }
-  if (msg !== null) msg.textContent = t('keys.created')
+  const payload = response.data ?? {}
+  setMessage(t('keys.created'))
   const reveal = $('key-token')
   if (reveal !== null) {
     reveal.hidden = false
-    setHtml(
-      reveal,
-      `<div class="node-title">${esc(t('keys.tokenOnce'))}</div>
+    reveal.innerHTML = `<div class="node-title">${esc(t('keys.tokenOnce'))}</div>
        <code class="token-value">${esc(payload.token)}</code>
-       <div class="node-meta">${esc(t('keys.id'))}: <code>${esc(payload.key.id)}</code></div>`,
-    )
+       <div class="node-meta">${esc(t('keys.id'))}: <code>${esc(payload.key.id)}</code></div>`
   }
-  if ($('key-name') !== null) $('key-name').value = ''
+  if (nameEl !== null) nameEl.value = ''
   await load()
 }
+
+$('key-form')?.addEventListener('submit', (event) => {
+  event.preventDefault()
+  void create()
+})
 
 document.addEventListener('click', (event) => {
   const target = event.target
   if (!(target instanceof HTMLElement)) return
-  if (target.id === 'key-create') void create()
   const id = target.dataset.revoke
   if (id !== undefined) {
-    const msg = $('key-create-msg')
     void apiJson(`/api/keys/${encodeURIComponent(id)}/revoke`, { method: 'POST' }).then(async (response) => {
-      if (msg !== null) msg.textContent = response.ok ? t('keys.revokedNow') : t('keys.revokeFailed')
+      setMessage(response.ok ? t('keys.revokedNow') : t('keys.revokeFailed'))
       await load()
     })
   }

@@ -3086,3 +3086,16 @@ select.text-input {
   background: var(--bg-elev, rgba(127, 127, 127, 0.12));
   border-radius: 6px;
 }
+
+/* 对外 API 钥匙页：scope 勾选组（原生 checkbox，纵向紧凑排列，跟随卡片内边距节奏）。 */
+.checks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0 12px;
+}
+.checks .check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
