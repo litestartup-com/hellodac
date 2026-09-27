@@ -14,7 +14,7 @@ const nodes = new Map()
 const el = (id) => {
   const existing = nodes.get(id)
   if (existing !== undefined) return existing
-  const node = { id, innerHTML: '', textContent: '', hidden: false, disabled: false, value: '', options: [], addEventListener: () => undefined }
+  const node = { id, innerHTML: '', textContent: '', hidden: false, disabled: false, value: '', options: [], listeners: {}, addEventListener: (type, fn) => { node.listeners[type] = fn } }
   nodes.set(id, node)
   return node
 }
@@ -25,7 +25,10 @@ globalThis.document = {
   hidden: false,
   getElementById: (id) => nodes.get(id) ?? null,
   addEventListener: () => undefined,
-  querySelectorAll: () => [],
+  querySelectorAll: () => [
+    { value: 'services:read' },
+    { value: 'usage:read' },
+  ],
 }
 globalThis.window = globalThis
 globalThis.HTMLElement = class {}
@@ -51,9 +54,13 @@ const keyFixture = {
   createdAt: 1_790_000_000_000,
 }
 
-globalThis.fetch = async (url) => {
+globalThis.fetch = async (url, options) => {
   const path = String(url)
   if (path.includes('/api/i18n/')) return { ok: true, json: async () => ({ locale: 'en', dict: { 'keys.listenerUp': 'listening on' }, locales: [] }) }
+  if (path.endsWith('/api/keys') && options?.method === 'POST') {
+    postBodies.push(options?.body ?? '')
+    return { ok: true, status: 201, json: async () => ({ token: 'dac_9f2c1ab7e2d4_TESTTOKEN', key: { id: '9f2c1ab7e2d4' } }) }
+  }
   if (path.endsWith('/api/keys')) {
     return {
       ok: true,
@@ -67,6 +74,7 @@ globalThis.fetch = async (url) => {
   }
   return { ok: false, status: 404, json: async () => ({ error: 'not_found' }) }
 }
+const postBodies = []
 
 test('keys 页面脚本：加载不抛错，且把数据渲染进对应节点（防 "Loading…" 事故）', async () => {
   await import('./keys.js')
@@ -86,4 +94,31 @@ test('keys 页面脚本：加载不抛错，且把数据渲染进对应节点（
 
   const msg = nodes.get('key-create-msg')
   assert.ok(msg !== undefined && msg.textContent === '', '配置里有服务时不应显示"无服务"提示')
+})
+
+test('keys 表单：提交 → 签发 → 明文只展示一次（驱动真实表单处理器）', async () => {
+  await import('./keys.js')
+  await new Promise((resolve) => realSetTimeout(resolve, 20))
+
+  const form = nodes.get('key-form')
+  assert.ok(form !== undefined && typeof form.listeners?.submit === 'function', '表单应注册 submit 处理器')
+
+  const nameEl = nodes.get('key-name')
+  const serviceEl = nodes.get('key-services')
+  nameEl.value = '验收钥匙'
+  serviceEl.value = 'support'
+
+  await form.listeners.submit({ preventDefault: () => undefined })
+  await new Promise((resolve) => realSetTimeout(resolve, 20))
+
+  const body = postBodies[0]
+  assert.ok(body !== undefined, '提交应发出 POST /api/keys')
+  const parsed = JSON.parse(body)
+  assert.equal(parsed.name, '验收钥匙')
+  assert.deepEqual(parsed.services, ['support'])
+  assert.deepEqual(parsed.scopes, ['services:read', 'usage:read'], '默认只读 scope（勾选项）')
+
+  const reveal = nodes.get('key-token')
+  assert.ok(reveal !== undefined && reveal.hidden === false, '签发成功后应展示明文区')
+  assert.ok(reveal !== undefined && reveal.innerHTML.includes('TESTTOKEN'), '明文区应包含 token')
 })

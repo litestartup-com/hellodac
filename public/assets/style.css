@@ -1429,6 +1429,38 @@ button:disabled {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
+/* 与 .narrow input 同款的下拉（对外 API 钥匙页选服务用）：同一表单体系内
+   不应该有第二个输入外观，select 跟着 input 走。 */
+.narrow select {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  color: var(--text);
+  font: 14px/1.4 var(--font);
+  padding: 11px 12px;
+  margin-bottom: 14px;
+  transition: border-color var(--motion), box-shadow var(--motion);
+}
+
+.narrow select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* 表单内的勾选项：.checkbox-line 是仓库既有约定（inline-flex + gap + 手型），
+   但 .narrow label 的字号/颜色会覆盖它——这里把既有约定重新声明进表单体系。 */
+.narrow .checkbox-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--text);
+  cursor: pointer;
+  margin-bottom: 6px;
+}
+
 /* 提交按钮基础形态（登录页与改密页共用）：蓝底白字。 */
 .narrow button[type='submit'] {
   width: 100%;
@@ -3087,15 +3119,9 @@ select.text-input {
   border-radius: 6px;
 }
 
-/* 对外 API 钥匙页：scope 勾选组（原生 checkbox，纵向紧凑排列，跟随卡片内边距节奏）。 */
+/* 对外 API 钥匙页：scope 勾选组（纵向排布；每项间距由 .checkbox-line 自带）。 */
 .checks {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin: 4px 0 12px;
-}
-.checks .check {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  margin: 2px 0 12px;
 }

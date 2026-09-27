@@ -30,17 +30,17 @@
 
       <label>{{t:keys.scopes}}</label>
       <div id="key-scopes" class="checks">
-        <label class="check"><input type="checkbox" value="services:read" checked /> <span>services:read</span></label>
-        <label class="check"><input type="checkbox" value="usage:read" checked /> <span>usage:read</span></label>
-        <label class="check"><input type="checkbox" value="tasks:write" /> <span>tasks:write</span></label>
-        <label class="check"><input type="checkbox" value="conversations:write" /> <span>conversations:write</span></label>
-        <label class="check"><input type="checkbox" value="interactions:write" /> <span>interactions:write</span></label>
+        <label class="checkbox-line"><input type="checkbox" value="services:read" checked /> <span>services:read</span></label>
+        <label class="checkbox-line"><input type="checkbox" value="usage:read" checked /> <span>usage:read</span></label>
+        <label class="checkbox-line"><input type="checkbox" value="tasks:write" /> <span>tasks:write</span></label>
+        <label class="checkbox-line"><input type="checkbox" value="conversations:write" /> <span>conversations:write</span></label>
+        <label class="checkbox-line"><input type="checkbox" value="interactions:write" /> <span>interactions:write</span></label>
       </div>
 
       <label for="key-quota">{{t:keys.quota}}</label>
       <input id="key-quota" type="number" min="1" value="200" />
 
-      <button type="submit" id="key-create" class="btn primary">{{t:keys.createAction}}</button>
+      <button type="submit" id="key-create">{{t:keys.createAction}}</button>
       <div id="key-token" class="token-reveal" hidden></div>
     </form>
   </section>
