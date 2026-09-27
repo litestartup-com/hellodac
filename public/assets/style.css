@@ -1117,6 +1117,9 @@ code {
   display: flex;
   align-items: baseline;
   gap: 8px;
+  /* 说明文字长短不定（钥匙页那句很长）：不换行的话窄窗口会被直接裁掉（2026-09-27 实测）。 */
+  flex-wrap: wrap;
+  row-gap: 4px;
   margin-bottom: 12px;
 }
 
@@ -1459,6 +1462,16 @@ button:disabled {
   color: var(--text);
   cursor: pointer;
   margin-bottom: 6px;
+}
+
+/* 关键：`.narrow input { width: 100% }` 是给文本框的，勾选框也命中它——复选框会被拉成
+   整行宽（实测 216px），字形留在最左、文字被挤到最右，看起来像排版坏了。
+   这里把勾选框还原成原生尺寸（实测修法，2026-09-27）。 */
+.narrow .checkbox-line input[type='checkbox'] {
+  width: auto;
+  padding: 0;
+  margin: 0;
+  flex: none;
 }
 
 /* 提交按钮基础形态（登录页与改密页共用）：蓝底白字。 */
