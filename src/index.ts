@@ -21,6 +21,7 @@ import { DockerRunner } from './nodes/docker-runner.js'
 import { recordAudit } from './audit.js'
 import { makeCsrfHook } from './routes/auth.js'
 import { registerAuditRoutes } from './routes/audit.js'
+import { registerApiKeyRoutes } from './routes/keys.js'
 import { collectNodeHomes, packNodeHomes } from './nodebackup.js'
 import { seedEmptyWorkspaces } from './workspace/seed.js'
 import { provisionBrainToken, renderFleetDoc } from './workspace/fleet-doc.js'
@@ -278,6 +279,8 @@ const main = async (): Promise<void> => {
   registerI18nRoutes(app)
   registerAuthRoutes(app, db, secureCookies, config.envPath ?? join(here, '..', '.env'))
   registerAuditRoutes(app, db, requireUser)
+  // 对外 API 的钥匙管理面（后台；客户面见 public-api/）
+  registerApiKeyRoutes(app, config, db, requireUser)
   registerStatusRoutes(app, config, db, clients, requireUser, upstreamClients, nodeSupervisors)
   registerWorkspaceRoutes(app, config, requireUser)
   registerRunRoutes(app, config, db, clients, requireUser, upstreamClients)

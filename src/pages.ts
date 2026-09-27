@@ -95,6 +95,14 @@ export const PAGES: Record<string, PageDef> = {
     script: 'skills.js',
     contentClass: 'wide',
   },
+  // 对外 API：钥匙管理（后台面；客户面是 8081 的 /v1，两扇门不互认）
+  keys: {
+    file: 'keys.html',
+    title: `{{t:keys.title}} · ${BRAND.name}`,
+    css: [],
+    script: 'keys.js',
+    contentClass: 'wide',
+  },
   // 蜂群2计划 P3：首登强制改密 + 审计流水
   password: {
     file: 'password.html',

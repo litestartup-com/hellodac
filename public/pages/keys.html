@@ -1,0 +1,52 @@
+<div class="wrap">
+  <div class="page-head">
+    <h1 class="grow">{{t:keys.title}}</h1>
+    <span id="keys-refresh" class="muted small"></span>
+  </div>
+
+  <div id="keys-note" class="card muted small">{{t:keys.note}}</div>
+
+  <section class="section">
+    <div class="section-head">
+      <h2>{{t:keys.listener}}</h2>
+      <span id="keys-listener" class="muted small">{{t:common.loading}}</span>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <h2>{{t:keys.create}}</h2>
+      <span class="muted small">{{t:keys.createNote}}</span>
+    </div>
+    <div class="card">
+      <label class="field">
+        <span>{{t:keys.name}}</span>
+        <input id="key-name" type="text" maxlength="80" placeholder="{{t:keys.nameHint}}" />
+      </label>
+      <label class="field">
+        <span>{{t:keys.services}}</span>
+        <select id="key-services" multiple size="3"></select>
+      </label>
+      <label class="field">
+        <span>{{t:keys.scopes}}</span>
+        <select id="key-scopes" multiple size="5"></select>
+      </label>
+      <label class="field">
+        <span>{{t:keys.quota}}</span>
+        <input id="key-quota" type="number" min="1" value="200" />
+      </label>
+      <div class="row-actions">
+        <button id="key-create" class="btn primary" type="button">{{t:keys.createAction}}</button>
+        <span id="key-create-msg" class="muted small"></span>
+      </div>
+      <div id="key-token" class="token-reveal" hidden></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <h2>{{t:keys.existing}}</h2>
+    </div>
+    <div id="keys-list" class="nodes-list"><p class="muted small">{{t:common.loading}}</p></div>
+  </section>
+</div>

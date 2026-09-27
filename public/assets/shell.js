@@ -1111,6 +1111,7 @@ const MORE_NAV = [
   { href: '/archive', nav: 'archive', icon: 'archive', label: t('nav.archive'), hint: 'archive-hint' },
   { href: '/spend', nav: 'spend', icon: 'coin', label: t('nav.spend'), hint: 'spend-hint' },
   { href: '/audit', nav: 'audit', icon: 'shield', label: t('nav.audit'), hint: null },
+  { href: '/keys', nav: 'keys', icon: 'key', label: t('nav.keys'), hint: null },
   { href: '/password', nav: 'password', icon: 'pencil', label: t('nav.password'), hint: null },
 ]
 
