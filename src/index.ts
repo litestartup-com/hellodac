@@ -46,6 +46,7 @@ import { assetCacheHeaders, buildAllPages, buildStandalonePage } from './pages.j
 import { LOCALE_COOKIE, LOCALES, resolveLocale } from './i18n/index.js'
 import { switchLocale } from './locale-switch.js'
 import { registerSecurityHeaders } from './security.js'
+import { startPublicApi } from './public-api/listener.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const publicDir = join(here, '..', 'public')
@@ -345,8 +346,14 @@ const main = async (): Promise<void> => {
   // 债务 B6:/metrics 快照端点(受保护)
   registerMetricsRoutes(app, db, requireUser)
 
+  // 对外门面（设计稿 manager/topics/public-api.md §3）：独立监听、独立鉴权。
+  // 起不来不拖垮主服务（listener 内部记状态 + error 日志），故这里只留一个可空句柄。
+  let publicApiHandle: { close: () => Promise<void> } | null = null
+
   const close = async (signal: string): Promise<void> => {
     app.log.info(`${signal} received, shutting down`)
+    // 先关对外面：正在处理的客户请求不该在主服务收摊之后还挂在半空。
+    await publicApiHandle?.close().catch((error: unknown) => app.log.warn(`public API close failed: ${String(error)}`))
     // Open SSE streams and filesystem watchers would otherwise keep the event
     // loop alive and turn a clean stop into a hang.
     closeBoardWatchers()
@@ -362,6 +369,13 @@ const main = async (): Promise<void> => {
   process.on('SIGTERM', () => void close('SIGTERM'))
 
   await app.listen({ host: config.listen.host, port: config.listen.port })
+  // 后台起来之后再开对外面：客户拿到的是"能用的 API"，而不是"API 在、后台还没好"。
+  // 这里刻意放在 listen 之后、scheduler 之前——门面失败不影响任何后续启动步骤。
+  publicApiHandle = await startPublicApi({
+    config,
+    db,
+    log: (line, level) => (level === 'error' ? app.log.error(line) : app.log.info(line)),
+  })
   // Started only once the process is fully up: the stale-run sweep above has to
   // have cleared the previous process's locks, or the first fire would collide
   // with a run that no longer exists.

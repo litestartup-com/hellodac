@@ -26,6 +26,10 @@ export type AuditKind =
   | 'agent_deleted'
   | 'sandbox_mode'
   | 'backup'
+  // 对外 API（设计稿 manager/topics/public-api.md）：钥匙生命周期与对外调用。
+  | 'api_key_created'
+  | 'api_key_revoked'
+  | 'api_call'
 
 export const recordAudit = (db: Db, entry: { actor: string; kind: AuditKind; detail: string }): void => {
   db.insert(schema.auditLog).values({ at: Date.now(), actor: entry.actor, kind: entry.kind, detail: entry.detail }).run()
