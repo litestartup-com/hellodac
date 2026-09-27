@@ -534,11 +534,11 @@ test('对外 API: 门面端口与后台端口相同 = fail-loud（否则门面�
 test('服务调度声明: 默认值（1 席 · 每席 4 并发 · spread · 每机 4 席）', () => {
   const cfg = loadWithKeyEnv(gatewayConfig({ services: [{ id: 'support', label: '客服', workers: ['worker-1'] }] }))
   const svc = cfg.services?.[0]
-  assert.equal(svc?.seats, 1)
-  assert.equal(svc?.maxSessionsPerSeat, 4)
+  assert.equal(svc?.agents, 1)
+  assert.equal(svc?.maxSessionsPerAgent, 4)
   assert.equal(svc?.placement, 'spread')
   assert.deepEqual(svc?.machines, [])
-  assert.equal(svc?.maxSeatsPerMachine, 4)
+  assert.equal(svc?.maxAgentsPerMachine, 4)
 })
 
 test('服务调度声明: pin 必须给 machines；非 pin 给 machines = fail-loud（不静默忽略）', () => {
@@ -563,16 +563,16 @@ test('服务调度声明: pin 装不下声明的坐席数 = fail-loud', () => {
     () =>
       loadWithKeyEnv(
         gatewayConfig({
-          services: [{ id: 's', label: 'x', workers: ['worker-1'], placement: 'pin', machines: ['m1'], seats: 5, max_seats_per_machine: 4 }],
+          services: [{ id: 's', label: 'x', workers: ['worker-1'], placement: 'pin', machines: ['m1'], agents: 5, max_agents_per_machine: 4 }],
         }),
       ),
     /cannot fit on 1 pinned machine/,
   )
 })
 
-test('服务调度声明: seats 与 workers 数不符 = fail-loud（自动拉起坐席尚未实现，别静默少配）', () => {
+test('服务调度声明: agents 与 workers 数不符 = fail-loud（自动拉起坐席尚未实现，别静默少配）', () => {
   assert.throws(
-    () => loadWithKeyEnv(gatewayConfig({ services: [{ id: 's', label: 'x', workers: ['worker-1'], seats: 3 }] })),
+    () => loadWithKeyEnv(gatewayConfig({ services: [{ id: 's', label: 'x', workers: ['worker-1'], agents: 3 }] })),
     /Automatic seat provisioning is not implemented yet/,
   )
 })

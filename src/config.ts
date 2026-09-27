@@ -236,15 +236,16 @@ export const fileSchema = z.object({
         workers: z.array(z.string().min(1)).min(1),
         surfaces: z.array(z.enum(['tasks', 'conversations'])).min(1).default(['tasks', 'conversations']),
         // 服务级调度声明（设计稿 manager/topics/service-model.md §2/§5）：
-        // 坐席数（副本）+ 每席并发上限 + 放置策略 + 每机坐席上限。
-        seats: z.number().int().min(1).default(1),
+        // agents = 期望坐席数（副本；注意与顶层 agents: 登记表同名但含义不同——
+        // 这里是"要几个"，那里是"是谁"）+ 每席并发上限 + 放置策略 + 每机坐席上限。
+        agents: z.number().int().min(1).default(1),
         capacity: z
-          .object({ max_sessions_per_seat: z.number().int().min(1).default(4) })
-          .default({ max_sessions_per_seat: 4 }),
+          .object({ max_sessions_per_agent: z.number().int().min(1).default(4) })
+          .default({ max_sessions_per_agent: 4 }),
         placement: z.enum(['spread', 'pack', 'pin']).default('spread'),
         /** placement: pin 时必填：只把这些机器作为落点。 */
         machines: z.array(z.string().min(1)).default([]),
-        max_seats_per_machine: z.number().int().min(1).default(4),
+        max_agents_per_machine: z.number().int().min(1).default(4),
         knowledge: z
           .array(
             z.object({
@@ -353,11 +354,11 @@ export interface ResolvedService {
    * 服务级调度声明。**loadConfig 恒有值**；测试里手写的字面量可省略，
    * 读取方统一 `?? 默认`（默认值见 fileSchema：1 席 / 每席 4 并发 / spread / 每机 4 席）。
    */
-  seats?: number
-  maxSessionsPerSeat?: number
+  agents?: number
+  maxSessionsPerAgent?: number
   placement?: 'spread' | 'pack' | 'pin'
   machines?: string[]
-  maxSeatsPerMachine?: number
+  maxAgentsPerMachine?: number
 }
 
 /**
@@ -715,11 +716,11 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
       workers: [...svc.workers],
       surfaces: [...svc.surfaces],
       knowledge: svc.knowledge.map((k) => ({ host: k.host, mount: k.mount, readOnly: k.read_only })),
-      seats: svc.seats,
-      maxSessionsPerSeat: svc.capacity.max_sessions_per_seat,
+      agents: svc.agents,
+      maxSessionsPerAgent: svc.capacity.max_sessions_per_agent,
       placement: svc.placement,
       machines: [...svc.machines],
-      maxSeatsPerMachine: svc.max_seats_per_machine,
+      maxAgentsPerMachine: svc.max_agents_per_machine,
     })
 
     // 服务级调度的声明校验（service-model.md §5）。全部 fail-loud：
@@ -733,18 +734,18 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
           'otherwise the list would be silently ignored.',
       )
     }
-    if (svc.placement === 'pin' && svc.seats > svc.machines.length * svc.max_seats_per_machine) {
+    if (svc.placement === 'pin' && svc.agents > svc.machines.length * svc.max_agents_per_machine) {
       throw new Error(
-        `service "${svc.id}": ${svc.seats} seats cannot fit on ${svc.machines.length} pinned machine(s) ` +
-          `at ${svc.max_seats_per_machine} seats each; raise max_seats_per_machine or add machines`,
+        `service "${svc.id}": ${svc.agents} agents cannot fit on ${svc.machines.length} pinned machine(s) ` +
+          `at ${svc.max_agents_per_machine} agents each; raise max_agents_per_machine or add machines`,
       )
     }
     // 阶段边界（P0.5 第一片）：按声明自动拉起坐席副本尚未实现，这里先要求 workers 列全，
     // 否则"声明 3 个坐席、实际只有 1 个在跑"会变成静默少配。
-    if (svc.seats !== svc.workers.length) {
+    if (svc.agents !== svc.workers.length) {
       throw new Error(
-        `service "${svc.id}": seats=${svc.seats} but ${svc.workers.length} worker(s) listed. ` +
-          'Automatic seat provisioning is not implemented yet — list every worker, or set seats to ' +
+        `service "${svc.id}": agents=${svc.agents} but ${svc.workers.length} worker(s) listed. ` +
+          'Automatic seat provisioning is not implemented yet — list every worker, or set agents to ' +
           'the number of workers (see plan-public-api.md P0.5).',
       )
     }
