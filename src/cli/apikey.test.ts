@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { openDb } from '../db/index.js'
-import { createKey, parseKeyArgs, renderKeyList } from './apikey.js'
+import { createKey, parseKeyArgs, renderKeyList, unknownServices } from './apikey.js'
 
 /**
  * 钥匙 CLI 的契约（验收步骤靠它发钥匙）：
@@ -72,4 +72,16 @@ test('CLI 创建: 明文只回一次，库里只有哈希；列表不含明文',
   assert.ok(listing.includes('公司后端'))
   assert.ok(!listing.includes(token.split('_')[2] ?? 'x'), '列表永不打印明文')
   assert.match(listing, /50\/day/)
+})
+
+test('CLI 服务名校验: 与 UI 同一规则（给错名字的钥匙"看起来正常却进不去任何服务"）', () => {
+  const parsed = parseKeyArgs(['create', '--name', 'x', '--services', 'suport,support'])
+  assert.ok(!('error' in parsed) && parsed.command === 'create')
+  if ('error' in parsed || parsed.command !== 'create') return
+  assert.deepEqual(unknownServices(parsed.options, ['support']), ['suport'], '只报错的那些')
+
+  const wild = parseKeyArgs(['create', '--name', 'x', '--all-services'])
+  assert.ok(!('error' in wild) && wild.command === 'create')
+  if ('error' in wild || wild.command !== 'create') return
+  assert.deepEqual(unknownServices(wild.options, []), [], '通配钥匙不校验具体服务名')
 })

@@ -133,6 +133,16 @@ export const createKey = (db: Db, options: CreateOptions): { token: string; key:
   return { token, key }
 }
 
+/**
+ * 服务名必须在配置里存在（`*` 除外）——与 UI 同一条规则。
+ * 打错一个字母会发出一把"看起来正常、但进不去任何服务"的钥匙，这是最难查的故障类型。
+ */
+export const unknownServices = (options: CreateOptions, configured: readonly string[]): string[] => {
+  if (options.scopeServices.includes('*')) return []
+  const known = new Set(configured)
+  return options.scopeServices.filter((id) => !known.has(id))
+}
+
 export const revokeKeyCli = (db: Db, id: string): boolean => {
   const ok = revokeApiKey(db, id)
   if (ok) recordAudit(db, { actor: 'cli', kind: 'api_key_revoked', detail: `key ${id} revoked` })
@@ -187,6 +197,15 @@ const main = (): void => {
     const ok = revokeKeyCli(db, parsed.id)
     console.log(ok ? `✓ revoked ${parsed.id} (the key stops working immediately; its audit trail stays)` : `✗ unknown key ${parsed.id}`)
     process.exit(ok ? 0 : 1)
+  }
+
+  // 服务名校验（与 UI 同一规则）：配置里没有的服务名 = 手误，当场拦下。
+  const configured = (loadConfig().services ?? []).map((service) => service.id)
+  const missing = unknownServices(parsed.options, configured)
+  if (missing.length > 0) {
+    console.error(`✗ no such service: ${missing.join(', ')}`)
+    console.error(`  configured services: ${configured.length === 0 ? '(none — add a services: block to manager.config.yaml first)' : configured.join(', ')}`)
+    process.exit(2)
   }
 
   const { token, key } = createKey(db, parsed.options)
