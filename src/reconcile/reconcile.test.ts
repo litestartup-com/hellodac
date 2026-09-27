@@ -22,12 +22,22 @@ if (process.env.SESSION_SECRET === undefined) process.env.SESSION_SECRET = 'x'.r
 const configOf = (agents: Record<string, { name?: string; endpoint?: string; workspace?: string }>): ReturnType<typeof loadConfig> => {
   const dir = mkdtempSync(join(tmpdir(), 'reconcile-config-'))
   const file = join(dir, 'config.yaml')
+  // 口径 §1：一个端点一个 agent。夹具按 agent 派生端点（同一 agent 显式指到同一端点时
+  // 会触发该硬校验，这正是它要拦的事——所以这里不给两个 agent 复用端点）。
+  const resolved = Object.fromEntries(
+    Object.entries(agents).map(([id, a]) => [
+      id,
+      { name: a.name ?? id, endpoint: a.endpoint ?? `ep-${id}`, workspace: a.workspace ?? '.' },
+    ]),
+  )
+  const endpointIds = [...new Set(Object.values(resolved).map((a) => a.endpoint))]
+  const endpoints = Object.fromEntries(
+    endpointIds.map((id, index) => [id, { url: `http://127.0.0.1:${3080 + index}`, driver: 'apiproxy' }]),
+  )
   writeFileSync(file, stringify({
     listen: { host: '127.0.0.1', port: 8080 },
-    endpoints: { A: { url: 'http://127.0.0.1:3080', driver: 'apiproxy' } },
-    agents: Object.fromEntries(Object.entries(agents).map(([id, a]) => [id, {
-      name: a.name ?? id, endpoint: a.endpoint ?? 'A', workspace: a.workspace ?? '.',
-    }])),
+    endpoints,
+    agents: resolved,
   }), 'utf8')
   try {
     return loadConfig(file)

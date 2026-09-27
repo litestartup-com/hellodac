@@ -25,7 +25,7 @@ export interface ApiKey {
   id: string
   name: string
   scopes: KeyScope[]
-  /** 允许进入的服务 id；['*'] = 全部。与坐席 public 标志取交集（双门）。 */
+  /** 允许进入的服务 id；['*'] = 全部。与服务 agent 的 public 标志取交集（双门）。 */
   scopeServices: string[]
   quotaRunsDay: number | null
   rateLimitRpm: number

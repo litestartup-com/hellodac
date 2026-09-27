@@ -59,7 +59,7 @@ const addMetric = (db: Db, agentId: string, at: number, cpuPercent: number, memT
     .run()
 }
 
-test('单机自装: 本机永远是 online、指标缺失、私有坐席标记为真', () => {
+test('单机自装: 本机永远是 online、指标缺失、对内 agent 标记为真', () => {
   const { db } = openDb(':memory:')
   const cfg = config([agent('personal', 'A', false)], { A: endpoint(null) })
   const facts = loadMachineFacts({ db, config: cfg })
@@ -68,7 +68,7 @@ test('单机自装: 本机永远是 online、指标缺失、私有坐席标记�
   assert.equal(facts[0]?.online, true, 'manager 在跑即本机在线')
   assert.equal(facts[0]?.cpuFreePercent, undefined, '本机没有 agent_metric → 指标缺失，不是 0')
   assert.equal(facts[0]?.hasPrivateAgents, true)
-  assert.equal(facts[0]?.seats, 1)
+  assert.equal(facts[0]?.agentCount, 1)
 })
 
 test('agent 机器: 在线看心跳新鲜度；指标取最新一行并反算空闲', () => {
@@ -112,10 +112,10 @@ test('会话数按 agent 归属到机器，已归档的不算', () => {
 
   const facts = loadMachineFacts({ db, config: cfg })
   assert.equal(facts[0]?.sessions, 2, '只数未归档会话')
-  assert.equal(facts[0]?.seats, 2)
+  assert.equal(facts[0]?.agentCount, 2)
 })
 
-test('混放检测: 同机上有别的服务的坐席 → services 列出两个（放置器据此一票否决）', () => {
+test('混放检测: 同机上有别的服务的 agent → services 列出两个（放置器据此一票否决）', () => {
   const { db } = openDb(':memory:')
   const service = (id: string, workers: string[]) => ({
     id,
@@ -131,5 +131,5 @@ test('混放检测: 同机上有别的服务的坐席 → services 列出两个�
   )
   const facts = loadMachineFacts({ db, config: cfg })
   assert.deepEqual(facts[0]?.services.sort(), ['report', 'support'], '两个服务挤一台机器 → 快照如实反映')
-  assert.equal(facts[0]?.hasPrivateAgents, false, '全是对外坐席')
+  assert.equal(facts[0]?.hasPrivateAgents, false, '全是对外 agent')
 })

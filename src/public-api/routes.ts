@@ -107,7 +107,7 @@ export const registerPublicApiRoutes = (app: FastifyInstance, deps: PublicApiDep
   app.get('/v1/health', async () => ({ ok: true, service: 'dac-public-api', version: 1 }))
 
   /**
-   * 客户能进哪些服务。**只回对外必要的字段**：不暴露成员（坐席）id 与健康状态——
+   * 客户能进哪些服务。**只回对外必要的字段**：不暴露成员（agent）id 与健康状态——
    * 那是运营信息，客户只需要知道"我能调哪个服务、它支持哪种话术"。
    */
   app.get('/v1/services', { preHandler: requireKey(deps, 'services:read') }, async (request, reply) => {

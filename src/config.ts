@@ -226,37 +226,48 @@ export const fileSchema = z.object({
     })
     .default({ enabled: true, host: '127.0.0.1', port: 8081 }),
   // 服务定义。缺省空数组 = 没有对外服务（"当前没有对外 API"是合法状态，不是错误）。
+  // 口径见内部设计库 `manager/topics/CONCEPTS-ALIGNED.md`（用户 2026-09-27 确认）。
   services: z
     .array(
-      z.object({
-        id: z
-          .string()
-          .regex(/^[a-z0-9][a-z0-9-]{0,40}$/, 'service id must be a lowercase slug (a-z, 0-9, -)'),
-        label: z.string().min(1),
-        workers: z.array(z.string().min(1)).min(1),
-        surfaces: z.array(z.enum(['tasks', 'conversations'])).min(1).default(['tasks', 'conversations']),
-        // 服务级调度声明（设计稿 manager/topics/service-model.md §2/§5）：
-        // agents = 期望坐席数（副本；注意与顶层 agents: 登记表同名但含义不同——
-        // 这里是"要几个"，那里是"是谁"）+ 每席并发上限 + 放置策略 + 每机坐席上限。
-        agents: z.number().int().min(1).default(1),
-        capacity: z
-          .object({ max_sessions_per_agent: z.number().int().min(1).default(4) })
-          .default({ max_sessions_per_agent: 4 }),
-        placement: z.enum(['spread', 'pack', 'pin']).default('spread'),
-        /** placement: pin 时必填：只把这些机器作为落点。 */
-        machines: z.array(z.string().min(1)).default([]),
-        max_agents_per_machine: z.number().int().min(1).default(4),
-        knowledge: z
-          .array(
-            z.object({
-              host: z.string().min(1),
-              /** 容器/进程内挂载点，必须是绝对路径（相对路径会挂到意想不到的地方）。 */
-              mount: z.string().startsWith('/', 'knowledge mount must be an absolute path'),
-              read_only: z.boolean().default(true),
-            }),
-          )
-          .default([]),
-      }),
+      z
+        .object({
+          id: z
+            .string()
+            .regex(/^[a-z0-9][a-z0-9-]{0,40}$/, 'service id must be a lowercase slug (a-z, 0-9, -)'),
+          label: z.string().min(1),
+          workers: z.array(z.string().min(1)).min(1),
+          surfaces: z.array(z.enum(['tasks', 'conversations'])).min(1).default(['tasks', 'conversations']),
+          // 服务级调度声明：
+          // count = 期望 agent 数。**旧名 agents 已按口径改名**——顶层 `agents:` 是
+          // 登记表（"是谁"），`services[].count` 是期望个数（"要几个"），同名不同义
+          // 是两个概念混在一起的根源。
+          count: z.number().int().min(1).default(1),
+          capacity: z
+            .object({ max_sessions_per_agent: z.number().int().min(1).default(4) })
+            .default({ max_sessions_per_agent: 4 }),
+          // 对外 agent 的权限档位（口径 §8.5）：**默认只读**；需要写草稿才选 write；
+          // 不提供 full —— 对外流量 + 全放开 = 把整台机器交出去，出事无法挽回。
+          permission: z.enum(['read', 'write']).default('read'),
+          // 会话空闲回收时长（小时，口径 §8.3）：默认 24；建服务时可改。
+          session_idle_hours: z.number().positive().default(24),
+          placement: z.enum(['spread', 'pack', 'pin']).default('spread'),
+          /** placement: pin 时必填：只把这些机器作为落点。 */
+          machines: z.array(z.string().min(1)).default([]),
+          max_agents_per_machine: z.number().int().min(1).default(4),
+          knowledge: z
+            .array(
+              z.object({
+                host: z.string().min(1),
+                /** 容器/进程内挂载点，必须是绝对路径（相对路径会挂到意想不到的地方）。 */
+                mount: z.string().startsWith('/', 'knowledge mount must be an absolute path'),
+                read_only: z.boolean().default(true),
+              }),
+            )
+            .default([]),
+        })
+        // 严收：真相源文件里写错一个字段名（典型：改名后残留的 `agents:`）必须报错，
+        // 而不是被静默丢掉——静默丢字段的表现是"服务少起了几个 agent"，事后极难追。
+        .strict(),
     )
     .default([]),
 })
@@ -336,15 +347,15 @@ export interface ResolvedAgent {
 }
 
 /**
- * 对外 API 的一个"服务"（设计稿：内部设计库 `manager/topics/public-api.md` §2/§7）。
+ * 对外 API 的一个"服务"（口径：内部设计库 `manager/topics/CONCEPTS-ALIGNED.md` §2）。
  *
- * 服务 = 一队等价坐席 + 一本只读手册 + 一套对外话术。成员必须是 public agent，
- * 且（按 DESIGN.md §6 的既有红线）各自独立进程——服务定义不放松这条。
+ * 服务 = 对外的名字 + 一组等价 agent（可跨机器）+ 一本只读手册 + 一套对外话术。
+ * 成员必须是 public agent，且按口径 §1 **各自独占进程**（一个 DSH 进程一个 agent）。
  */
 export interface ResolvedService {
   id: string
   label: string
-  /** 成员坐席（agent id）；同服务内成员等价，可被分发挑选。 */
+  /** 服务成员（agent id）；同服务内成员等价，可被分发挑选。 */
   workers: string[]
   /** 对外开放的话术面：任务式（一次性派工）/ 对话式（多轮 + 人在环）。 */
   surfaces: Array<'tasks' | 'conversations'>
@@ -352,10 +363,13 @@ export interface ResolvedService {
   knowledge: Array<{ host: string; mount: string; readOnly: boolean }>
   /**
    * 服务级调度声明。**loadConfig 恒有值**；测试里手写的字面量可省略，
-   * 读取方统一 `?? 默认`（默认值见 fileSchema：1 席 / 每席 4 并发 / spread / 每机 4 席）。
+   * 读取方统一 `?? 默认`（默认值见 fileSchema：期望 1 个 agent / 每 agent 4 并发 /
+   * spread / 每机 4 个 agent / 只读 / 空闲 24 小时回收）。
    */
-  agents?: number
+  count?: number
   maxSessionsPerAgent?: number
+  permission?: 'read' | 'write'
+  sessionIdleHours?: number
   placement?: 'spread' | 'pack' | 'pin'
   machines?: string[]
   maxAgentsPerMachine?: number
@@ -606,8 +620,17 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
     }
   }
 
-  // DESIGN.md §6 iron rule two: an externally callable agent must not share a
-  // DSH process with a private one, because DSH reads are never sandboxed.
+  // 口径（内部设计库 `manager/topics/CONCEPTS-ALIGNED.md` §1，用户 2026-09-27 确认）：
+  // **一个 DSH 进程 = 一个 agent**。这不是洁癖，是隔离前提——DSH 的沙箱根是**进程级**
+  // 的（`sandboxPolicy.workspaceRoot` 进程全局，见下方注释），apiproxy 的 mux 又是
+  // 按进程广播全部会话，所以同进程的两个 agent 天然能读彼此的 workspace、共享同一
+  // 可见性域。对外的 agent 更是必须独占：进程里只有它一个，它的会话才全是对外的。
+  //
+  // 由此，历史上那两条红线（公私有混部 / apiproxy 上不许有 public agent）不再需要：
+  // 一个进程只有一个 agent 时，这两种情况都不可能发生。旧报错里那句
+  // "Use a gateway-mode endpoint for public agents" 也已失效（facade 0.2.x 移除了会话
+  // REST 面，见 `src/gateway/client.ts` 头部与事实卡 §15），它会把用户引到死路上——
+  // 所以连同旧红线一起删除，只留下面这一条硬约束。
   const byEndpoint = new Map<string, ResolvedAgent[]>()
   for (const agent of Object.values(agents)) {
     const list = byEndpoint.get(agent.endpoint) ?? []
@@ -615,46 +638,34 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
     byEndpoint.set(agent.endpoint, list)
   }
   for (const [endpointId, list] of byEndpoint) {
-    if (list.some((a) => a.public) && list.some((a) => !a.public)) {
-      const pub = list.filter((a) => a.public).map((a) => a.id).join(', ')
-      const priv = list.filter((a) => !a.public).map((a) => a.id).join(', ')
-      throw new Error(
-        `endpoint "${endpointId}" mixes public agents (${pub}) with private ones (${priv}). ` +
-          'DSH reads are never sandboxed, so a prompt-injected public agent could read private data. ' +
-          'Give the public agent its own endpoint (DESIGN.md §6).',
-      )
-    }
-    // apiproxy mux is a full-volume stream: every session on the DSH process is
-    // visible, not just the ones manager created. A public agent on an apiproxy
-    // endpoint means an external request could trigger subscription to that
-    // stream, which is the *only* visibility boundary in this mode.
-    const ep = endpoints[endpointId]
-    if (ep !== undefined && ep.driver === 'apiproxy' && list.some((a) => a.public)) {
-      const pub = list.filter((a) => a.public).map((a) => a.id).join(', ')
-      throw new Error(
-        `endpoint "${endpointId}" (driver: apiproxy) has public agents (${pub}). ` +
-          'apiproxy mux exposes all sessions on the DSH process; a public agent ' +
-          'must not share that visibility. Use a gateway-mode endpoint for public agents.',
-      )
-    }
+    if (list.length < 2) continue
+    // A DSH session's write boundary is not its cwd. The gateway only passes cwd
+    // as the session's working directory; the actual sandbox comes from that DSH
+    // process's own sandboxPolicy.workspaceRoot, which is process-global. So agents
+    // sharing an endpoint can reach each other's workspaces regardless of what
+    // manager asks for, and the runner's cwd check cannot prevent it.
+    throw new Error(
+      `endpoint "${endpointId}" is shared by ${list.length} agents (${list.map((a) => a.id).join(', ')}). ` +
+        'One DSH process serves exactly one agent: its sandbox root and its session visibility are ' +
+        'per process, not per session, so these agents could read and write each other\'s workspaces. ' +
+        'Give each agent its own endpoint (CONCEPTS-ALIGNED.md §1).',
+    )
   }
 
   const warnings: string[] = []
   // P0（hive/plan-config-version-switch）：升级自动迁移——旧配置在这里被
   // 翻译成新结构并写回（原文件备份 .pre-mig.bak），迁移说明进 warnings。
   warnings.push(...migration.warnings)
-  for (const [endpointId, list] of byEndpoint) {
-    if (list.length < 2) continue
-    // A DSH session's write boundary is not its cwd. The gateway only passes cwd
-    // as the session's working directory (dsh-api-gateway/src/index.ts:517) --
-    // the actual sandbox comes from that DSH process's own
-    // sandboxPolicy.workspaceRoot, which is process-global. So agents sharing an
-    // endpoint can reach each other's workspaces regardless of what manager asks
-    // for, and the runner's cwd check cannot prevent it.
+  // 死路告警（事实卡 `manager/facts/dsh-facts.md` §15，2026-09-27 实测）：gateway 驱动
+  // 依赖旧 `dsh-api-gateway` 的会话 REST 面（`POST /sessions`…），而 facade 0.2.3 已经
+  // 把它移除（`GET /health` → 200，`POST /sessions` → 404）。这类端点探活是绿的、
+  // 一发消息就 404，属于最难查的"半死"状态——所以启动就喊出来，别等人踩。
+  for (const [endpointId, ep] of Object.entries(endpoints)) {
+    if (ep.driver !== 'gateway') continue
     warnings.push(
-      `endpoint "${endpointId}" is shared by ${list.length} agents (${list.map((a) => a.id).join(', ')}). ` +
-        'A DSH sandbox root is per process, not per session, so these agents can read and write ' +
-        "each other's workspaces. Give each one its own DSH process if that matters.",
+      `endpoint "${endpointId}" uses the gateway driver, which is a dead path: facade 0.2.x dropped the ` +
+        'session REST surface, so sessions on it answer 404 while health checks stay green. Use ' +
+        'driver: apiproxy with prefix /api-gw/v1/proxy (facts/dsh-facts.md §15).',
     )
   }
 
@@ -716,15 +727,17 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
       workers: [...svc.workers],
       surfaces: [...svc.surfaces],
       knowledge: svc.knowledge.map((k) => ({ host: k.host, mount: k.mount, readOnly: k.read_only })),
-      agents: svc.agents,
+      count: svc.count,
       maxSessionsPerAgent: svc.capacity.max_sessions_per_agent,
+      permission: svc.permission,
+      sessionIdleHours: svc.session_idle_hours,
       placement: svc.placement,
       machines: [...svc.machines],
       maxAgentsPerMachine: svc.max_agents_per_machine,
     })
 
-    // 服务级调度的声明校验（service-model.md §5）。全部 fail-loud：
-    // 这类错误若被静默忽略，表现是"坐席少了/铺错机器了"，事后极难追。
+    // 服务级调度的声明校验（口径 §8）。全部 fail-loud：
+    // 这类错误若被静默忽略，表现是"agent 少了 / 铺错机器了"，事后极难追。
     if (svc.placement === 'pin' && svc.machines.length === 0) {
       throw new Error(`service "${svc.id}": placement "pin" needs machines: [<machine ids>]`)
     }
@@ -734,19 +747,20 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
           'otherwise the list would be silently ignored.',
       )
     }
-    if (svc.placement === 'pin' && svc.agents > svc.machines.length * svc.max_agents_per_machine) {
+    if (svc.placement === 'pin' && svc.count > svc.machines.length * svc.max_agents_per_machine) {
       throw new Error(
-        `service "${svc.id}": ${svc.agents} agents cannot fit on ${svc.machines.length} pinned machine(s) ` +
+        `service "${svc.id}": count=${svc.count} cannot fit on ${svc.machines.length} pinned machine(s) ` +
           `at ${svc.max_agents_per_machine} agents each; raise max_agents_per_machine or add machines`,
       )
     }
-    // 阶段边界（P0.5 第一片）：按声明自动拉起坐席副本尚未实现，这里先要求 workers 列全，
-    // 否则"声明 3 个坐席、实际只有 1 个在跑"会变成静默少配。
-    if (svc.agents !== svc.workers.length) {
+    // 口径 §8.2：agent 来源**二选一**——要么写 count + 模板让 DAC 自动新建，要么把
+    // agent 列全直接用。自动新建尚未实现，所以现在只接受"列全"，否则"声明 3 个、
+    // 实际 1 个在跑"会变成静默少配（少配的症状是对外 429，不是报错）。
+    if (svc.count !== svc.workers.length) {
       throw new Error(
-        `service "${svc.id}": agents=${svc.agents} but ${svc.workers.length} worker(s) listed. ` +
-          'Automatic seat provisioning is not implemented yet — list every worker, or set agents to ' +
-          'the number of workers (see plan-public-api.md P0.5).',
+        `service "${svc.id}": count=${svc.count} but ${svc.workers.length} worker(s) listed. ` +
+          'Automatic agent provisioning is not implemented yet, so list every agent and set count to ' +
+          'match (CONCEPTS-ALIGNED.md §8.2).',
       )
     }
   }

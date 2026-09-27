@@ -1,14 +1,27 @@
 import type { ResolvedEndpoint } from '../config.js'
 
 /**
- * The only place that talks to dsh-api-gateway.
+ * ⛔ DEAD PATH —— 不要在这条路上新建功能（2026-09-27 实测入档）。
  *
- * manager is a server-side client of the gateway's REST/SSE surface -- it does
- * NOT proxy DSH's own web UI. That UI runs typert @Remote over a WebSocket
- * upgrade and its bundle assumes a same-origin root path, so a generic reverse
- * proxy cannot work (DESIGN.md fact 16). The gateway exists precisely for this.
+ * This client speaks the `gateway` driver, whose contract came from the 0.1.2-era
+ * `dsh-api-gateway` REST surface (`POST /sessions`, `/sessions/{id}/messages`,
+ * `/history`, `/adopt`, the SSE `/stream`). The package we ship now is
+ * `ohdsh-api-facade@0.2.3`, and it no longer has any of those routes: its whole
+ * surface is `/health`, `/key`, `/admin/enable`, `/admin/rotate-key`,
+ * `/proxy/{method}`, `/sessions/{id}/sandbox-mode`, `/events.mux`.
  *
- * Routes verified against dsh-api-gateway/src/index.ts:623-631.
+ * Measured on a live 0.1.5-rc.2 node: `GET /api-gw/v1/health` → 200 while
+ * `POST /api-gw/v1/sessions` → 404. A gateway-driver endpoint therefore looks
+ * healthy and then fails every session call — the worst kind of half-dead wiring.
+ *
+ * The live path is `driver: apiproxy` with `prefix: /api-gw/v1/proxy` plus that
+ * node's own gateway key; `loadConfig` now warns whenever an endpoint declares
+ * `driver: gateway` (evidence: manager/facts/dsh-facts.md §15).
+ *
+ * The code below stays because the manager may still have to describe such an
+ * endpoint, but nothing new should be built on it and no config should declare
+ * it. If the facade ever grows a session surface back, re-verify first — and
+ * close this banner only with fresh evidence.
  */
 
 export interface GatewayHealth {

@@ -1,11 +1,12 @@
 /**
- * 负载快照（设计稿：内部设计库 `manager/topics/service-model.md` §4）。
+ * 负载快照（口径：内部设计库 `manager/topics/CONCEPTS-ALIGNED.md` §4.5；负载项细节
+ * 见 `topics/service-model.md` §4）。
  *
  * 把**已经存在**的四路数据拼成放置器能吃的 `MachineFacts[]`，不新增任何采集：
  * - 机器与在线状态：由配置端点推导（本机 / agent 机器）+ `agent_machine.last_seen_at`
  * - 资源水位：`agent_metric` 最新一行；本机没有这行 → 指标缺失（放置器允许但排在最后）
  * - 会话数：`chat`（未归档）按 agent 归属到机器
- * - 隔离标记：该机器上是否有非对外坐席、是否有别的服务的坐席（都从配置推导）
+ * - 隔离标记：该机器上是否有对内 agent、是否有别的服务的 agent（都从配置推导）
  *
  * 机器 id 约定：`spawn.host`（agent 机器）或 `'local'`（本机进程/容器）。
  * 这个 id 同时用于放置决策与审计里的机器标识。
@@ -121,7 +122,7 @@ export const loadMachineFacts = (options: SnapshotOptions): MachineFacts[] => {
     .map((machine) => ({
       id: machine.id,
       online: isOnline(options.db, machine.id, now),
-      seats: machine.agents.length,
+      agentCount: machine.agents.length,
       services: [...machine.services],
       hasPrivateAgents: machine.hasPrivateAgents,
       sessions: sessions.get(machine.id) ?? 0,

@@ -116,12 +116,12 @@ export const apiKey = sqliteTable('api_key', {
   keyHash: text('key_hash').notNull(),
   /** JSON 数组：services:read / usage:read / tasks:write / conversations:write / interactions:write。 */
   scopes: text('scopes').notNull(),
-  /** JSON 数组：允许进入的服务 id；["*"] = 全部。与坐席 public 标志取交集（双门）。 */
+  /** JSON 数组：允许进入的服务 id；["*"] = 全部。与服务 agent 的 public 标志取交集（双门）。 */
   scopeServices: text('scope_services').notNull(),
   /** 每天最多派几个活；NULL = 不限。日界线按 config.pricing.timezone。 */
   quotaRunsDay: integer('quota_runs_day'),
   rateLimitRpm: integer('rate_limit_rpm').notNull().default(60),
-  /** 同时在跑的上限，保护后台与坐席（超限 429）。 */
+  /** 同时在跑的上限，保护后台与 agent（超限 429）。 */
   maxConcurrency: integer('max_concurrency').notNull().default(4),
   expiresAt: integer('expires_at'),
   revokedAt: integer('revoked_at'),
@@ -135,7 +135,7 @@ export const run = sqliteTable('run', {
   agentId: text('agent_id').notNull(),
   /**
    * 对外 API 分账归属键（设计稿 manager/topics/public-api.md §5）：NULL = 不是经钥匙触发的。
-   * 花费能拆到「哪把钥匙 × 哪个坐席」；钥匙只注销不删除，账目不会因吊销而丢失。
+   * 花费能拆到「哪把钥匙 × 哪个 agent」；钥匙只注销不删除，账目不会因吊销而丢失。
    */
   apiKeyId: text('api_key_id').references(() => apiKey.id, { onDelete: 'set null' }),
   /** The thread this turn belongs to. Null for cron and API runs with no chat. */

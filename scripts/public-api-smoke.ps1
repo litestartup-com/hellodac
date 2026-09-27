@@ -19,7 +19,7 @@ endpoints:
     key_ref: GW_KEY_SMOKE
 agents:
   worker-1:
-    name: 坐席一
+    name: agent-1
     endpoint: W
     workspace: $($tmp -replace '\\','/')/ws
     public: true

@@ -16,7 +16,7 @@ import { activeRunsForKey, checkRunQuota, runsUsedToday, startOfLocalDay } from 
  */
 const db = (): Db => {
   const d = openDb(':memory:').db
-  // run.agent_id 有外键指向 agent(id)：夹具也顺带钉住"活必须挂在真坐席上"。
+  // run.agent_id 有外键指向 agent(id)：夹具也顺带钉住"活必须挂在真 agent 上"。
   d.insert(schema.agent)
     .values({ id: 'worker-1', name: 'worker-1', workspacePath: '.', endpoint: 'A', preset: null, gitRemote: null, public: 0, createdAt: Date.now() })
     .run()

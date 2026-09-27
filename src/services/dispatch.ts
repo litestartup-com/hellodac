@@ -1,13 +1,13 @@
 /**
- * 坐席分发（设计稿：内部设计库 `manager/topics/service-model.md` §6）。
+ * 分发（口径：内部设计库 `manager/topics/CONCEPTS-ALIGNED.md`；策略细节见 `topics/service-model.md` §6）。
  *
- * 新会话进来时挑一个坐席，之后**粘住不变**（换了坐席 = 客户失忆，所以这里只负责"第一次选谁"）。
+ * 新会话进来时挑一个 agent，之后**粘住不变**（换了 agent = 客户失忆，所以这里只负责"第一次选谁"）。
  *
  * 排序口径（依次比较，全部是"越少越好"）：
  *   1. 当前会话数（未达 `maxSessionsPerAgent` 才算候选）
- *   2. 本坐席队列长度
- *   3. 最近一轮耗时（**未知排最后**：宁可给有实测数据的坐席，也不赌一个没数据的）
- *   4. 同一把钥匙在本坐席上的会话数（同一调用方尽量分散，避免一个大客户占满一个坐席）
+ *   2. 本 agent 队列长度
+ *   3. 最近一轮耗时（**未知排最后**：宁可给有实测数据的 agent，也不赌一个没数据的）
+ *   4. 同一把钥匙在本 agent 上的会话数（同一调用方尽量分散，避免一个大客户占满一个 agent）
  *   5. 平手 → 按轮询种子取模，保证公平且**结果确定**（同输入同种子必得同结果）
  *
  * 纯函数：不读库、不看时钟。调用方把负载快照与种子传进来，因此可分发的每一步都能复算、
@@ -16,9 +16,9 @@
 export interface WorkerFacts {
   agentId: string
   online: boolean
-  /** 该坐席当前接了几个会话。 */
+  /** 该 agent 当前接了几个会话。 */
   sessions: number
-  /** 该坐席本会话队列的长度（同一会话内排队的回合数）。 */
+  /** 该 agent 本会话队列的长度（同一会话内排队的回合数）。 */
   queueDepth: number
   /** 最近一轮耗时（毫秒）；未知 = undefined。 */
   lastTurnMs?: number
@@ -26,9 +26,9 @@ export interface WorkerFacts {
 
 export interface DispatchRequest {
   workers: WorkerFacts[]
-  /** 每个坐席能同时接待的会话数（服务的 capacity.max_sessions_per_agent）。 */
+  /** 每个 agent 能同时接待的会话数（服务的 capacity.max_sessions_per_agent）。 */
   maxSessionsPerAgent: number
-  /** 同一把钥匙（调用方）已在各坐席上的会话数：agentId → 数量。 */
+  /** 同一把钥匙（调用方）已在各 agent 上的会话数：agentId → 数量。 */
   keySessionsByAgent?: Record<string, number>
   /** 轮询种子（通常是"本次分发序号"），让平手时轮流坐庄而不是永远选同一个。 */
   rotationSeed?: number
@@ -50,7 +50,7 @@ const compareLatency = (a: number | undefined, b: number | undefined): number =>
   return left === right ? 0 : left - right
 }
 
-/** 候选 = 在线且未满；返回候选与被容量/在线状态排除的坐席（后者用于界面解释"为什么没人接"）。 */
+/** 候选 = 在线且未满；返回候选与被容量/在线状态排除的 agent（后者用于界面解释"为什么没人接"）。 */
 export const dispatchCandidates = (
   req: DispatchRequest,
 ): { candidates: WorkerFacts[]; offline: string[]; full: string[] } => {

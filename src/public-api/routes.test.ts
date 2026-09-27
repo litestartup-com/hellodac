@@ -59,7 +59,7 @@ test('/v1: 越权（缺 scope）403，且不透露资源是否存在', async () 
   assert.equal(res.json().error, 'insufficient_scope')
 })
 
-test('/v1/services: 只回本钥匙允许的服务，且不泄漏成员（坐席）信息', async () => {
+test('/v1/services: 只回本钥匙允许的服务，且不泄漏成员（agent）信息', async () => {
   const { app, token } = setup(['services:read'], ['support'])
   const res = await app.inject({ method: 'GET', url: '/v1/services', headers: auth(token) })
   assert.equal(res.statusCode, 200)

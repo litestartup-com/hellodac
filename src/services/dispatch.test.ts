@@ -4,7 +4,7 @@ import { dispatchCandidates, pickWorker, type DispatchRequest, type WorkerFacts 
 
 /**
  * 分发的排序与边界（设计稿：内部设计库 `manager/topics/service-model.md` §6）。
- * 每条用例都对应一个真实场景：忙闲看错 → 长任务坐席被塞爆；粘性被破坏 → 客户失忆；
+ * 每条用例都对应一个真实场景：忙闲看错 → 长任务 agent 被塞爆；粘性被破坏 → 客户失忆；
  * 满载不报 → 请求无声堆积，调用方不知道要退避。
  */
 const worker = (agentId: string, over: Partial<WorkerFacts> = {}): WorkerFacts => ({
@@ -40,7 +40,7 @@ test('排序：先看会话数，再看队列长度', () => {
   assert.equal(pick({ workers: [backedUp, idle] }), 'idle', '同样闲时，选队列短的')
 })
 
-test('排序：最近一轮耗时更短者优先；耗时未知的排最后（不赌没数据的坐席）', () => {
+test('排序：最近一轮耗时更短者优先；耗时未知的排最后（不赌没数据的 agent）', () => {
   const quick = worker('quick', { sessions: 1, lastTurnMs: 1_000 })
   const slow = worker('slow', { sessions: 1, lastTurnMs: 90_000 })
   assert.equal(pick({ workers: [slow, quick] }), 'quick')
@@ -50,10 +50,10 @@ test('排序：最近一轮耗时更短者优先；耗时未知的排最后（�
   assert.equal(pick({ workers: [unknown] }), 'unknown', '全员未知时照样能分发')
 })
 
-test('同一调用方尽量分散：会话数相同时，优先选这把钥匙占用更少的坐席', () => {
+test('同一调用方尽量分散：会话数相同时，优先选这把钥匙占用更少的 agent', () => {
   const a = worker('a')
   const b = worker('b')
-  assert.equal(pick({ workers: [a, b], keySessionsByAgent: { a: 2, b: 0 } }), 'b', '一个大客户不该把同一个坐席占满')
+  assert.equal(pick({ workers: [a, b], keySessionsByAgent: { a: 2, b: 0 } }), 'b', '一个大客户不该把同一个 agent 占满')
   assert.equal(pick({ workers: [a, b], keySessionsByAgent: { a: 0, b: 3 } }), 'a')
   assert.equal(pick({ workers: [a, b] }), 'a', '没给钥匙数据时退化为按列表顺序')
 })
@@ -86,7 +86,7 @@ test('全员离线：与"满载"区分开（一个是故障，一个是容量）
   }
 })
 
-test('一台都没有：算满载（服务未部署 / 坐席未拉起的解释权交给上层）', () => {
+test('一台都没有：算满载（服务未部署 / agent 未拉起的解释权交给上层）', () => {
   const result = pickWorker({ workers: [], maxSessionsPerAgent: 4 })
   assert.equal(result.ok, false)
   if (!result.ok) assert.equal(result.reason, 'all_full')
