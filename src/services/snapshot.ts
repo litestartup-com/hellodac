@@ -12,7 +12,7 @@
  * 这个 id 同时用于放置决策与审计里的机器标识。
  */
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
-import type { AppConfig, ResolvedService } from '../config.js'
+import { machineIdOf, type AppConfig, type ResolvedService } from '../config.js'
 import { schema, type Db } from '../db/index.js'
 import type { MachineFacts } from './placement.js'
 
@@ -20,11 +20,8 @@ import type { MachineFacts } from './placement.js'
 const OFFLINE_MS = 90_000
 export const LOCAL_MACHINE = 'local'
 
-export const machineIdOfEndpoint = (config: AppConfig, endpointId: string): string => {
-  const endpoint = config.endpoints[endpointId]
-  if (endpoint === undefined) return LOCAL_MACHINE
-  return endpoint.spawn?.host ?? LOCAL_MACHINE
-}
+export const machineIdOfEndpoint = (config: AppConfig, endpointId: string): string =>
+  machineIdOf(config.endpoints, endpointId)
 
 /** 服役中的服务（快照与放置器共用；缺省 = 没有对外服务）。 */
 export const activeServices = (config: AppConfig): ResolvedService[] => config.services ?? []

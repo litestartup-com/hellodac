@@ -403,6 +403,15 @@ export interface ResolvedPublicApi {
 /** 债务 E7:manager.config.yaml 的文件契约类型(buildManagerConfig 等生成方共用)。 */
 export type ManagerConfigFile = z.infer<typeof fileSchema>
 
+/**
+ * agent 所在的机器 id（口径 §4.5 的"机器"这一层）。
+ *
+ * 规则只有这一处：`spawn.host`（由远端 host agent 拉起的机器）或 `'local'`（本机）。
+ * 放置、快照与配置校验都读它，避免同一个概念在各处各算一遍。
+ */
+export const machineIdOf = (endpoints: Record<string, ResolvedEndpoint>, endpointId: string): string =>
+  endpoints[endpointId]?.spawn?.host ?? 'local'
+
 export const parseTrustProxy = (raw: string | undefined): boolean | string => {
   const value = (raw ?? '').trim()
   if (value === '' || value.toLowerCase() === 'false' || /^\d+$/.test(value)) return false
@@ -761,6 +770,47 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
         `service "${svc.id}": count=${svc.count} but ${svc.workers.length} worker(s) listed. ` +
           'Automatic agent provisioning is not implemented yet, so list every agent and set count to ' +
           'match (CONCEPTS-ALIGNED.md §8.2).',
+      )
+    }
+  }
+
+  // 机器级隔离（口径 §4.5 第 3 道边界；用户 2026-09-27 确认"配置层也硬拦"）。
+  //
+  // 端点级那条只管"同进程"；机器这一层管的是"同一个 OS 用户下的文件视野"：DSH 读文件
+  // 不隔离，所以同一台机器上的两个 agent 即使各占一个进程，也能互相读到对方的
+  // workspace 与凭据。两条约束：
+  //   1. 同一台机器不能既有对外 agent 又有对内 agent；
+  //   2. 同一台机器不能同时属于两个对外服务（跨服务注入面）。
+  // 未加入任何服务的对外 agent 不参与第 2 条判定（配置是分两步写的：先建 agent、
+  // 再挂进服务；它一旦被挂进某个服务，规则就会在下一次加载时生效）。
+  const serviceOfAgent = new Map<string, string>()
+  for (const svc of services) for (const worker of svc.workers) serviceOfAgent.set(worker, svc.id)
+  const agentsByMachine = new Map<string, ResolvedAgent[]>()
+  for (const agent of Object.values(agents)) {
+    const machine = machineIdOf(endpoints, agent.endpoint)
+    const list = agentsByMachine.get(machine) ?? []
+    list.push(agent)
+    agentsByMachine.set(machine, list)
+  }
+  for (const [machine, list] of agentsByMachine) {
+    const outward = list.filter((a) => a.public)
+    const internal = list.filter((a) => !a.public)
+    if (outward.length > 0 && internal.length > 0) {
+      throw new Error(
+        `machine "${machine}" hosts both outward agents (${outward.map((a) => a.id).join(', ')}) and ` +
+          `internal ones (${internal.map((a) => a.id).join(', ')}). DSH reads are not sandboxed, so on one ` +
+          'machine an outward agent can read the workspaces and credentials of the internal ones. Give the ' +
+          'outward agents a machine of their own (CONCEPTS-ALIGNED.md §4.5).',
+      )
+    }
+    const assigned = outward.map((a) => ({ id: a.id, service: serviceOfAgent.get(a.id) })).filter((e) => e.service !== undefined)
+    const serviceIds = [...new Set(assigned.map((e) => e.service))]
+    if (serviceIds.length > 1) {
+      throw new Error(
+        `machine "${machine}" serves ${serviceIds.length} different services (${serviceIds.join(', ')}): ` +
+          `${assigned.map((e) => `${e.id}→${e.service}`).join(', ')}. One injected agent could then read the ` +
+          'other service\'s workspaces. Keep one service per machine, or move one of them ' +
+          '(CONCEPTS-ALIGNED.md §4.5).',
       )
     }
   }

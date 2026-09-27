@@ -489,6 +489,62 @@ test('口径: 对外 agent 允许落在 apiproxy 端点（独占进程即可，�
   assert.equal(cfg.agents['pub']?.public, true)
 })
 
+/**
+ * 机器级隔离（口径 §4.5 第 3 道边界；用户 2026-09-27 确认"配置层也硬拦"）。
+ * 机器 = `spawn.host`（远端）或 `local`（本机）：同一台机器上的 agent 共享同一 OS 用户，
+ * 而 DSH 读文件不隔离，所以只有"进程独占"这一条是不够的。
+ */
+const onMachine = (ids: string[], host: string, publicIds: string[] = []): Record<string, unknown> =>
+  baseConfig({
+    endpoints: Object.fromEntries(
+      ids.map((id) => [id, { url: `http://10.0.0.5:${3100 + ids.indexOf(id)}`, driver: 'apiproxy', spawn: { managed: true, runner: 'agent', host } }]),
+    ),
+    agents: Object.fromEntries(
+      ids.map((id) => [id, { name: id, endpoint: id, workspace: '.', public: publicIds.includes(id) }]),
+    ),
+  })
+
+test('机器隔离: 同机既有对外又有对内 agent = fail-loud', () => {
+  const mixed = onMachine(['srv-a', 'srv-b'], 'box-1', ['srv-a'])
+  assert.throws(() => loadFrom(mixed), /hosts both outward agents/)
+})
+
+test('机器隔离: 同机放两个不同对外服务的 agent = fail-loud（跨服务注入面）', () => {
+  const twoServices = onMachine(['srv-a', 'srv-b'], 'box-1', ['srv-a', 'srv-b'])
+  const cfg = { ...twoServices, services: [
+    { id: 'support', label: '客服', workers: ['srv-a'] },
+    { id: 'report', label: '报表', workers: ['srv-b'] },
+  ] }
+  assert.throws(() => loadFrom(cfg), /serves 2 different services/)
+})
+
+test('机器隔离: 同机同一个服务的多个 agent = 允许（spread 只是尽量避开，不是禁止）', () => {
+  const sameService = onMachine(['srv-a', 'srv-b'], 'box-1', ['srv-a', 'srv-b'])
+  const cfg = { ...sameService, services: [
+    { id: 'support', label: '客服', workers: ['srv-a', 'srv-b'], count: 2 },
+  ] }
+  assert.equal(loadFrom(cfg).services?.[0]?.workers.length, 2)
+})
+
+test('机器隔离: 同机多个对内 agent = 允许（生产形态：33.11 上 spike02/ops33 同机）', () => {
+  const internal = onMachine(['spike02', 'ops33'], 'agent-002cf073615f')
+  assert.deepEqual(Object.keys(loadFrom(internal).agents), ['spike02', 'ops33'])
+})
+
+test('机器隔离: 本机（无 spawn.host）同样适用', () => {
+  const local = baseConfig({
+    endpoints: {
+      L1: { url: 'http://127.0.0.1:3190', driver: 'apiproxy' },
+      L2: { url: 'http://127.0.0.1:3191', driver: 'apiproxy' },
+    },
+    agents: {
+      inside: { name: 'inside', endpoint: 'L1', workspace: '.' },
+      outside: { name: 'outside', endpoint: 'L2', workspace: '.', public: true },
+    },
+  })
+  assert.throws(() => loadFrom(local), /machine "local" hosts both outward agents/)
+})
+
 test('死路告警: driver: gateway 端点必须 warning（facade 0.2.x 无会话 REST 面）', () => {
   const legacy = baseConfig({
     endpoints: { G: { url: 'http://127.0.0.1:3090', driver: 'gateway', key_ref: 'GW_KEY_TEST' } },
