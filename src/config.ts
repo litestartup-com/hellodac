@@ -4,6 +4,7 @@ import dotenv from 'dotenv'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 import { DEFAULT_PRICING, parseUtcTime, type ModelPricing, type PricingTable } from './pricing.js'
+import { DEFAULT_THRESHOLDS, type Thresholds } from './services/placement.js'
 import { USD_TO_MICRO } from './usage/store.js'
 import type { ValidateRules } from './workspace/validate.js'
 import { envSchema } from './env.js'
@@ -254,6 +255,17 @@ export const fileSchema = z.object({
           /** placement: pin 时必填：只把这些机器作为落点。 */
           machines: z.array(z.string().min(1)).default([]),
           max_agents_per_machine: z.number().int().min(1).default(4),
+          // 放置水位门槛的服务级覆盖（口径 §8；用户 2026-09-27 确认"按机器实际调整"）。
+          // 场景：一台确实要用但内存偏小的机器——全局门槛会把它一票否决，而这个服务
+          // 就是指定要落在那台机器上。只覆盖声明的项，其余沿用全局默认。
+          thresholds: z
+            .object({
+              min_free_cpu_percent: z.number().min(0).max(100).optional(),
+              min_free_mem_bytes: z.number().nonnegative().optional(),
+              min_free_disk_bytes: z.number().nonnegative().optional(),
+            })
+            .strict()
+            .optional(),
           knowledge: z
             .array(
               z.object({
@@ -373,6 +385,12 @@ export interface ResolvedService {
   placement?: 'spread' | 'pack' | 'pin'
   machines?: string[]
   maxAgentsPerMachine?: number
+  /**
+   * 放置水位门槛（全局默认 + 服务级覆盖后的完整三件套）。
+   * 用途：某台机器确实要用但空闲内存偏小（全局默认门槛会一票否决），
+   * 就在这个服务上按实际写一组合适的门槛，而不是放宽全局门槛连累所有服务。
+   */
+  thresholds?: Thresholds
 }
 
 /**
@@ -743,6 +761,13 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
       placement: svc.placement,
       machines: [...svc.machines],
       maxAgentsPerMachine: svc.max_agents_per_machine,
+      // 门槛恒为"完整三件套"（全局默认打底，服务声明的项覆盖）：放置器拿到的是一组
+      // 定值，不需要在每个调用点各自做合并——合并规则只有这一处。
+      thresholds: {
+        minFreeCpuPercent: svc.thresholds?.min_free_cpu_percent ?? DEFAULT_THRESHOLDS.minFreeCpuPercent,
+        minFreeMemBytes: svc.thresholds?.min_free_mem_bytes ?? DEFAULT_THRESHOLDS.minFreeMemBytes,
+        minFreeDiskBytes: svc.thresholds?.min_free_disk_bytes ?? DEFAULT_THRESHOLDS.minFreeDiskBytes,
+      },
     })
 
     // 服务级调度的声明校验（口径 §8）。全部 fail-loud：

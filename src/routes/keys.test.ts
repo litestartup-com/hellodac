@@ -58,6 +58,8 @@ test('钥匙管理面: 创建返回明文一次 + 落审计；列表不含明文
   const listed = await app.inject({ method: 'GET', url: '/api/keys' })
   const list = listed.json() as { keys: Array<Record<string, unknown>>; services: Array<{ id: string }>; publicApi: { status: string } }
   assert.equal(list.keys.length, 1)
+  // secret 字母表里没有 `_`（见 src/auth/api-key.ts 的 TOKEN_RE 注释），所以按分隔符切分
+  // 是确定的：切出来的是完整 43 字符 secret，不会像 2026-09-27 那样截短后偶然命中。
   assert.ok(!JSON.stringify(list).includes(body.token.split('_')[2] ?? 'x'), '列表不得含明文')
   assert.deepEqual(list.services.map((s) => s.id), ['support'], '创建表单的服务来源 = 配置里的服务')
   assert.equal(typeof list.publicApi.status, 'string', '门面状态随列表返回（起没起要看得见）')

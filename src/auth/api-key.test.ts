@@ -21,10 +21,22 @@ const db = (): Db => openDb(':memory:').db
 const mint = (d: Db, over: Partial<Parameters<typeof mintApiKey>[1]> = {}) =>
   mintApiKey(d, { name: '公司后端', scopes: ['services:read', 'tasks:write'], scopeServices: ['support'], createdBy: 'admin', ...over })
 
+/**
+ * 从明文里取 secret。**不要写 `token.split('_')[2]`**——2026-09-27 的偶发误报就是它：
+ * 当年 secret 用 base64url（含 `_`），切分拿到的是被截断的短串，短到会在别处偶然出现，
+ * 于是"列表不得含明文"这类断言随机变红（见 src/auth/api-key.ts 的 TOKEN_RE 注释）。
+ * 现在 secret 字母表里没有 `_`，切分不再有歧义；这条断言顺手把两件事都钉住。
+ */
+const secretOf = (token: string): string => {
+  const parts = token.split('_')
+  assert.equal(parts.length, 3, `明文必须能且只能按 '_' 切成三段：${token}`)
+  return parts[2]!
+}
+
 test('钥匙签发: 明文形态固定，库里只有 sha256 与公开前缀', () => {
   const d = db()
   const { token, key } = mint(d)
-  assert.match(token, /^dac_[0-9a-f]{12}_[A-Za-z0-9_-]{43}$/, 'token 形态 = dac_<12hex>_<43 字符 secret>')
+  assert.match(token, /^dac_[0-9a-f]{12}_[A-Za-z0-9-]{43}$/, 'token 形态 = dac_<12hex>_<43 字符 secret>')
   assert.equal(key.id, token.split('_')[1], 'key.id = token 里的公开前缀')
   assert.deepEqual(key.scopes, ['services:read', 'tasks:write'])
   assert.deepEqual(key.scopeServices, ['support'])
@@ -33,10 +45,20 @@ test('钥匙签发: 明文形态固定，库里只有 sha256 与公开前缀', (
   assert.equal(key.maxConcurrency, 4)
 
   const row = d.select().from(schema.apiKey).all()[0]!
-  const secret = token.split('_')[2]!
+  const secret = secretOf(token)
+  assert.equal(secret.length, 43)
+  assert.ok(!secret.includes('_'), 'secret 里不得出现分隔符（否则任何按 _ 的切分都有歧义）')
   assert.equal(row.keyHash.length, 64, 'sha256 hex')
   assert.ok(!row.keyHash.includes(secret), '库里不得出现明文 secret')
   assert.ok(!JSON.stringify(row).includes(secret), '整行都不得含明文')
+})
+
+test('钥匙签发: 连发 200 把，secret 里永远没有分隔符（格式无歧义是发布契约）', () => {
+  const d = db()
+  for (let i = 0; i < 200; i += 1) {
+    const { token } = mint(d, { name: `k${i}` })
+    assert.equal(token.split('_').length, 3, `第 ${i} 把的明文解析歧义：${token}`)
+  }
 })
 
 test('钥匙校验: 有效 / 格式错 / 未知 / 吊销 / 过期 五态分明，且未知与错密钥不可区分', () => {
@@ -114,5 +136,5 @@ test('吊销与列表: 吊销后行保留（账目与审计可追），列表不
   assert.equal(rows.length, 1)
   assert.equal(rows[0]!.id, key.id)
   assert.ok(rows[0]!.revokedAt !== null)
-  assert.ok(!JSON.stringify(rows).includes(token.split('_')[2]!), '列表接口永不返回明文')
+  assert.ok(!JSON.stringify(rows).includes(secretOf(token)), '列表接口永不返回明文')
 })

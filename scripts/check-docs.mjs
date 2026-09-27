@@ -203,6 +203,17 @@ try {
   // 退出 0——join 脚本必须有真实版本门禁（不是只查 node 存在）。
   if (!joinSh.includes('22.18')) failures.push('public/assets/agent/join.sh: 缺 Node ≥22.18 版本门禁（import.meta.main 静默退出实证）')
   if (!joinPs1.includes('22.18')) failures.push('scripts/join.ps1: 缺 Node ≥22.18 版本门禁（import.meta.main 静默退出实证）')
+  // 对外 agent 的降权前提（2026-09-27，CONCEPTS-ALIGNED.md §4.5）：agent 以**自己的
+  // OS 用户**拉起节点，所以"对外 agent 非 root"只能靠让 agent 本身降权实现。
+  // 缺 AGENT_USER 支持 = 对外 agent 只能以 root 跑 = 能读到同机容器数据与 root 凭据。
+  if (!joinSh.includes('AGENT_USER')) failures.push('public/assets/agent/join.sh: 缺 AGENT_USER 降权支持（对外 agent 必须能非 root 跑）')
+  if (!joinSh.includes('User=$AGENT_USER')) failures.push('public/assets/agent/join.sh: unit 未把 AGENT_USER 落到 User=（降权不生效）')
+  if (!joinSh.includes('WantedBy=multi-user.target')) {
+    failures.push('public/assets/agent/join.sh: 必须装 system unit（WantedBy=multi-user.target）——user unit 在无登录会话时不起，2026-09-25 全机失联事故')
+  }
+  if (!joinSh.includes('ohdsh-agent')) {
+    failures.push('public/assets/agent/join.sh: 缺旧 user unit 清理（残留会与 system unit 抢端口）')
+  }
   if (!/\/api\/agents\/:id\/rotate/.test(readFileSync(join(root, 'src/routes/agents.ts'), 'utf8'))) {
     failures.push('src/routes/agents.ts: 缺 /api/agents/:id/rotate 轮换端点（M4-1）')
   }

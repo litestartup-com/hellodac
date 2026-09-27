@@ -53,7 +53,16 @@ export interface MintInput {
 }
 
 const KEY_ID_RE = /^[0-9a-f]{12}$/
-const TOKEN_RE = /^dac_([0-9a-f]{12})_([A-Za-z0-9_-]{43})$/
+/**
+ * 明文形态：`dac_<12 hex keyId>_<43 字符 secret>`。
+ *
+ * **secret 的字母表里没有 `_`**：`_` 是分隔符，base64url 却把它当普通字符，
+ * 于是"秘密里带下划线"会让任何按 `_` 切分的解析（客户自己写的集成、日志脱敏脚本、
+ * 我们的测试）拿到错误的片段——2026-09-27 就是它让一条"列表不得含明文"的断言
+ * 偶发误报：`split('_')[2]` 取到的是被截断的短串，恰好出现在别处就判成泄漏。
+ * 现在签发时跳过含 `_` 的编码（约一半会被跳过，成本可忽略），长度与熵不变。
+ */
+const TOKEN_RE = /^dac_([0-9a-f]{12})_([A-Za-z0-9-]{43})$/
 /** 每次调用都写 lastUsedAt = 白烧写入；一分钟一次足够界面显示"最近使用"。 */
 const LAST_USED_THROTTLE_MS = 60_000
 const MAX_RPM = 6_000
@@ -130,7 +139,10 @@ export const mintApiKey = (db: Db, input: MintInput): { token: string; key: ApiK
   }
   if (keyId === '') throw new Error('key_id_collision')
 
-  const secret = randomBytes(32).toString('base64url')
+  // secret 里不出现 `_`（它是分隔符，见 TOKEN_RE 上方注释）：base64url 有一半概率
+  // 带 `_`，所以这里重抽到干净为止——长度仍是 43、熵仍是 256 位附近，代价可忽略。
+  let secret = randomBytes(32).toString('base64url')
+  while (secret.includes('_')) secret = randomBytes(32).toString('base64url')
   db.insert(schema.apiKey)
     .values({
       id: keyId,

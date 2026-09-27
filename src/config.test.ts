@@ -672,6 +672,35 @@ test('服务声明: 会话空闲回收时长可建服务时指定，0 与负数 
   }
 })
 
+test('服务声明: 放置水位门槛可服务级覆盖（其余沿用全局默认），未知键 fail-loud', () => {
+  const def = loadWithKeyEnv(serviceConfig({ services: [{ id: 's', label: 'x', workers: ['worker-1'] }] }))
+  assert.deepEqual(
+    def.services?.[0]?.thresholds,
+    { minFreeCpuPercent: 20, minFreeMemBytes: 1_500_000_000, minFreeDiskBytes: 5_000_000_000 },
+    '不写门槛 = 全局默认打底（放置器拿到的永远是完整三件套）',
+  )
+
+  // 真实场景：33.11 那台机器内存小但要用来跑对外 agent —— 只把内存门槛按实际调低，
+  // 不能为了它把全局门槛放宽（那会连累所有服务的放置判断）。
+  const tuned = loadWithKeyEnv(
+    serviceConfig({
+      services: [
+        { id: 'chat', label: '客服', workers: ['worker-1'], thresholds: { min_free_mem_bytes: 300_000_000 } },
+      ],
+    }),
+  )
+  assert.deepEqual(tuned.services?.[0]?.thresholds, {
+    minFreeCpuPercent: 20,
+    minFreeMemBytes: 300_000_000,
+    minFreeDiskBytes: 5_000_000_000,
+  })
+
+  const typo = serviceConfig({
+    services: [{ id: 's', label: 'x', workers: ['worker-1'], thresholds: { min_free_memory_bytes: 1 } }],
+  })
+  assert.throws(() => loadWithKeyEnv(typo), /thresholds/, '门槛键名写错必须报错，不能被静默忽略')
+})
+
 test('服务声明: pin 必须给 machines；非 pin 给 machines = fail-loud（不静默忽略）', () => {
   assert.throws(
     () => loadWithKeyEnv(serviceConfig({ services: [{ id: 's', label: 'x', workers: ['worker-1'], placement: 'pin' }] })),
