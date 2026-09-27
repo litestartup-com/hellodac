@@ -292,6 +292,10 @@ export const buildManagerConfig = (options: {
     // 债务 E7:与 fileSchema 默认值显式对齐(生成文件自带,不依赖下游默认)
     reconcile_interval_minutes: 10,
     backup: { docker_volumes: [], auto: false, interval_minutes: 15 },
+    // 对外 API（设计稿 manager/topics/public-api.md）：门面默认开启但只绑本机；
+    // 服务列表留空 = 新装默认没有任何对外面（要对外，先发钥匙、再定义服务）。
+    public_api: { enabled: true, host: '127.0.0.1', port: 8081 },
+    services: [],
     pricing: {
       // 债务 E7:与 pricingSchema 的默认值显式对齐(生成文件自带,不依赖下游默认)
       weekends_off_peak: true,

@@ -437,3 +437,92 @@ test('P0 回归: loadConfig 自动迁移旧配置——迁移警告可见、文�
 test('P0 回归: 未来版本配置 fail-loud（配置来自更新版 manager，拒绝猜测）', () => {
   assert.throws(() => loadFrom(baseConfig({ config_version: 99 })), /newer than the supported/)
 })
+
+/**
+ * 对外 API 的"服务"定义（设计稿 manager/topics/public-api.md §7）。
+ * 服务成员必须是 public agent 且各自独立进程：公私有混部在 config 层已经
+ * fail-loud（DESIGN.md §6），服务定义只是把这条红线再收紧一次——成员漏标
+ * public 就会静默变成"谁都进不来的服务"，那是最难查的一类故障。
+ */
+const gatewayConfig = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+  listen: { host: '127.0.0.1', port: 8080 },
+  endpoints: { W: { url: 'http://127.0.0.1:3090', driver: 'gateway', key_ref: 'GW_KEY_TEST' } },
+  agents: { 'worker-1': { name: '坐席一', endpoint: 'W', workspace: '.', public: true } },
+  ...extra,
+})
+
+const loadWithKeyEnv = (obj: Record<string, unknown>): ReturnType<typeof loadConfig> => {
+  const saved = process.env.GW_KEY_TEST
+  process.env.GW_KEY_TEST = 'test-gateway-key'
+  try {
+    return loadFrom(obj)
+  } finally {
+    if (saved === undefined) delete process.env.GW_KEY_TEST
+    else process.env.GW_KEY_TEST = saved
+  }
+}
+
+test('对外 API 服务: 成员必须是 public agent（私有成员 fail-loud，不静默）', () => {
+  const priv = gatewayConfig({
+    agents: { 'worker-1': { name: '坐席一', endpoint: 'W', workspace: '.', public: false } },
+    services: [{ id: 'support', label: '客服', workers: ['worker-1'] }],
+  })
+  assert.throws(() => loadWithKeyEnv(priv), /not public/)
+})
+
+test('对外 API 服务: 未知成员 / 重复服务 id / 非绝对挂载点 都 fail-loud', () => {
+  const good = gatewayConfig({ services: [{ id: 'support', label: '客服', workers: ['worker-1'] }] })
+  assert.ok(loadWithKeyEnv(good).services)
+
+  const ghost = gatewayConfig({ services: [{ id: 'support', label: '客服', workers: ['ghost'] }] })
+  assert.throws(() => loadWithKeyEnv(ghost), /unknown worker/)
+
+  const dup = gatewayConfig({
+    services: [
+      { id: 'support', label: '客服', workers: ['worker-1'] },
+      { id: 'support', label: '重复', workers: ['worker-1'] },
+    ],
+  })
+  assert.throws(() => loadWithKeyEnv(dup), /duplicate service/)
+
+  const badMount = gatewayConfig({
+    services: [{ id: 'support', label: '客服', workers: ['worker-1'], knowledge: [{ host: '/srv/kb', mount: 'kb' }] }],
+  })
+  assert.throws(() => loadWithKeyEnv(badMount), /absolute/)
+})
+
+test('对外 API 服务: 正常解析（默认面=两种话术、手册默认只读）+ 门面默认只绑本机', () => {
+  const cfg = loadWithKeyEnv(
+    gatewayConfig({
+      services: [
+        {
+          id: 'support',
+          label: '企业智能客服',
+          workers: ['worker-1'],
+          surfaces: ['conversations'],
+          knowledge: [{ host: '/srv/knowledge/faq', mount: '/knowledge' }],
+        },
+      ],
+    }),
+  )
+  assert.deepEqual(cfg.publicApi, { enabled: true, host: '127.0.0.1', port: 8081 }, '门面默认只绑本机')
+  assert.equal(cfg.services?.length, 1)
+  assert.equal(cfg.services[0]?.id, 'support')
+  assert.deepEqual(cfg.services[0]?.surfaces, ['conversations'])
+  assert.deepEqual(cfg.services[0]?.knowledge, [{ host: '/srv/knowledge/faq', mount: '/knowledge', readOnly: true }])
+
+  const both = loadWithKeyEnv(gatewayConfig({ services: [{ id: 's', label: 'x', workers: ['worker-1'] }] }))
+  assert.deepEqual(both.services?.[0]?.surfaces, ['tasks', 'conversations'], '缺省两种话术都开')
+})
+
+test('对外 API: 未配置服务时为空（等价于"当前没有对外 API"），不影响既有配置', () => {
+  const cfg = loadFrom(baseConfig())
+  assert.deepEqual(cfg.services, [])
+  assert.equal(cfg.publicApi?.enabled, true)
+})
+
+test('对外 API: 门面端口与后台端口相同 = fail-loud（否则门面永远起不来）', () => {
+  const clash = gatewayConfig({ public_api: { port: 8080 }, services: [{ id: 's', label: 'x', workers: ['worker-1'] }] })
+  assert.throws(() => loadWithKeyEnv(clash), /same as listen\.port/)
+})
+

@@ -216,6 +216,38 @@ export const fileSchema = z.object({
       interval_minutes: z.number().int().positive().default(15),
     })
     .default({ docker_volumes: [], auto: false, interval_minutes: 15 }),
+  // 对外 API（设计稿：内部设计库 manager/topics/public-api.md）。缺省开启但**只绑本机**：
+  // 门面存在不等于对外可达，暴露与否由运维（nginx/防火墙）决定。
+  public_api: z
+    .object({
+      enabled: z.boolean().default(true),
+      host: z.string().min(1).default('127.0.0.1'),
+      port: z.number().int().positive().default(8081),
+    })
+    .default({ enabled: true, host: '127.0.0.1', port: 8081 }),
+  // 服务定义。缺省空数组 = 没有对外服务（"当前没有对外 API"是合法状态，不是错误）。
+  services: z
+    .array(
+      z.object({
+        id: z
+          .string()
+          .regex(/^[a-z0-9][a-z0-9-]{0,40}$/, 'service id must be a lowercase slug (a-z, 0-9, -)'),
+        label: z.string().min(1),
+        workers: z.array(z.string().min(1)).min(1),
+        surfaces: z.array(z.enum(['tasks', 'conversations'])).min(1).default(['tasks', 'conversations']),
+        knowledge: z
+          .array(
+            z.object({
+              host: z.string().min(1),
+              /** 容器/进程内挂载点，必须是绝对路径（相对路径会挂到意想不到的地方）。 */
+              mount: z.string().startsWith('/', 'knowledge mount must be an absolute path'),
+              read_only: z.boolean().default(true),
+            }),
+          )
+          .default([]),
+      }),
+    )
+    .default([]),
 })
 
 export interface ResolvedSpawnSpec {
@@ -293,6 +325,33 @@ export interface ResolvedAgent {
 }
 
 /**
+ * 对外 API 的一个"服务"（设计稿：内部设计库 `manager/topics/public-api.md` §2/§7）。
+ *
+ * 服务 = 一队等价坐席 + 一本只读手册 + 一套对外话术。成员必须是 public agent，
+ * 且（按 DESIGN.md §6 的既有红线）各自独立进程——服务定义不放松这条。
+ */
+export interface ResolvedService {
+  id: string
+  label: string
+  /** 成员坐席（agent id）；同服务内成员等价，可被分发挑选。 */
+  workers: string[]
+  /** 对外开放的话术面：任务式（一次性派工）/ 对话式（多轮 + 人在环）。 */
+  surfaces: Array<'tasks' | 'conversations'>
+  /** 只读手册的挂载声明（挂载层在 P3 落实；此处先作为真相源校验并展示）。 */
+  knowledge: Array<{ host: string; mount: string; readOnly: boolean }>
+}
+
+/**
+ * 对外门面监听。**默认只绑本机**：对外暴露是运维动作（nginx 只反代 `/v1`），
+ * 不由 manager 自己把公网口开出来。
+ */
+export interface ResolvedPublicApi {
+  enabled: boolean
+  host: string
+  port: number
+}
+
+/**
  * P0-4：`trustProxy` 不再写死为 true。
  *
  * 全信任转发头时 `request.ip` 取 X-Forwarded-For，而登录限流以它为键 ——
@@ -326,6 +385,13 @@ export interface AppConfig {
   trustProxy?: boolean | string
   endpoints: Record<string, ResolvedEndpoint>
   agents: Record<string, ResolvedAgent>
+  /**
+   * 对外门面监听与对外服务。可选：测试里手写的 AppConfig 字面量不必关心
+   * （读取方统一 `?? 默认`），只有真的起门面时才需要。
+   */
+  publicApi?: ResolvedPublicApi
+  /** 缺省 = 没有对外服务。 */
+  services?: ResolvedService[]
   runner: {
     timeoutMs: number
     /** Cancel a turn after this long with no frames at all; 0 disables. */
@@ -603,6 +669,44 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
 
   const password = process.env.MANAGER_INITIAL_PASSWORD ?? ''
 
+  // 对外服务：成员必须是**已存在的 public agent**。成员漏标 public 会让服务静默变成
+  // "谁都进不来"，而跨服务/未知成员是配置手误——两者都在 boot 时 fail-loud。
+  const services: ResolvedService[] = []
+  const seenServices = new Set<string>()
+  for (const svc of file.services) {
+    if (seenServices.has(svc.id)) {
+      throw new Error(`duplicate service id "${svc.id}": service ids must be unique`)
+    }
+    seenServices.add(svc.id)
+    for (const worker of svc.workers) {
+      const agent = agents[worker]
+      if (agent === undefined) {
+        throw new Error(`service "${svc.id}": unknown worker "${worker}" (no such agent in agents:)`)
+      }
+      if (!agent.public) {
+        throw new Error(
+          `service "${svc.id}": worker "${worker}" is not public. A service can only be served by ` +
+            'public agents; otherwise the service would be unreachable for every caller.',
+        )
+      }
+    }
+    services.push({
+      id: svc.id,
+      label: svc.label,
+      workers: [...svc.workers],
+      surfaces: [...svc.surfaces],
+      knowledge: svc.knowledge.map((k) => ({ host: k.host, mount: k.mount, readOnly: k.read_only })),
+    })
+  }
+
+  // 门面与后台不能同端口：真撞上时门面永远起不来，而"API 不见了"比启动失败更难查。
+  if (file.public_api.enabled && file.public_api.port === file.listen.port && file.public_api.host === file.listen.host) {
+    throw new Error(
+      `public_api.port ${file.public_api.port} is the same as listen.port on host ${file.listen.host}: ` +
+        'the outward API must have its own listener or it can never bind.',
+    )
+  }
+
   const trustProxyRaw = (process.env.TRUST_PROXY ?? '').trim()
   if (/^\d+$/.test(trustProxyRaw)) {
     warnings.push(
@@ -636,6 +740,12 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
     backupDockerVolumes: file.backup.docker_volumes,
     backupAuto: file.backup.auto,
     backupIntervalMs: file.backup.interval_minutes * 60_000,
+    publicApi: {
+      enabled: file.public_api.enabled,
+      host: file.public_api.host,
+      port: file.public_api.port,
+    },
+    services,
     sessionSecret,
     initialUser: {
       username: process.env.MANAGER_USERNAME ?? 'admin',
