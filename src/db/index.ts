@@ -319,6 +319,30 @@ const MIGRATIONS: readonly string[][] = [
   [
     `UPDATE agent_command SET payload = '{}' WHERE state IN ('done', 'failed')`,
   ],
+  // 22 -- 对外 API：钥匙表 + 分账归属键（设计稿 manager/topics/public-api.md）。
+  // 钥匙只注销不删除（revoked_at）：账目与审计要能追到已吊销的调用方；run 侧仍用
+  // ON DELETE SET NULL 兜底，真删钥匙也不会让历史账目变成孤儿行。
+  // quota_runs_day 允许 NULL = 不限；日界线按 config.pricing.timezone 算（见 auth/api-key.ts）。
+  [
+    `CREATE TABLE IF NOT EXISTS api_key (
+       id TEXT PRIMARY KEY,
+       name TEXT NOT NULL,
+       key_hash TEXT NOT NULL,
+       scopes TEXT NOT NULL,
+       scope_services TEXT NOT NULL,
+       quota_runs_day INTEGER,
+       rate_limit_rpm INTEGER NOT NULL DEFAULT 60,
+       max_concurrency INTEGER NOT NULL DEFAULT 4,
+       expires_at INTEGER,
+       revoked_at INTEGER,
+       last_used_at INTEGER,
+       created_by TEXT NOT NULL,
+       created_at INTEGER NOT NULL
+     )`,
+    `ALTER TABLE run ADD COLUMN api_key_id TEXT REFERENCES api_key(id) ON DELETE SET NULL`,
+    // 按钥匙聚合用量（花费页的调用方维度）+ 日配额计数，都走这条索引。
+    `CREATE INDEX IF NOT EXISTS run_api_key ON run(api_key_id, started_at)`,
+  ],
 ]
 
 export interface OpenDbResult {

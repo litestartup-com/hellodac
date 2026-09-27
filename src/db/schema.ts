@@ -101,9 +101,43 @@ export const chat = sqliteTable('chat', {
   accessMode: text('access_mode'),
 })
 
+/**
+ * 对外 API 钥匙（设计稿：内部设计库 `manager/topics/public-api.md` §5）。
+ *
+ * 明文 secret **只在创建时回显一次**：库里存 `id`（公开前缀，用于 O(1) 定位行）与
+ * sha256(secret)，因此拖库也无法重放。与 session / agent token 同一套思路，
+ * 区别是钥匙属于机器调用方，故额外带作用域、服务范围与配额。
+ */
+export const apiKey = sqliteTable('api_key', {
+  /** keyId：公开前缀（12 hex），出现在钥匙串里也出现在日志/界面里，本身不是秘密。 */
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  /** sha256(secret) hex。 */
+  keyHash: text('key_hash').notNull(),
+  /** JSON 数组：services:read / usage:read / tasks:write / conversations:write / interactions:write。 */
+  scopes: text('scopes').notNull(),
+  /** JSON 数组：允许进入的服务 id；["*"] = 全部。与坐席 public 标志取交集（双门）。 */
+  scopeServices: text('scope_services').notNull(),
+  /** 每天最多派几个活；NULL = 不限。日界线按 config.pricing.timezone。 */
+  quotaRunsDay: integer('quota_runs_day'),
+  rateLimitRpm: integer('rate_limit_rpm').notNull().default(60),
+  /** 同时在跑的上限，保护后台与坐席（超限 429）。 */
+  maxConcurrency: integer('max_concurrency').notNull().default(4),
+  expiresAt: integer('expires_at'),
+  revokedAt: integer('revoked_at'),
+  lastUsedAt: integer('last_used_at'),
+  createdBy: text('created_by').notNull(),
+  createdAt: integer('created_at').notNull(),
+})
+
 export const run = sqliteTable('run', {
   id: text('id').primaryKey(),
   agentId: text('agent_id').notNull(),
+  /**
+   * 对外 API 分账归属键（设计稿 manager/topics/public-api.md §5）：NULL = 不是经钥匙触发的。
+   * 花费能拆到「哪把钥匙 × 哪个坐席」；钥匙只注销不删除，账目不会因吊销而丢失。
+   */
+  apiKeyId: text('api_key_id').references(() => apiKey.id, { onDelete: 'set null' }),
   /** The thread this turn belongs to. Null for cron and API runs with no chat. */
   chatId: text('chat_id'),
   /**
