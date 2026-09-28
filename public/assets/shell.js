@@ -1116,8 +1116,10 @@ const PRIMARY_NAV = [
   { href: '/nodes', nav: 'nodes', icon: 'server', label: t('nav.nodes'), hint: 'nodes-hint', id: 'nodes-link' },
   { href: '/runs', nav: 'runs', icon: 'history', label: t('nav.runs'), hint: null },
   // The outward face sits in the primary nav: a customer-facing service is a first-class thing, not a
-  // setting buried in the overflow menu (the 2026-09-28 UX walkthrough).
+  // setting buried in the overflow menu (the 2026-09-28 UX walkthrough). The key page next to it --
+  // the blueprint's "key-first" flow hops between the two, so the rail mirrors that.
   { href: '/services', nav: 'services', icon: 'bot', label: t('nav.services'), hint: null },
+  { href: '/keys', nav: 'keys', icon: 'key', label: t('nav.keys'), hint: null },
 ]
 
 const MORE_NAV = [
@@ -1125,7 +1127,6 @@ const MORE_NAV = [
   { href: '/archive', nav: 'archive', icon: 'archive', label: t('nav.archive'), hint: 'archive-hint' },
   { href: '/spend', nav: 'spend', icon: 'coin', label: t('nav.spend'), hint: 'spend-hint' },
   { href: '/audit', nav: 'audit', icon: 'shield', label: t('nav.audit'), hint: null },
-  { href: '/keys', nav: 'keys', icon: 'key', label: t('nav.keys'), hint: null },
   { href: '/password', nav: 'password', icon: 'pencil', label: t('nav.password'), hint: null },
 ]
 

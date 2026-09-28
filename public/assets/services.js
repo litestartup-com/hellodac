@@ -16,6 +16,25 @@ import { $, esc, setHtml, apiJson, poll, t, loadI18n } from './ui.js'
 
 await loadI18n()
 
+const searchParams = () => {
+  try {
+    return new URLSearchParams(window.location?.search ?? '')
+  } catch {
+    return new URLSearchParams('')
+  }
+}
+
+/** Where a flow sends the operator next; a module var so the smoke test can assert it. */
+let lastRedirect = null
+const redirect = (url) => {
+  lastRedirect = url
+  try {
+    window.location.href = url
+  } catch {
+    // The test stub has no real navigation; the assertion reads lastRedirect.
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Editor state. The form fields are a projection of this; the DOM updates it on
 // change, and the preview/apply read it. One object so the test hook can drive
@@ -31,12 +50,14 @@ const draft = {
   placement: 'spread',
   machines: [],
   capacity: 4,
+  maxAgentsPerMachine: 4,
   knowledge: [], // { host, mount }
 }
 
 let editorCtx = null // { configHash, services, workers, machines }
 let editingId = null // null = creating; else the service id being edited
 let previewTimer = null
+let openedFromParam = false
 let snapshot = { services: [], keysExist: false }
 
 const editorOpen = () => !($('editor')?.hidden ?? true)
@@ -107,6 +128,7 @@ const renderSnapshot = () => {
     <div class="section-head">
       <h2>${esc(service.label)} <code class="muted">${esc(service.id)}</code></h2>
       <span class="muted small">${service.surfaces.map((s) => esc(t(`services.surface.${s}`))).join(', ')} · ${esc(t('services.idleReclaim', { hours: service.sessionIdleHours }))}</span>
+      <a class="btn ghost" href="/keys?service=${esc(service.id)}">${esc(t('services.issueKey'))}</a>
       <button class="btn ghost" type="button" data-edit="${esc(service.id)}">${esc(t('services.edit'))}</button>
     </div>
     <div class="card">
@@ -157,6 +179,7 @@ const renderForm = () => {
   const id = $('svc-id'); if (id !== null) { id.value = draft.id; id.disabled = editingId !== null }
   const capacity = $('svc-capacity'); if (capacity !== null) capacity.value = String(draft.capacity)
   const idle = $('svc-idle'); if (idle !== null) idle.value = String(draft.sessionIdleHours)
+  const maxAgents = $('svc-max-agents'); if (maxAgents !== null) maxAgents.value = String(draft.maxAgentsPerMachine)
   const permission = $('svc-permission'); if (permission !== null) permission.value = draft.permission
   const placement = $('svc-placement'); if (placement !== null) placement.value = draft.placement
   const surfaceConv = $('svc-surface-conversations'); if (surfaceConv !== null) surfaceConv.checked = draft.surfaces.includes('conversations')
@@ -214,6 +237,7 @@ const openEditor = (serviceId = null) => {
       draft.placement = raw.placement
       draft.machines = [...raw.machines]
       draft.capacity = raw.capacity.max_sessions_per_agent
+      draft.maxAgentsPerMachine = raw.max_agents_per_machine ?? 4
       draft.knowledge = raw.knowledge.map((k) => ({ host: k.host, mount: k.mount }))
     }
   } else {
@@ -226,6 +250,7 @@ const openEditor = (serviceId = null) => {
     draft.placement = 'spread'
     draft.machines = []
     draft.capacity = 4
+    draft.maxAgentsPerMachine = 4
     draft.knowledge = []
   }
   const editor = $('editor')
@@ -254,6 +279,7 @@ const currentDraft = () => ({
   session_idle_hours: draft.sessionIdleHours,
   placement: draft.placement,
   machines: [...draft.machines],
+  max_agents_per_machine: draft.maxAgentsPerMachine,
   capacity: { max_sessions_per_agent: draft.capacity },
   knowledge: draft.knowledge.map((k) => ({ host: k.host, mount: k.mount, read_only: true })),
 })
@@ -327,6 +353,9 @@ const apply = async () => {
     }
     if (msg !== null) msg.textContent = t('services.form.applied')
     closeEditor()
+    // The round trip the key page started ("create a service first"): go back with the new service
+    // preselected. lastRedirect is asserted by the smoke test.
+    if (searchParams().get('return') === 'keys') redirect(`/keys?service=${encodeURIComponent(draft.id)}`)
     await load()
   } finally {
     if (applyButton !== null) applyButton.disabled = false
@@ -348,6 +377,13 @@ const load = async () => {
   if (editorOpen() && editingId !== null && editorCtx !== null) {
     const stillThere = editorCtx.services.some((service) => service.id === editingId)
     if (stillThere) renderForm()
+  }
+  // The keys page's "create a service first" lands here with ?create=1: the editor opens itself once
+  // (after the context exists, so the candidate list renders), and applying with ?return=keys sends
+  // the operator back with the new service preselected.
+  if (!openedFromParam && searchParams().get('create') === '1' && !editorOpen()) {
+    openedFromParam = true
+    openEditor()
   }
 }
 
@@ -405,6 +441,7 @@ document.addEventListener('input', (event) => {
     case 'svc-id': draft.id = target.value.trim().toLowerCase(); break
     case 'svc-capacity': draft.capacity = Number(target.value) || 4; break
     case 'svc-idle': draft.sessionIdleHours = Number(target.value) || 24; break
+    case 'svc-max-agents': draft.maxAgentsPerMachine = Number(target.value) || 4; break
     default: return
   }
   schedulePreview()
@@ -444,5 +481,6 @@ if (globalThis.__DAC_TEST__ === true) {
     currentDraft,
     snapshot: () => snapshot,
     setDraft: (patch) => { Object.assign(draft, patch) },
+    lastRedirect: () => lastRedirect,
   }
 }

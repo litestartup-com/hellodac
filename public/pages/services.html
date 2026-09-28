@@ -15,17 +15,12 @@
     </div>
 
     <form id="service-form" class="card">
+      <!-- The basic form: what a service is. Everything operational hides behind "more settings". -->
       <label for="svc-label">{{t:services.form.label}}</label>
       <input id="svc-label" type="text" maxlength="80" placeholder="{{t:services.form.labelHint}}" />
 
       <label for="svc-id">{{t:services.form.id}}</label>
       <input id="svc-id" type="text" maxlength="41" pattern="[a-z0-9][a-z0-9-]{0,40}" placeholder="{{t:services.form.idHint}}" />
-
-      <label>{{t:services.form.surfaces}}</label>
-      <div class="checks">
-        <label class="checkbox-line"><input id="svc-surface-conversations" type="checkbox" value="conversations" checked /> <span>{{t:services.form.surface.conversations}}</span></label>
-        <label class="checkbox-line"><input id="svc-surface-tasks" type="checkbox" value="tasks" /> <span>{{t:services.form.surface.tasks}}</span> <span class="muted small">{{t:services.form.surface.tasksNote}}</span></label>
-      </div>
 
       <label>{{t:services.form.agents}}</label>
       <div id="svc-agents" class="checks"></div>
@@ -36,10 +31,6 @@
           <label for="svc-capacity">{{t:services.form.capacity}}</label>
           <input id="svc-capacity" type="number" min="1" max="64" value="4" />
         </div>
-        <div>
-          <label for="svc-idle">{{t:services.form.idle}}</label>
-          <input id="svc-idle" type="number" min="1" max="8760" value="24" />
-        </div>
       </div>
 
       <label for="svc-permission">{{t:services.form.permission}}</label>
@@ -49,23 +40,45 @@
       </select>
       <p class="muted small">{{t:services.form.permissionHint}}</p>
 
-      <label for="svc-placement">{{t:services.form.placement}}</label>
-      <select id="svc-placement">
-        <option value="spread">{{t:services.form.placement.spread}}</option>
-        <option value="pack">{{t:services.form.placement.pack}}</option>
-        <option value="pin">{{t:services.form.placement.pin}}</option>
-      </select>
+      <details id="svc-advanced">
+        <summary>{{t:services.form.moreSettings}}</summary>
+        <div class="advanced-body">
+          <label>{{t:services.form.surfaces}}</label>
+          <div class="checks">
+            <label class="checkbox-line"><input id="svc-surface-conversations" type="checkbox" value="conversations" checked /> <span>{{t:services.form.surface.conversations}}</span></label>
+            <label class="checkbox-line"><input id="svc-surface-tasks" type="checkbox" value="tasks" /> <span>{{t:services.form.surface.tasks}}</span> <span class="muted small">{{t:services.form.surface.tasksNote}}</span></label>
+          </div>
 
-      <div id="svc-machines-wrap" hidden>
-        <label>{{t:services.form.machines}}</label>
-        <div id="svc-machines" class="checks"></div>
-        <p class="muted small">{{t:services.form.machinesHint}}</p>
-      </div>
+          <div class="form-row">
+            <div>
+              <label for="svc-idle">{{t:services.form.idle}}</label>
+              <input id="svc-idle" type="number" min="1" max="8760" value="24" />
+            </div>
+            <div>
+              <label for="svc-max-agents">{{t:services.form.maxAgents}}</label>
+              <input id="svc-max-agents" type="number" min="1" max="64" value="4" />
+            </div>
+          </div>
 
-      <label>{{t:services.form.knowledge}}</label>
-      <div id="svc-knowledge"></div>
-      <button id="svc-knowledge-add" class="btn" type="button">{{t:services.form.knowledgeAdd}}</button>
-      <p class="muted small">{{t:services.form.knowledgeHint}}</p>
+          <label for="svc-placement">{{t:services.form.placement}}</label>
+          <select id="svc-placement">
+            <option value="spread">{{t:services.form.placement.spread}}</option>
+            <option value="pack">{{t:services.form.placement.pack}}</option>
+            <option value="pin">{{t:services.form.placement.pin}}</option>
+          </select>
+
+          <div id="svc-machines-wrap" hidden>
+            <label>{{t:services.form.machines}}</label>
+            <div id="svc-machines" class="checks"></div>
+            <p class="muted small">{{t:services.form.machinesHint}}</p>
+          </div>
+
+          <label>{{t:services.form.knowledge}}</label>
+          <div id="svc-knowledge"></div>
+          <button id="svc-knowledge-add" class="btn ghost" type="button">{{t:services.form.knowledgeAdd}}</button>
+          <p class="muted small">{{t:services.form.knowledgeHint}}</p>
+        </div>
+      </details>
 
       <div id="svc-preview-wrap" hidden>
         <h3 class="section-label">{{t:services.form.preview}}</h3>

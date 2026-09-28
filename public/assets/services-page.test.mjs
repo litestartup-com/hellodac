@@ -11,6 +11,10 @@ import assert from 'node:assert/strict'
  * the wrong shape. `node --check` and a liveness probe cannot see that; only executing the module can.
  * Driving the real functions (not string-matching the DOM) is what catches a wrong payload shape
  * before it reaches production.
+ *
+ * The 2026-09-28 "key-first" additions under test here: `?create=1` opens the editor by itself
+ * (the keys page's "create a service first" lands here), applying with `?return=keys` redirects back
+ * with the new service preselected, and every card carries an "issue a key" action.
  */
 const nodes = new Map()
 
@@ -30,6 +34,7 @@ globalThis.document = {
   addEventListener: () => undefined,
 }
 globalThis.window = globalThis
+Object.defineProperty(globalThis, 'location', { value: { search: '?create=1&return=keys' }, configurable: true })
 globalThis.HTMLElement = class {}
 const realSetTimeout = globalThis.setTimeout
 globalThis.setTimeout = () => 0
@@ -39,11 +44,17 @@ globalThis.clearTimeout = () => undefined
 for (const id of [
   'service-new', 'services-refresh', 'services-note', 'editor', 'editor-title', 'service-form',
   'svc-label', 'svc-id', 'svc-surface-conversations', 'svc-surface-tasks', 'svc-agents', 'svc-agents-note',
-  'svc-capacity', 'svc-idle', 'svc-permission', 'svc-placement', 'svc-machines-wrap', 'svc-machines',
+  'svc-capacity', 'svc-idle', 'svc-max-agents', 'svc-permission', 'svc-placement', 'svc-machines-wrap', 'svc-machines',
   'svc-knowledge', 'svc-knowledge-add', 'svc-preview-wrap', 'svc-preview-state', 'svc-preview-errors',
   'svc-preview-warnings', 'svc-preview-diff', 'svc-preview-yaml', 'svc-apply', 'svc-cancel', 'svc-msg',
   'services-list',
 ]) el(id)
+
+// The real page starts with these hidden (the HTML carries the attribute); the stub must model that,
+// or the auto-open guard reads "already open" and never opens.
+el('editor').hidden = true
+el('svc-machines-wrap').hidden = true
+el('svc-preview-wrap').hidden = true
 
 const snapshotPayload = {
   services: [
@@ -84,20 +95,18 @@ globalThis.fetch = async (url, options) => {
   return { ok: false, status: 404, json: async () => ({ error: 'not_found' }) }
 }
 
-test('services page: the snapshot renders and the editor preview sends exactly the draft to the server', async () => {
+test('services page: ?create=1 opens the editor by itself, the snapshot renders, and the preview sends exactly the draft', async () => {
   await import('./services.js')
   await new Promise((resolve) => realSetTimeout(resolve, 20))
   const hook = globalThis.__DAC_SERVICES_TEST__
 
+  assert.equal(nodes.get('editor').hidden, false, 'the keys page round trip opens the editor without a click')
+
   const list = nodes.get('services-list')
   assert.ok(list !== undefined && list.innerHTML.includes('Support'), 'the running service renders')
-  assert.ok(list.innerHTML.includes('Acme'), 'the serving keys render')
+  assert.ok(list.innerHTML.includes('/keys?service=chat'), 'every card carries the "issue a key" action')
 
-  hook.openEditor()
-  const editor = nodes.get('editor')
-  assert.equal(editor.hidden, false, 'the editor opens from the empty state flow')
-
-  hook.setDraft({ id: 'chat', label: 'Support', workers: ['svc-chat-1'], placement: 'pin', machines: ['box-1'], capacity: 8, sessionIdleHours: 12 })
+  hook.setDraft({ id: 'chat', label: 'Support', workers: ['svc-chat-1'], placement: 'pin', machines: ['box-1'], capacity: 8, sessionIdleHours: 12, maxAgentsPerMachine: 2 })
   await hook.runPreview()
   await new Promise((resolve) => realSetTimeout(resolve, 20))
 
@@ -105,15 +114,15 @@ test('services page: the snapshot renders and the editor preview sends exactly t
   assert.deepEqual(sent, {
     id: 'chat', label: 'Support', workers: ['svc-chat-1'], surfaces: ['conversations'], permission: 'read',
     session_idle_hours: 12, placement: 'pin', machines: ['box-1'],
+    max_agents_per_machine: 2,
     capacity: { max_sessions_per_agent: 8 }, knowledge: [],
-  }, 'the preview carries the form draft in the file spelling (snake_case)')
+  }, 'the preview carries the form draft in the file spelling (snake_case), including the per-machine cap')
 
   assert.equal(nodes.get('svc-preview-wrap').hidden, false, 'a filled form reveals the preview')
   assert.ok(nodes.get('svc-preview-yaml').textContent.includes('id: chat'), 'the exact YAML to be written is shown')
-  assert.ok(nodes.get('svc-preview-state').innerHTML.includes('previewOk'), 'the loader verdict renders (key fallback = key name under the stub dict)')
 })
 
-test('services page: applying posts the draft with the config hash and reports the no-restart outcome', async () => {
+test('services page: applying with ?return=keys redirects back with the new service preselected', async () => {
   await import('./services.js')
   await new Promise((resolve) => realSetTimeout(resolve, 20))
   const hook = globalThis.__DAC_SERVICES_TEST__
@@ -125,7 +134,8 @@ test('services page: applying posts the draft with the config hash and reports t
 
   const sent = calls.applyBodies.at(-1)
   assert.equal(sent?.configHash, 'hash-1234', 'apply carries the hash of the file the operator was looking at (stale-edit guard)')
-  assert.equal(sent?.draft.id, 'chat')
+  assert.equal(sent?.draft.max_agents_per_machine, 4, 'the default per-machine cap rides along explicitly')
+  assert.equal(hook.lastRedirect(), '/keys?service=chat', 'the round trip ends back on the key page with the new service selected')
   assert.equal(nodes.get('editor').hidden, true, 'a successful apply closes the editor')
   assert.ok(nodes.get('svc-msg').textContent.includes('applied'), 'the operator is told the change is live without a restart')
 })

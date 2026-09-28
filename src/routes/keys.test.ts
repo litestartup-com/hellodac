@@ -119,8 +119,10 @@ const insertRun = (db: Db, over: Partial<Record<string, unknown>> & { id: string
       idempotencyKey: null,
       state: typeof over.state === 'string' ? over.state : 'done',
       resultSummary: null,
-      startedAt: typeof over.startedAt === 'number' ? over.startedAt : Date.now() - 3_600_000,
-      endedAt: typeof over.endedAt === 'number' ? over.endedAt : Date.now() - 3_599_000,
+      // Date.now() rather than a relative offset: "an hour ago" crosses the local-midnight boundary
+      // when the suite runs between 00:00 and 01:00, and "today" would silently stop meaning today.
+      startedAt: typeof over.startedAt === 'number' ? over.startedAt : Date.now(),
+      endedAt: typeof over.endedAt === 'number' ? over.endedAt : Date.now(),
       error: null,
       commitHash: null,
     })
