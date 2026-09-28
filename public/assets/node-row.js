@@ -1,26 +1,27 @@
 // @ts-check
-// UI 精简（DAC v1.0.0）：节点行与它的 ⋮ 溢出菜单——纯函数层，DOM 装配留在 nodes.js。
-// 可单测（node-row.test.mjs）。与 node-form.js / machines.js 同一分工：能被断言
-// 的部分不放进 DOM 文件。
+// UI slimming (DAC v1.0.0): a node row and its three-dot overflow menu -- pure function layer, DOM
+// assembly stays in nodes.js. Unit-testable (node-row.test.mjs), the same division of labour as
+// node-form.js and machines.js: anything assertable does not live in a DOM file.
 //
-// 这次精简的依据（改前实测）：单行原来横向塞了 4 个区块——标题+2 个告警 pill、
-// meta（managed/pid/lastError）、detail（agent/镜像/DSH 版本/钉版/主机 + 常驻版本
-// 下拉）、最多 5 个操作按钮，外加一张固定 330px 的「原生 GUI」卡（含整条 SSH 隧道
-// 命令）。行内绝大多数像素花在偶尔才用的操作上，而「哪个节点活着」被挤到角落。
+// The evidence behind this slimming (measured before the change): one row packed four blocks side by
+// side -- title plus two warning pills, meta (managed/pid/lastError), detail (agent/image/DSH version/
+// pin/host plus an always-visible version dropdown), up to five action buttons, and a fixed 330px
+// "native GUI" card containing a whole SSH tunnel command. Most of the row's pixels went to rarely used
+// actions while "which node is alive" was squeezed into a corner.
 //
-// 精简后主行＝状态、ID、归属、当前版本；其余全部进菜单。
+// After slimming the main row is status, ID, ownership and the current version; everything else is in the menu.
 import { esc, t } from './ui.js'
 import { nodeMenuItems, versionMenuItems, menuPanelHtml, menuItemHtml, triggerButtonHtml } from './menu.js'
 
-/** 状态点样式。live/offline 是协议里的裸词，不翻译。 */
+/** Status dot classes. live/offline are bare protocol words and are not translated. */
 export const NODE_STATE_DOT = { live: 'ok', cold: 'muted', starting: 'warn', restarting: 'warn', offline: 'bad' }
 
 /**
- * 状态文案：显式反查，不用模板拼键。
+ * Status wording: looked up explicitly rather than by building a key from a template.
  *
- * 拼 `t(\`nodes.state.${state}\`)` 运行时没问题，但键守卫
- * （scripts/check-i18n-keys.mjs）只认字面量：拼出来的键会被判成「未引用」，
- * 于是它们的缺失永远没人发现。写死几行换一个真守得住的门禁。
+ * Building `t(`nodes.state.${state}`)` works at runtime, but the key guard (scripts/check-i18n-keys.mjs)
+ * only sees literals: a built key counts as unreferenced, so a missing translation for it would never be
+ * noticed. A few hardcoded lines buy a guard that actually holds.
  */
 const STATE_LABEL = {
   cold: () => t('nodes.state.cold'),
@@ -31,13 +32,13 @@ const STATE_LABEL = {
 /** @param {string} state @returns {string} */
 export const nodeStateLabel = (state) => (state === 'live' || state === 'offline' ? state : (STATE_LABEL[state]?.() ?? state))
 
-/** 浮层的 DOM id（节点行菜单与版本子菜单各一个）。 */
+/** DOM ids of the flyouts (one for the node row menu, one for the version submenu). */
 export const nodeMenuId = (id) => `node-menu-${id}`
 export const nodeVersionMenuId = (id) => `node-version-menu-${id}`
 
 /**
- * 当前 DSH 版本的人类可读串；容器形态优先显示镜像 tag（tag 即版本）。
- * 无任何版本信息 → null（不渲染这一段，避免留个空占位）。
+ * Human-readable string for the current DSH version; container form prefers the image tag (the tag is the
+ * version). With no version information at all: null, so the section is not rendered as an empty placeholder.
  * @param {{ image?: unknown, dshVersion?: unknown }} n
  * @returns {string | null}
  */
@@ -48,9 +49,9 @@ export const nodeVersionText = (n) => {
 }
 
 /**
- * 节点行。
- * @param {object} n /api/nodes 的一行
- * @param {(host: string) => string} hostName host id → hostname（未知回退 id）
+ * Node row.
+ * @param {object} n one row from /api/nodes
+ * @param {(host: string) => string} hostName host id -> hostname (unknown falls back to the id)
  * @returns {string}
  */
 export const nodeRow = (n, hostName) => {
@@ -58,16 +59,16 @@ export const nodeRow = (n, hostName) => {
   const label = nodeStateLabel(n.state)
   const agents = Array.isArray(n.agents) && n.agents.length > 0 ? n.agents.join(' / ') : null
   const version = nodeVersionText(n)
-  // 归属：agent 列表与所属主机（跨机场景「它在哪」是关键信息，留在主行）。
+  // Ownership: the agent list and its host machine (across machines, "where is it" is key information, so it stays on the main row).
   const owner = [agents, typeof n.host === 'string' && n.host !== '' ? hostName(n.host) : null].filter((x) => x !== null).join(' · ')
-  // 告警必须一眼可见，所以留常显（这正是「一目了然」的核心，不进菜单）。
+  // Warnings have to be visible at a glance, so they stay on the row (that is the whole point of the summary, not something for a menu).
   const versionWarn =
     typeof n.dshVersion === 'string' && n.dshVersion !== '' && n.dshCompatible === false
       ? `<span class="pill-mini warn" title="${esc(t('nodes.versionWarnTitle', { version: n.dshVersion }))}">${esc(t('nodes.versionWarn'))}</span>`
       : ''
   const driftWarn =
     n.dshDrift === true ? `<span class="pill-mini warn" title="${esc(t('nodes.driftWarnTitle'))}">${esc(t('nodes.driftWarn'))}</span>` : ''
-  // 错误保留可见，但压成一行 + 悬停看全文：排障要能立刻看到，同时不许它撑高整行。
+  // Errors stay visible but are compressed to one line with the full text on hover: troubleshooting needs them immediately, and they must not stretch the row.
   const err =
     typeof n.lastError === 'string' && n.lastError !== ''
       ? `<div class="node-err" title="${esc(n.lastError)}">${esc(n.lastError)}</div>`
@@ -85,10 +86,10 @@ export const nodeRow = (n, hostName) => {
 }
 
 /**
- * 节点行的浮层（主菜单 + 版本子菜单），挂 body。
+ * The node row's flyouts (main menu plus version submenu), appended to body.
  *
- * 两个浮层一次出齐、常驻 DOM，只在打开时定位并显示——避免每次点击重建 DOM
- * （重建会丢焦点，键盘用户每点一次就被踢回文档开头）。
+ * Both flyouts are created up front and stay in the DOM, only positioned and shown when opened -- rebuilding
+ * them on every click would drop focus and kick keyboard users back to the top of the document each time.
  * @param {object} n
  * @param {Array<{ dsh: string, status: string }>} versionList
  * @returns {string}
@@ -103,8 +104,9 @@ export const nodeMenuHtml = (n, versionList) => {
     hasVersions: Array.isArray(versionList) && versionList.length > 0,
     versionMenuId: nodeVersionMenuId(n.id),
   })
-  // 原生 GUI：原来常显一张 330px 的卡（含整条 SSH 隧道命令）。隧道命令、打开、
-  // 配置三项都在「原生访问」编辑器里，所以菜单只留一个入口，不再重复一份。
+  // Native GUI: this used to be an always-visible 330px card holding a whole SSH tunnel command. The tunnel
+  // command, opening and configuring all live in the "native access" editor, so the menu keeps one entry point
+  // instead of a second copy.
   items.push(menuItemHtml({ label: t('nodes.access.title'), attrs: `data-node-access="${esc(n.id)}"` }))
   const main = menuPanelHtml({ id: nodeMenuId(n.id), label: t('common.more'), items })
   const sub = menuPanelHtml({

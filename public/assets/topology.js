@@ -1,35 +1,37 @@
 // @ts-check
-// 集群拓扑（UI 收尾 C）：manager → 机器 → 节点（DSH）三列静态拓扑，纯前端
-// 聚合 /api/nodes + /api/agents，零新 API、零依赖。机器列 = node-agent 注册
-// 的远端机器 + 「本机（manager 宿主）」伪卡（C-P1.5：本机不经 node-agent，
-// 直管节点，边从本机卡出发）。卡片拼装与边配对是纯函数（topology.test.mjs
-// 可单测）；SVG 连线只在浏览器里按实测矩形画（drawTopoEdges，DOM 函数）。
+// Cluster topology (UI wrap-up C): a static three-column view of manager -> machines -> nodes (DSH), built
+// purely in the frontend from /api/nodes + /api/agents, with no new API and no dependencies. The machine
+// column is the node-agent registered remote machines plus a "local (manager host)" pseudo card (C-P1.5:
+// the local host does not go through a node-agent and manages its nodes directly, so its edges start from
+// the local card). Card assembly and edge pairing are pure functions (unit-testable in topology.test.mjs);
+// the SVG connectors are only drawn in a browser from measured rectangles (drawTopoEdges, a DOM function).
 import { esc, platformLabel, t, loadI18n } from './ui.js'
 
 await loadI18n()
 import { machineMetricBits } from './machines.js'
 
-/** 节点形态 tag：host 派发 → agent 远端；有镜像 → 容器工蜂；其余看托管态。 */
+/** Node form tag: host dispatch -> remote agent; an image -> container worker; otherwise follow the managed flag. */
 export const formTag = (n) => {
   if (typeof n.host === 'string' && n.host !== '') return t('topology.form.agentRemote')
   if (typeof n.image === 'string' && n.image !== '') return t('nodes.local.deployDocker')
   return n.managed === true ? t('nodes.local.deployProcess') : t('nodes.external')
 }
 
-/** 机器在线态决定边样式：在线绿实线 / 离线红虚线（revoked 也走虚线）。 */
+/** Machine liveness drives the edge style: online is a solid green line, offline a dashed red one (revoked also uses dashes). */
 export const machineAlive = (m) => m.online === true && m.revoked !== true
 
-/** 本机（manager 宿主）在拓扑里的伪机器 id；与 agent-* 注册 id 不冲突。 */
+/** Pseudo machine id of the local (manager host) card in the topology; it cannot collide with agent-* registered ids. */
 export const LOCAL_MACHINE_ID = 'local'
 
-// 平台名映射搬到 ui.js（机器列表本机行与拓扑本机卡共用）；此处再导出
-// 保持 topology.test.mjs 既有导入面不变。
+// The platform name mapping moved to ui.js (the machine list's local row and the topology's local card share
+// it); it is re-exported here so the existing imports in topology.test.mjs keep working.
 export { platformLabel } from './ui.js'
 
 /**
- * 本机卡（C-P1.5）：manager 宿主机不是 node-agent 注册机器（机器目录语义 =
- * 受管远端主机），但拓扑里画成机器列首张卡，本机节点边从它出发——
- * 图与"manager 直管本机"的事实对齐。无指标徽标：本机指标不经 agent 上报。
+ * Local card (C-P1.5): the manager host is not a node-agent registered machine (the machine directory means
+ * managed remote hosts), yet the topology draws it as the first card of the machine column and the local
+ * nodes' edges start from it, which matches the fact that the manager manages this host directly. No metrics
+ * badge: local metrics do not arrive through an agent.
  * @param {{ os: string, arch: string, containerForm: boolean, nodeCount: number }} m
  * @returns {string}
  */
@@ -45,7 +47,7 @@ export const localMachineCardHtml = (m) => {
 }
 
 /**
- * manager 卡片：版本 + 监听面 + 部署形态 + 机器/节点计数。
+ * Manager card: version + listening surface + deployment form + machine/node counts.
  * @param {{ managerVersion: string, origin: string, containerForm: boolean, machineCount: number, nodeCount: number }} m
  * @returns {string}
  */
@@ -63,7 +65,7 @@ export const managerCardHtml = (m) => {
 }
 
 /**
- * 机器卡片：在线点 + 主机名 + 指标徽标 + 待更新徽标；离线/已吊销进折叠区。
+ * Machine card: online dot + hostname + metrics badge + update badge; offline and revoked machines go into the collapsed section.
  * @param {{ id: string, hostname: string, os: string, arch: string, nodeVersion: string, online: boolean, revoked: boolean, pendingCommands: number, agentVersion?: string | null, managerVersion?: string, latestMetric?: unknown }} m
  * @param {string} managerVersion
  * @returns {string}
@@ -85,9 +87,9 @@ export const machineCardHtml = (m, managerVersion) => {
 }
 
 /**
- * 节点卡片：状态点 + 工作区 + DSH 版本 + 形态 tag；漂移/版本告警同列表口径。
+ * Node card: status dot + workspace + DSH version + form tag; drift and version warnings follow the same wording as the list.
  * @param {{ id: string, state: string, agents?: string[], dshVersion?: string | null, configuredDshVersion?: string | null, dshDrift?: boolean, dshCompatible?: boolean, host?: string | null, image?: string | null, managed: boolean }} n
- * @param {Map<string, string>} hostnameById 机器 id → hostname
+ * @param {Map<string, string>} hostnameById machine id -> hostname
  * @returns {string}
  */
 export const nodeCardHtml = (n, hostnameById) => {
@@ -114,15 +116,15 @@ export const nodeCardHtml = (n, hostnameById) => {
 }
 
 /**
- * 边的源-目标配对（纯函数，供测试与 drawTopoEdges 共用）：
- * - manager → 每台机器（在线绿实线 / 离线红虚线）
- * - 有本机节点（host 为空）时 manager → 本机卡（常绿，manager 宿主机恒可达），
- *   本机节点从本机卡出发（按节点状态上色）
- * - 节点归属机器 → 节点（机器离线则红虚线）；host 不在机器目录的节点直接从
- *   manager 拉线，按节点状态上色。
+ * Edge source-target pairing (a pure function, shared by tests and drawTopoEdges):
+ * - manager -> every machine (solid green when online, dashed red when offline)
+ * - with local nodes (empty host): manager -> the local card (always green, the manager host is always
+ *   reachable), and local nodes start from that card (coloured by node state)
+ * - the machine a node belongs to -> that node (dashed red when the machine is offline); a node whose host is
+ *   not in the machine directory is connected straight from the manager and coloured by node state.
  * @param {Array<{ id: string, online: boolean, revoked?: boolean }>} machines
  * @param {Array<{ id: string, state: string, host?: string | null }>} nodes
- * @param {boolean} hasLocalNodes 是否渲染本机卡（有 host 为空的节点）
+ * @param {boolean} hasLocalNodes whether to render the local card (there are nodes with an empty host)
  * @returns {Array<{ from: string, to: string, on: boolean }>}
  */
 export const edgePairs = (machines, nodes, hasLocalNodes = false) => {
@@ -145,9 +147,10 @@ export const edgePairs = (machines, nodes, hasLocalNodes = false) => {
 }
 
 /**
- * 三列拓扑骨架（DOM 装配的前半段）：manager 列 + 机器列（本机卡 + 在线机器
- * + 离线折叠）+ 节点列。localHost 给本机卡提供平台信息（manager 宿主不经
- * node-agent，无指标徽标）。
+ * The three-column topology skeleton (the first half of DOM assembly): the manager column, the machine
+ * column (local card + online machines + collapsed offline ones) and the node column. localHost supplies the
+ * platform information for the local card (the manager host does not go through a node-agent and has no
+ * metrics badge).
  * @param {{ managerVersion: string, origin: string, containerForm: boolean, machines: any[], nodes: any[], localHost?: { os: string, arch: string } | null }} data
  * @returns {string}
  */
@@ -190,9 +193,10 @@ export const topologyHtml = (data) => {
 }
 
 /**
- * 按实测矩形画 SVG 连线（仅浏览器；隐藏时跳过）。卡片锚点：源右缘中点 →
- * 目标左缘中点。pair 由调用方用 edgePairs(machines, nodes) 从真实数据算出。
- * @param {HTMLElement} container `.topo` 容器
+ * Draw the SVG connectors from measured rectangles (browser only; skipped while hidden). Card anchors: the
+ * midpoint of the source's right edge -> the midpoint of the target's left edge. The caller computes pairs
+ * from real data with edgePairs(machines, nodes).
+ * @param {HTMLElement} container the `.topo` container
  * @param {Array<{ from: string, to: string, on: boolean }>} pairs
  */
 export const drawTopoEdges = (container, pairs) => {
