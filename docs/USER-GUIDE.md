@@ -156,6 +156,53 @@ archives — the key is derived from `SESSION_SECRET`, so losing `.env` means lo
 decrypt them. Archive retention matches the database snapshots (24h full → 30 days daily → 12
 weeks weekly).
 
+## 8.5 Outward API (services and keys)
+
+The outward API lets other systems talk to a **service** — an outward name answered by a team of
+agents. Two things exist on your side: the **service** (the capability: which agents, how many
+concurrent conversations, what they may do) and the **API key** (the credential one customer holds:
+which service it may enter, how often, until when). One service, many keys.
+
+**Setup in two steps**
+
+1. **Services page → Build a service**: name it, pick the agents that answer, set the concurrency
+   and the permission tier (read-only is the default). The page shows the exact declaration that
+   will be written to `manager.config.yaml` and validates it with the same rules boot uses; saving
+   is atomic and takes effect without a restart.
+2. **API keys page → create a key**: name, service, daily quota — three fields. "More settings"
+   holds scopes, per-minute rate, in-flight cap and an expiry date. The secret is shown **once**;
+   copy it immediately. Before handing it out, use *Test this key* — it makes the same read-only
+   calls a customer will make. The *handover* block is a copyable starter kit (endpoint, example
+   call, quota rules).
+
+**What the customer gets**
+
+| Piece | Value |
+| --- | --- |
+| Endpoint | `http://<host>:8081/v1` (bind/port under `public_api:` in the config; by default bound to `127.0.0.1` only — expose it through a reverse proxy with TLS) |
+| Auth | `Authorization: Bearer dac_<id>_<secret>` |
+| First call | `POST /v1/conversations` `{"service":"<id>","externalUserId":"<their user id>","text":"hello"}` → 201 with the reply |
+| Continue | same call with the same `externalUserId`, or `POST /v1/conversations/:id/messages` `{"text":"..."}` |
+| Read-only | `GET /v1/services`, `GET /v1/usage` |
+
+**Rules the customer must know**
+
+- The daily quota counts **dispatches**, resets at **local midnight on the manager's host**
+  (timezone `Asia/Shanghai` in the default install), and failures count too.
+- Same `externalUserId` returns to the **same conversation** (stickiness). A conversation idle for
+  `session_idle_hours` (24h default) is reclaimed: history stays queryable on your side, but the
+  next call starts a new conversation.
+- Error codes: `401` bad/revoked key · `403` scope or service not allowed · `404` unknown resource
+  · `429` quota/concurrency/agents full (with `Retry-After` where applicable) · `503` no agent
+  online. `502` means the turn ran and failed; the body carries `state` and `error`.
+- The full contract is in [`docs/openapi.yaml`](openapi.yaml).
+
+**Operating it**
+
+- Services page: agents online, capacity in use, queue, per-key usage. Keys page: per-key detail
+  (last calls and turns with costs), verify-by-token, revoke (with confirmation). Every key and
+  every call lands in the audit trail.
+
 ## 9. Troubleshooting
 
 - **Port already in use** — the setup self-check names the port in red; change them with

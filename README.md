@@ -177,6 +177,38 @@ for outbound traffic (usually its EIP/public IP in the cloud).
 - **Acceptance**: `curl` the facade from a non-whitelisted IP → refused; the
   manager's probe still shows the node live on the `/nodes` page.
 
+## Outward API (services and keys)
+
+Let other systems call your agents. Two things on your side: a **service** (an
+outward name answered by a team of agents, plus its concurrency/permission
+declaration) and an **API key** (the credential one customer holds).
+
+1. **Services page → Build a service**: name it, pick the answering agents, set
+   concurrency and the permission tier (read-only by default). The page shows
+   the exact declaration that will be written to `manager.config.yaml` and
+   validates it with the same rules boot uses; saving is atomic and live.
+2. **API keys page → create a key**: three fields by default (name / service /
+   daily quota); "more settings" holds scopes, per-minute rate, in-flight cap
+   and an expiry date. The secret is shown once; right after issuing you can
+   **test the key** against the real outward door (read-only, no spend) and
+   copy a handover block (endpoint + example + quota rules) for the customer.
+
+Customer side: `Authorization: Bearer dac_<id>_<secret>` against
+`http://<host>:8081/v1` (bound to `127.0.0.1` by default — expose it through a
+reverse proxy with TLS and an IP allow-list):
+
+```bash
+curl -H "Authorization: Bearer <token>" -X POST http://<host>:8081/v1/conversations \
+  -H "content-type: application/json" \
+  -d '{"service":"chat","externalUserId":"customer-1","text":"hello"}'
+```
+
+The same `externalUserId` returns to the same conversation; idle conversations
+are reclaimed (24h default); the daily quota resets at local midnight on the
+manager host. Error codes `401/403/404/429/502/503` are spelled out in
+[`docs/openapi.yaml`](docs/openapi.yaml) and
+[`docs/USER-GUIDE.md`](docs/USER-GUIDE.md#85-outward-api-services-and-keys).
+
 
 ## Upgrade
 

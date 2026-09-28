@@ -150,6 +150,32 @@ agent 节点的 facade 端口（如 3081）暴露在服务器上，**必须只�
 - **验收**：从非白名单 IP `curl` facade → 拒绝；manager 侧探活正常
   （`/nodes` 页节点仍 live）。
 
+## 对外 API（服务与钥匙）
+
+让别的系统调用你的 agent，两样东西就够了：**服务**（对外的名字 + 一群应答的
+agent + 并发/权限声明）和 **API 钥匙**（发给某个客户的凭证）。
+
+1. **服务页 → 新建服务**：起名、选应答的 agent、定并发与权限档位（默认只读）。
+   页面会展示将要写进 `manager.config.yaml` 的原文并用开机同一套规则校验，
+   保存即生效（免重启）。
+2. **API 钥匙页 → 新建钥匙**：默认只填三个字段（名称 / 服务 / 每天次数）；
+   「更多设置」里是权限明细、每分钟限速、并发与有效期。明文只显示一次；
+   签发后页面上可直接**测试这把钥匙**（经真实门面发只读请求，不花钱不耗配额），
+   并把「要交给客户的内容」（端点 + 示例 + 配额口径）一键复制过去。
+
+客户侧：`Authorization: Bearer dac_<id>_<secret>` 调 `http://<host>:8081/v1`
+（默认只绑 127.0.0.1，对外要用反代 + TLS + IP 白名单）：
+
+```bash
+curl -H "Authorization: Bearer <token>" -X POST http://<host>:8081/v1/conversations \
+  -H "content-type: application/json" \
+  -d '{"service":"chat","externalUserId":"customer-1","text":"hello"}'
+```
+
+同一 `externalUserId` 回到同一会话；空闲超时（默认 24h）自动回收；每日配额
+按 manager 本地时区零点重置。错误码 `401/403/404/429/502/503` 语义见
+`docs/openapi.yaml` 与 `docs/USER-GUIDE.md` §8.5。
+
 
 
 ## 升级

@@ -46,6 +46,9 @@ if (!quick) {
 run('i18n key guard', 'npm', ['run', 'i18n:check'])
 run('build', 'npm', ['run', 'build'])
 run('check-docs', 'node', ['scripts/check-docs.mjs'])
+// The outward contract is a checked artifact too: a broken spec must not ship (the full route-drift
+// guard against src/public-api/routes.ts is a follow-up; this pins syntax + internal refs).
+run('openapi spec', 'node', ['scripts/check-openapi.mjs'])
 
 // ---- 2. Static items ----
 check('required files present (LICENSE/SECURITY/CONTRIBUTING/CODE_OF_CONDUCT/README.zh)', () => {

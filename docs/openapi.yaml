@@ -1,0 +1,239 @@
+openapi: 3.0.3
+info:
+  title: DAC outward API (v1)
+  description: |
+    The outward API is the customer-facing door of a DAC deployment: one listener
+    (`/v1`, port 8081 by default) serves every **service**, and one **API key**
+    grants access to a service.
+
+    - Auth: `Authorization: Bearer dac_<keyId>_<secret>` (or `X-API-Key`).
+    - A key is scoped to services and carries scopes (`services:read`,
+      `usage:read`, `conversations:write`); each endpoint names the scope it needs.
+    - Stickiness: the same `externalUserId` under one key always returns to the
+      same conversation. A conversation idle past the service's
+      `session_idle_hours` (24h default) is reclaimed and answering it 404s.
+    - Quota: counted per local day on the manager host; exhausted = 429.
+    - Error shape: `{ "error": "<code>", "detail": "<human text>" }` where
+      `detail` is present; see the codes under each response.
+  version: '1'
+servers:
+  - url: http://127.0.0.1:8081/v1
+    description: Default bind (loopback only). Expose publicly through a reverse proxy with TLS.
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      summary: Liveness probe (no auth)
+      security: []
+      responses:
+        '200':
+          description: The door is up.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  service: { type: string, example: dac-public-api }
+                  version: { type: integer, example: 1 }
+  /services:
+    get:
+      summary: Which services this key may enter
+      description: Requires scope `services:read`. Member ids and health stay internal; callers see only what they may call.
+      responses:
+        '200':
+          description: The services reachable with this key.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  services:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, example: chat }
+                        label: { type: string, example: Support }
+                        surfaces:
+                          type: array
+                          items: { type: string, enum: [tasks, conversations] }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /usage:
+    get:
+      summary: This key's own usage and quota
+      description: Requires scope `usage:read`. Counts dispatches since local midnight on the manager host.
+      responses:
+        '200':
+          description: Quota state.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key:
+                    type: object
+                    properties:
+                      id: { type: string }
+                      name: { type: string }
+                      scopes: { type: array, items: { type: string } }
+                      services: { type: array, items: { type: string } }
+                  today:
+                    type: object
+                    properties:
+                      used: { type: integer }
+                      limit: { type: integer, nullable: true }
+                      remaining: { type: integer, nullable: true }
+                      active: { type: integer }
+                      resetsAt: { type: integer, description: Epoch ms of the next local midnight }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /conversations:
+    post:
+      summary: Start (or reuse) a conversation; with `text`, the first turn runs in the same request
+      description: |
+        Requires scope `conversations:write`. `service` is optional when the key allows exactly one
+        service. Providing `externalUserId` buys stickiness: the same user returns to the same
+        conversation (`created: false`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                service: { type: string, example: chat }
+                externalUserId: { type: string, maxLength: 128, example: customer-1 }
+                text: { type: string, maxLength: 32000, example: hello }
+      responses:
+        '201':
+          description: A new conversation (and, with `text`, the first turn's reply).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+        '200':
+          description: 'Sticky hit: the existing conversation for this user was reused.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: No such service (or the key may not know it exists).
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '502':
+          description: The turn ran and failed; the body carries `state` and `error`.
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  '/conversations/{id}/messages':
+    post:
+      summary: Send one message into an existing conversation
+      description: Requires scope `conversations:write`. A conversation that is not this key's answers 404 regardless of whether it exists.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text: { type: string, maxLength: 32000 }
+      responses:
+        '200':
+          description: The turn's result on the existing conversation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Unknown conversation, or one that does not belong to this key.
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '502':
+          description: The turn ran and failed; the body carries `state` and `error`.
+        '503':
+          $ref: '#/components/responses/Unavailable'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: '`dac_<keyId>_<secret>`; the secret is shown exactly once at issue time.'
+  schemas:
+    Conversation:
+      type: object
+      properties:
+        conversationId: { type: string }
+        agentId: { type: string }
+        service: { type: string }
+        created: { type: boolean, description: 'false = the sticky anchor hit and the existing conversation was reused' }
+        reply: { type: string, nullable: true }
+        usage:
+          type: object
+          nullable: true
+          properties:
+            inputTokens: { type: integer }
+            outputTokens: { type: integer }
+            cacheReadTokens: { type: integer, nullable: true }
+            cacheWriteTokens: { type: integer, nullable: true }
+            reasoningTokens: { type: integer, nullable: true }
+        costMicroUsd: { type: integer, nullable: true, description: 'Null when the model could not be priced' }
+        state: { type: string, enum: [pending, running, done, failed, missed] }
+        error: { type: string, nullable: true }
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+        detail: { type: string }
+  responses:
+    Unauthorized:
+      description: Missing, unknown, revoked or expired key. Unknown and wrong keys are not distinguished.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: The key lacks the required scope, or the named service is outside its range.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    BadRequest:
+      description: Malformed body, or the request did not name a service while the key may call several.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: 'Quota, concurrency or agent capacity exhausted. Carries `Retry-After` where the caller should simply retry.'
+      headers:
+        Retry-After:
+          schema: { type: string }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unavailable:
+      description: No agent is online for the service right now.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
