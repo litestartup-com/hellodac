@@ -1,13 +1,15 @@
-// 节点总览页（蜂群 Q4）：侧栏只放一行汇总 + 异常，全景在这里。
+// Node overview page (hive Q4): the sidebar keeps one summary line plus anomalies; the full picture is here.
 //
-// 两个列表：机器目录（舰队）+ 全部节点（托管读监督器状态机，外管读探活）。
-// 15 秒轮询，与侧栏同一数据源 /api/nodes，不另起真相。
-// 能力三 v1：节点行挂「原生 GUI」卡（隧道命令 + 打开/配置），纯函数层在
-// gui-access.js。UI 收尾 A：全局任务流迁至 /runs（任务页）。
+// Two lists: the machine directory (fleet) and all nodes (managed ones read the supervisor state machine,
+// externally managed ones read reachability). Polled every 15 seconds from the same source as the sidebar,
+// /api/nodes, so there is no second truth. Capability three v1: a node row carries the "native GUI" card
+// (tunnel command plus open/configure), whose pure layer is gui-access.js. UI wrap-up A: the global task
+// stream moved to /runs (the task page).
 import { $, esc, setHtml, apiJson, poll, t, loadI18n } from './ui.js'
 
-// 动态文案走客户端字典（服务端已渲染静态文案；字典由 /api/i18n/<lang> 提供）。
-// 顶层 await：首屏渲染前字典就位，避免先显示键名再补译文。
+// Dynamic text comes from the client dictionary (static text is server-rendered, and the dictionary is
+// served by /api/i18n/<lang>). Top-level await so the dictionary is in place before the first paint, rather
+// than showing key names first and patching translations in later.
 await loadI18n()
 import { nodeCreatePayload, hostRunnerConfirmText, dangerSandboxConfirmText } from './node-form.js'
 import { machineRowHtml, joinCommand, localMachineRowHtml } from './machines.js'
@@ -16,11 +18,13 @@ import { nodeRow, nodeMenuHtml, nodeMenuId, nodeVersionMenuId } from './node-row
 import { placePanel, placeSubmenu } from './menu.js'
 import { guiTunnelCommand } from './gui-access.js'
 
-// 节点行本体与它的 ⋮ 菜单在 node-row.js（纯函数层，可单测）。这里只剩装配：
-// 行 + 该行的两个浮层（主菜单、版本子菜单），浮层挂 body 以免被 .card 裁剪。
+// The node row itself and its three-dot menu live in node-row.js (pure function layer, unit-tested). What
+// remains here is assembly: the row plus its two flyouts (main menu, version submenu), appended to body so
+// that .card cannot clip them.
 const renderNodes = (nodes) => {
-  // 每 15 秒重绘一次列表，而菜单浮层挂在 body、不在列表里：不显式关掉的话，
-  // 重绘会留下一个指向旧行的孤儿浮层（下次点 ⋮ 才消失）。
+  // The list is redrawn every 15 seconds while the menu flyouts hang on body, outside the list: without
+  // closing them explicitly, a redraw leaves an orphan flyout pointing at the old row (it only disappears
+  // the next time the three-dot button is clicked).
   closeNodeMenu()
   setHtml(
     'nodes-list',
@@ -30,11 +34,11 @@ const renderNodes = (nodes) => {
   )
 }
 
-// ---- 节点 ⋮ 菜单：开合、定位、子菜单 ----
+// ---- Node three-dot menu: open/close, positioning, submenu ----
 
-/** 当前打开的节点菜单（id 与所属节点）。同一时刻只允许一个。 */
+/** The currently open node menu (its id and its node). Only one at a time. */
 let openMenuNode = null
-/** 主菜单里展开的子菜单项（null = 没展开）。 */
+/** The submenu item expanded inside the main menu (null = none). */
 let openSub = null
 
 const panelOf = (id) => document.getElementById(id)
@@ -73,7 +77,7 @@ const openNodeMenu = (nodeId) => {
   panel.querySelector('.menu-item')?.focus()
 }
 
-/** 主菜单里的子菜单项被点开：贴在主菜单右侧（放不下翻到左侧）。 */
+/** A main-menu item with a submenu was opened: it sticks to the right of the main menu (flips left when there is no room). */
 const openSubmenu = (item) => {
   const panelId = item.getAttribute('aria-controls')
   if (panelId === null || panelId === '') return
@@ -94,10 +98,10 @@ const openSubmenu = (item) => {
   panel.querySelector('.menu-item')?.focus()
 }
 
-// 蜂群 P5.1：节点管控（起/停/重启）+ 日志抽屉。
+// Hive P5.1: node control (start/stop/restart) plus the log drawer.
 const nodeAction = async (id, action) => {
   try {
-    // 债务 F6:统一 Result 层——失败 alert 读 r.detail,不再手拼 body 与状态码。
+    // Debt F6: one Result layer -- a failure alert reads r.detail instead of hand-building the body and status code.
     const r = await apiJson(`/api/nodes/${encodeURIComponent(id)}/${action}`, { method: 'POST' })
     if (!r.ok) alert(r.detail)
   } catch (error) {
@@ -106,7 +110,7 @@ const nodeAction = async (id, action) => {
   await load()
 }
 
-// 能力二：版本对齐 = 异步重播种 + 重装 + 重启（202 即受理）。
+// Capability two: version alignment = asynchronous reseed + reinstall + restart (202 means accepted).
 const alignNode = async (id) => {
   if (!window.confirm(t('nodes.align.confirm', { id }))) return
   try {
@@ -151,7 +155,7 @@ const closeLogs = () => {
 }
 
 $('nodes-list').addEventListener('click', (event) => {
-  // ⋮ 触发器：开/关该节点菜单（菜单项自身不在 #nodes-list 内，另有委托）。
+  // Three-dot trigger: toggles this node's menu (the menu items are not inside #nodes-list, so they have their own delegation).
   const more = event.target.closest('.menu-trigger')
   if (more !== null) {
     const nodeId = more.id.replace(/^node-more-/, '')
@@ -178,8 +182,9 @@ $('nodes-list').addEventListener('click', (event) => {
   if (access !== null) return void openAccessEditor(access.dataset.nodeAccess)
 })
 
-// 浮层菜单项的点击：菜单挂 body，所以委托在 document 上。
-// 「原生访问」这一项在主菜单里，点它先收菜单再开编辑器（否则浮层压在抽屉上）。
+// Clicks on flyout menu items: the menu hangs on body, so the delegation is on document.
+// The "native access" item lives in the main menu; clicking it closes the menu before opening the editor,
+// otherwise the flyout would sit on top of the drawer.
 document.addEventListener('click', (event) => {
   const sub = event.target.closest('[data-node-version-menu]')
   if (sub !== null) return openSubmenu(sub)
@@ -192,7 +197,7 @@ document.addEventListener('click', (event) => {
   }
   const item = event.target.closest('.menu-panel .menu-item')
   if (item !== null) closeNodeMenu()
-  // 点到浮层与触发器之外 = 关掉（触发器自身在上面那个委托里处理开合）。
+  // A click outside both the flyout and the trigger closes it (the trigger itself is handled by the delegation above).
   if (event.target.closest('.menu-panel') === null && event.target.closest('.menu-trigger') === null) closeNodeMenu()
 })
 
@@ -203,8 +208,9 @@ document.addEventListener('keydown', (event) => {
   trigger?.focus() // a keyboard user closing the menu belongs back on the trigger, not at the top of the document
 })
 
-// 能力二/P1：版本切换——确认后 POST /api/nodes/:id/version（202 = 受理，异步重建/重装）。
-// 入口从「常显下拉框」改为「⋮ 菜单 → 版本 子菜单」，逻辑不变（同一个矩阵数据源）。
+// Capability two / P1: version switching -- after confirmation, POST /api/nodes/:id/version (202 = accepted,
+// the rebuild and reinstall run asynchronously). The entry point moved from an always-visible dropdown to
+// "three-dot menu -> version submenu"; the logic is unchanged (the same matrix data source).
 const setNodeVersion = async (id, value) => {
   const followDefault = value === ''
   const target = followDefault ? (versionList[0]?.dsh ?? '') : value
@@ -231,12 +237,12 @@ const setNodeVersion = async (id, value) => {
 $('node-logs-refresh').addEventListener('click', () => void refreshLogs())
 $('node-logs-close').addEventListener('click', closeLogs)
 
-// ---- 蜂群 P5.5：新增节点向导 + 删除 ----
+// ---- Hive P5.5: the add-node wizard plus delete ----
 
 const removeNode = async (id) => {
   if (!window.confirm(t('nodes.remove.confirm', { id }))) return
   try {
-    // 债务 F6:统一 Result 层。
+    // Debt F6: one Result layer.
     const r = await apiJson(`/api/nodes/${encodeURIComponent(id)}`, { method: 'DELETE' })
     if (!r.ok) {
       alert(r.detail)
