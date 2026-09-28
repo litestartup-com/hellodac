@@ -1,32 +1,42 @@
 /**
- * 服务 agent 对账（口径：内部设计库 `manager/topics/CONCEPTS-ALIGNED.md` §8.2）。
+ * Service agent reconciliation (contract: internal design library
+ * `manager/topics/CONCEPTS-ALIGNED.md` §8.2).
  *
- * 服务声明是真相源（`services[].count` = 期望 agent 数），实际在跑的 agent 是派生品。
- * 本模块算的是两者的差：**要起几个、要撤几个、撤不掉的为什么撤不掉**。
- * 放置（放哪台机器）交给 `placement.ts`，本模块只管"数量对账 + 落位后编号"。
+ * The service declaration is the source of truth (`services[].count` = how many agents are
+ * wanted) and the agents actually running are derived from it. This module computes the
+ * difference: **how many to start, how many to retire, and why a retirement has to wait**.
+ * Placement (which machine) belongs to `placement.ts`; this module only does the count and
+ * the ordinals that follow from it.
  *
- * 四条纪律：
- * 1. **稳定优先**：已有 agent 只要还在允许范围内就原样保留（不重排、不搬机器）——
- *    换机器 = 客户会话失忆，代价远大于"让某台机器看起来更均衡"。
- * 2. **缩容要排水**：还有会话在跑的 agent 不立刻撤，标记为 draining 等它空下来。
- * 3. **少配必须可见**：放不下就如实回报 shortfall + 每台机器的拒绝原因，绝不静默少起。
- * 4. **不自动迁移**：已有 agent 落在离线/不被允许的机器上 → 只回报 stranded 供界面告警，
- *    迁移属于自愈（P3.5），且必须走"会话重开"的完整流程。
+ * Four rules:
+ * 1. **Stability first**: an existing agent stays exactly where it is as long as it is still
+ *    allowed (no renumbering, no moving) -- moving loses customer conversations, which costs
+ *    far more than a machine looking unevenly loaded.
+ * 2. **Drain before shrinking**: an agent with live conversations is not retired on the spot;
+ *    it is marked draining and goes away once it is quiet.
+ * 3. **Under-provisioning stays visible**: whatever does not fit is reported as a shortfall
+ *    plus one rejection reason per machine, never as a silent headcount cut.
+ * 4. **No automatic migration**: an existing agent on an offline or now-forbidden machine is
+ *    only reported as stranded for the UI to flag; moving it belongs to self-healing (P3.5)
+ *    and has to go through the full "reopen the conversation" flow.
  */
 import { planPlacement, type MachineFacts, type RejectReason, type Thresholds } from './placement.js'
 
-/** 服务的一个 agent = 一个独立 DSH 进程（口径 §1）。名字由服务 id 与序号派生，可预测、可复算。 */
+/**
+ * One agent of a service = one dedicated DSH process (contract §1). Names derive from the
+ * service id and the ordinal, so they are predictable and recomputable.
+ */
 export interface PlannedAgent {
   serviceId: string
   ordinal: number
-  /** 派生端点 id（= 该 agent 独占的 DSH 进程）。 */
+  /** Derived endpoint id: the DSH process this agent owns exclusively. */
   endpointId: string
-  /** 派生 agent id（对外挡位；会话粘在它上面）。 */
+  /** Derived agent id; conversations stick to it. */
   agentId: string
   machineId: string
 }
 
-/** 已在跑的 agent（由派生端点/agent 反推）。 */
+/** An agent that is already running (inferred back from its derived endpoint/agent). */
 export interface ExistingAgent {
   ordinal: number
   machineId: string
@@ -34,16 +44,16 @@ export interface ExistingAgent {
 
 export interface AgentsPlanRequest {
   serviceId: string
-  /** 期望 agent 数（`services[].count`）。 */
+  /** How many agents are wanted (`services[].count`). */
   count: number
   placement: 'spread' | 'pack' | 'pin'
-  /** pin 策略下的机器白名单。 */
+  /** Machine allow-list under the pin strategy. */
   machines?: string[]
   maxAgentsPerMachine?: number
   existing: ExistingAgent[]
-  /** 负载快照（含已在跑的 agent，扩容时在其之上继续落位）。 */
+  /** Load snapshot, including agents already running (scale-up places on top of them). */
   facts: MachineFacts[]
-  /** 每个 agent 当前的会话数（agentId → 数量）：缩容时据此判断能不能立刻撤。 */
+  /** Conversations each agent currently holds (agentId -> count): decides whether a retirement can happen at once. */
   sessionsByAgent?: Record<string, number>
   thresholds?: Thresholds
 }
@@ -51,19 +61,19 @@ export interface AgentsPlanRequest {
 export type StrandedReason = RejectReason | 'machine_unknown'
 
 export interface AgentsPlan {
-  /** 对账后应有的 agent 表（保留 + 新建），按序号升序。 */
+  /** Agents that should exist after reconciliation (kept + created), ascending by ordinal. */
   agents: PlannedAgent[]
   keep: PlannedAgent[]
   create: PlannedAgent[]
-  /** 可以立刻撤的 agent（空闲）。 */
+  /** Agents that can be retired immediately (idle). */
   remove: PlannedAgent[]
-  /** 想撤但还有会话在跑：等它空下来（排水），不硬断。 */
+  /** Wanted retired but still serving: wait until quiet (drain), never cut off. */
   draining: PlannedAgent[]
-  /** 想加却没地方放的数量。 */
+  /** How many agents were wanted but had nowhere to go. */
   shortfall: number
-  /** 已存在但落位不再合规的 agent：只告警，不自动迁移。 */
+  /** Existing agents whose placement is no longer acceptable: reported, never moved automatically. */
   stranded: Array<{ agent: PlannedAgent; reason: StrandedReason }>
-  /** 每台被排除的机器一个原因（来自放置器）。 */
+  /** One reason per rejected machine (from the placer). */
   rejections: Array<{ machineId: string; reason: RejectReason }>
 }
 
@@ -73,9 +83,10 @@ export const agentNames = (serviceId: string, ordinal: number): { endpointId: st
 })
 
 /**
- * 反解派生端点 id（运行时对账要认出"这个端点是哪个服务的第几号 agent"）。
- * 解析规则只有这一处，避免正则散落各处后各解各的（服务 id 本身允许短横线，
- * 所以序号取最后一段：`svc-a-b-2` = 服务 `a-b` 的 2 号 agent）。
+ * Parse a derived endpoint id back into service and ordinal (runtime reconciliation has to
+ * recognise which service and which agent an endpoint is). The rule lives here and only here,
+ * so no regex drifts apart elsewhere. Service ids may themselves contain dashes, so the
+ * ordinal is the last segment: `svc-a-b-2` is agent 2 of service `a-b`.
  */
 export const parseAgentEndpoint = (endpointId: string): { serviceId: string; ordinal: number } | null => {
   const matched = /^svc-(.+)-([1-9]\d*)$/.exec(endpointId)
@@ -92,7 +103,7 @@ const makeAgent = (serviceId: string, ordinal: number, machineId: string): Plann
   machineId,
 })
 
-/** 期望 agent 的序号：1..count（与声明数量对齐，缩容时先撤编号最大的）。 */
+/** Ordinals wanted: 1..count (matching the declaration; scale-down retires the highest first). */
 const wantedOrdinals = (count: number): number[] => Array.from({ length: Math.max(0, count) }, (_, i) => i + 1)
 
 export const planAgents = (req: AgentsPlanRequest): AgentsPlan => {
@@ -101,7 +112,7 @@ export const planAgents = (req: AgentsPlanRequest): AgentsPlan => {
   const factsById = new Map(req.facts.map((m) => [m.id, m]))
   const sessions = req.sessionsByAgent ?? {}
 
-  // 保留 = 期望序号内的已有 agent（按序号对应，低序号先保）。
+  // Keep = existing agents inside the wanted ordinals (lower ordinals are kept first).
   const keep: PlannedAgent[] = []
   const surplus: PlannedAgent[] = []
   for (const [index, agent] of existing.entries()) {
@@ -110,7 +121,7 @@ export const planAgents = (req: AgentsPlanRequest): AgentsPlan => {
     else keep.push(makeAgent(req.serviceId, agent.ordinal, agent.machineId))
   }
 
-  // 缩容：先撤编号大的；还有会话在跑的转排水，不硬断。
+  // Scale-down: retire the highest ordinals first; anything still serving switches to draining.
   const remove: PlannedAgent[] = []
   const draining: PlannedAgent[] = []
   for (const agent of surplus.reverse()) {
@@ -118,10 +129,12 @@ export const planAgents = (req: AgentsPlanRequest): AgentsPlan => {
     else remove.push(agent)
   }
 
-  // 扩容：只补差额，序号取最小空闲号（缩容又扩容时不会乱跳）。
-  // 差额必须按"保留了几个"算，不能按"空闲号有几个"算：已有 agent 的序号是它的身份，
-  // 不能重排（重排 = 客户会话失忆），所以序号集合与数量必须分开数
-  // —— 例：已有 2、3 号而期望 1 个 agent 时，若只看空闲号会误判成"缺 1 号"再多起一个。
+  // Scale-up: fill only the gap, using the smallest free ordinals (so shrink-then-grow does not
+  // make numbers jump). The gap is computed from "how many were kept", not from "how many free
+  // ordinals exist": an existing agent's ordinal is its identity and may not be reorganised
+  // (that would lose customer conversations), so ordinals and counts are counted separately --
+  // e.g. agents 2 and 3 exist while only 1 is wanted: looking at free ordinals alone would
+  // think "ordinal 1 is missing" and start an extra agent.
   const usedOrdinals = new Set(keep.map((a) => a.ordinal))
   const slots = Math.max(0, wanted.length - keep.length)
   const freeOrdinals = wanted.filter((ordinal) => !usedOrdinals.has(ordinal)).slice(0, slots)
@@ -147,7 +160,8 @@ export const planAgents = (req: AgentsPlanRequest): AgentsPlan => {
     })
   }
 
-  // 落单告警：已有 agent 的机器没了、离线了、或被隔离红线挡住 —— 只报告，不搬。
+  // Stranded: an existing agent whose machine is gone, offline, or blocked by a red line.
+  // Reported only -- the manager does not move agents on its own.
   const stranded: AgentsPlan['stranded'] = []
   for (const agent of keep) {
     const facts = factsById.get(agent.machineId)

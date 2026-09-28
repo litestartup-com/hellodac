@@ -1,14 +1,15 @@
 /**
- * 对外 API 的 `/v1` 面（设计稿：内部设计库 `manager/topics/public-api.md` §3–§6）。
+ * The outward `/v1` surface (design: internal design library `manager/topics/public-api.md` §3-§6).
  *
- * 这一面**与后台（8080）完全隔离**：
- * - 只认钥匙（`Authorization: Bearer` 或 `X-API-Key`），**不认会话 cookie**；
- * - 只出 JSON，不出 HTML、不挂静态资源、不装 cookie 插件；
- * - 未通过鉴权时连"这个资源存不存在"都不透露（越权一律 401/403，不做 404 区分）。
+ * This surface is **completely separate from the admin API (8080)**:
+ * - keys only (`Authorization: Bearer` or `X-API-Key`), **session cookies are not accepted**;
+ * - JSON only: no HTML, no static assets, no cookie plugin;
+ * - an unauthenticated call never learns whether a resource exists (401/403, never a distinguishing 404).
  *
- * 审计策略：**通过鉴权的调用必留痕**；被拒的调用只在"钥匙本身可识别"时留痕
- * （吊销/过期/越权），格式错与未知 keyId 不留——否则任何人拿假钥匙刷一下就能把
- * 审计表灌满。未鉴权流量的兜底是监听器级的按 IP 限流。
+ * Audit policy: **every authenticated call leaves a trace**; a rejected call is recorded only when
+ * the key itself is identifiable (revoked/expired/out of scope). Malformed keys and unknown key ids
+ * are not recorded -- otherwise a fake key could flood the audit table. Unauthenticated traffic is
+ * bounded by the listener-level per-IP rate limit.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { z } from 'zod'
@@ -23,9 +24,10 @@ import { quotaSnapshot } from './quota.js'
 import { keySessionsByAgent, loadServiceLoad } from './service-load.js'
 
 /**
- * 对外会话要的那几件事，由 wiring 层注入（对外面不认识 supervisor/驱动细节）：
- * - `isOnline`：该 agent 现在可不可达（与后台同一套判活口径）；
- * - `runTurn`：在某个 agent 上跑一轮并**等它结束**，返回答复与用量。
+ * What an outward conversation needs, injected by the wiring layer (this surface knows nothing about
+ * supervisors or drivers):
+ * - `isOnline`: whether that agent is reachable right now (the same liveness source as the admin UI);
+ * - `runTurn`: run one turn on an agent and **wait for it**, returning the reply and the usage.
  */
 export interface PublicApiPorts {
   isOnline: (agentId: string) => boolean
@@ -35,18 +37,20 @@ export interface PublicApiPorts {
 export interface PublicApiDeps {
   config: AppConfig
   db: Db
-  /** 缺省 = 不含会话面（只读面仍可用）：wiring 未注入时，会话端点回 503 而不是假装成功。 */
+  /** Absent = no conversation surface (the read-only surface still works): without wiring, the
+   * conversation endpoints answer 503 instead of pretending to work. */
   ports?: PublicApiPorts
 }
 
 declare module 'fastify' {
   interface FastifyRequest {
-    /** 通过鉴权后由 requireKey 挂上；未鉴权路径上恒为 undefined。 */
+    /** Set by requireKey once authenticated; always undefined on unauthenticated paths. */
     apiKey?: ApiKey
   }
 }
 
-/** 两种头都收：`Authorization: Bearer` 是标准，`X-API-Key` 与 gateway 现状一致，便于反代转发。 */
+/** Both headers are accepted: `Authorization: Bearer` is the standard, and `X-API-Key` matches the
+ * gateway convention and is easier for reverse proxies to forward. */
 const extractToken = (request: FastifyRequest): string | undefined => {
   const authorization = request.headers.authorization
   if (typeof authorization === 'string' && authorization.length > 7 && authorization.slice(0, 7).toLowerCase() === 'bearer ') {
@@ -58,7 +62,8 @@ const extractToken = (request: FastifyRequest): string | undefined => {
   return undefined
 }
 
-/** 失败原因给人看，但**不区分"keyId 不存在"与"secret 错"**（api-key.ts 已合并为 unknown）。 */
+/** Human-readable failure, but **"unknown key id" and "wrong secret" are not distinguished**
+ * (api-key.ts already merges both into `unknown`). */
 const describeFailure = (reason: 'malformed' | 'unknown' | 'revoked' | 'expired'): string => {
   switch (reason) {
     case 'malformed':
@@ -77,7 +82,8 @@ const requireKey =
   async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     const result = verifyApiKey(deps.db, extractToken(request))
     if (!result.ok) {
-      // 可识别的失败（吊销/过期）留痕；malformed/unknown 交给监听器级限流兜底。
+      // Identifiable failures (revoked/expired) leave a trace; malformed and unknown keys fall
+      // through to the listener-level rate limit.
       if (result.reason === 'revoked' || result.reason === 'expired') {
         recordAudit(deps.db, {
           actor: 'api_key:unknown',
@@ -100,7 +106,7 @@ const requireKey =
     request.apiKey = result.key
   }
 
-/** 挂在插件上的统一留痕：只记通过鉴权的调用（见文件头注释的取舍）。 */
+/** One trace for the whole plugin: only authenticated calls are recorded (see the header comment). */
 const auditCalls = (app: FastifyInstance, db: Db): void => {
   app.addHook('onResponse', async (request, reply) => {
     const key = request.apiKey
@@ -114,32 +120,34 @@ const auditCalls = (app: FastifyInstance, db: Db): void => {
 }
 
 const createConversationBody = z.object({
-  /** 钥匙只允许一个服务时可省；允许多个时必须点名（不替调用方猜）。 */
+  /** Optional when the key allows exactly one service; mandatory when it allows several (no guessing). */
   service: z.string().min(1).max(64).optional(),
   /**
-   * 调用方自己的用户 id：给了它就获得粘性——同一个用户下次再来会回到同一个会话。
-   * 不给则每次都新建（调用方自己存会话号也能续，但那就得自己保证不重不漏）。
+   * The caller's own user id: providing it buys stickiness -- the same user comes back to the same
+   * conversation. Without it a new conversation is created every time (keeping the conversation id
+   * works too, but then the caller owns de-duplication).
    */
   externalUserId: z.string().min(1).max(128).optional(),
-  /** 第一句话：给了就在同一请求里跑完第一轮并把答复带回来。 */
+  /** First message: when present, the first turn runs inside this very request and the reply comes back. */
   text: z.string().min(1).max(32_000).optional(),
 })
 
 const sendMessageBody = z.object({ text: z.string().min(1).max(32_000) })
 
 /**
- * 注册 `/v1` 面。返回的实例可直接 `app.inject()` 测试（不监听端口）。
- * 门面的启动/绑定由 listener.ts 负责，这里只管路由与鉴权。
+ * Register the `/v1` surface. The returned instance can be tested with `app.inject()` (no port).
+ * Binding and startup belong to listener.ts; this file only owns routing and authentication.
  */
 export const registerPublicApiRoutes = (app: FastifyInstance, deps: PublicApiDeps): void => {
   auditCalls(app, deps.db)
 
-  /** 存活探针：不鉴权、不含任何数据（运维用它确认门面在不在）。 */
+  /** Liveness probe: no authentication, no data (operations use it to see whether the door is up). */
   app.get('/v1/health', async () => ({ ok: true, service: 'dac-public-api', version: 1 }))
 
   /**
-   * 客户能进哪些服务。**只回对外必要的字段**：不暴露成员（agent）id 与健康状态——
-   * 那是运营信息，客户只需要知道"我能调哪个服务、它支持哪种话术"。
+   * Which services this key may call. **Only the fields a caller needs**: member (agent) ids and
+   * health stay inside -- that is operational information; callers only care which service they can
+   * call and which surfaces it offers.
    */
   app.get('/v1/services', { preHandler: requireKey(deps, 'services:read') }, async (request, reply) => {
     const key = request.apiKey
@@ -151,10 +159,11 @@ export const registerPublicApiRoutes = (app: FastifyInstance, deps: PublicApiDep
   })
 
   /**
-   * 本钥匙自己的用量与配额。
+   * This key's own usage and quota.
    *
-   * 金额维度留到任务面落地后补（那时 `run.api_key_id` 才有值可聚合）——现在只报
-   * "今天派了几个活、还剩多少、有几个在跑"，这些都是即时可算的真数，不预先摆空字段。
+   * The money dimension waits for the task surface (only then does `run.api_key_id` have values to
+   * aggregate). For now it reports how many runs happened today, how many are left and how many are
+   * in flight -- real numbers computed on the spot, with no placeholder fields.
    */
   app.get('/v1/usage', { preHandler: requireKey(deps, 'usage:read') }, async (request, reply) => {
     const key = request.apiKey
@@ -166,8 +175,9 @@ export const registerPublicApiRoutes = (app: FastifyInstance, deps: PublicApiDep
   })
 
   /**
-   * 拒绝：统一走 conversations.ts 的措辞表，状态码与 `Retry-After` 一起给出。
-   * 满载与配额不足都是 429，但错误码不同——调用方据此决定"退避重试"还是"今天别调了"。
+   * Rejection: one wording table in conversations.ts, returned together with the status code and `Retry-After`.
+   * Busy and out-of-quota are both 429 but with different error codes: that is how a caller decides
+   * between "back off and retry" and "not today".
    */
   const reject = (reply: FastifyReply, reason: Parameters<typeof rejectAsHttp>[0], db: Db, key: ApiKey, what: string): FastifyReply => {
     const mapped = rejectAsHttp(reason)
@@ -182,11 +192,12 @@ export const registerPublicApiRoutes = (app: FastifyInstance, deps: PublicApiDep
   }
 
   /**
-   * 开始（或复用）一次对外会话。
+   * Start (or reuse) an outward conversation.
    *
-   * 两种返回都算成功，靠 `created` 区分：`false` = 命中粘性，回到原会话（同一个外部用户
-   * 不该因为调用方重试就换一个 agent，那等于让客户失忆）。带 `text` 时顺带跑第一轮，
-   * 所以"一句话问答"对调用方是**一次 HTTP 调用**，不用先建会话再发消息。
+   * Both responses are successes, told apart by `created`: `false` means the stickiness anchor hit and
+   * the original conversation is reused (the same external user must not be moved to another agent just
+   * because the caller retried -- that would lose their memory). With `text`, the first turn runs in the
+   * same request, so a one-shot question is **a single HTTP call**.
    */
   app.post('/v1/conversations', { preHandler: requireKey(deps, 'conversations:write') }, async (request, reply) => {
     const key = request.apiKey
@@ -209,7 +220,7 @@ export const registerPublicApiRoutes = (app: FastifyInstance, deps: PublicApiDep
     const externalUserId = parsed.data.externalUserId
     const text = parsed.data.text
 
-    // 粘性：命中就直接用原会话，不重新分发。
+    // Stickiness: on a hit, reuse the original conversation and do not dispatch again.
     if (externalUserId !== undefined) {
       const existing = findLiveConversation(deps.db, key.id, externalUserId)
       if (existing !== null) {
@@ -226,7 +237,8 @@ export const registerPublicApiRoutes = (app: FastifyInstance, deps: PublicApiDep
           replyPayload.usage = outcome.usage
           replyPayload.costMicroUsd = outcome.costMicroUsd
           replyPayload.state = outcome.state
-          // 失败态必须带原因：调用方要能自己判断"重试有用"还是"请求得改"。
+          // A failed turn must carry its reason: the caller has to judge whether retrying helps or
+          // whether the request itself has to change.
           if (outcome.error !== null) replyPayload.error = outcome.error
         }
         return reply.header('cache-control', 'no-store').send(replyPayload)
@@ -242,16 +254,18 @@ export const registerPublicApiRoutes = (app: FastifyInstance, deps: PublicApiDep
     })
     if (!picked.ok) return reject(reply, picked.reason, deps.db, key, 'POST /v1/conversations')
 
-    // 成员不在配置里（服务声明过期）时不能建会话：宁可 503 也不要建一个没人接的会话。
+    // An agent missing from the config (stale service declaration) cannot take a conversation:
+    // a 503 is better than creating a conversation nobody will answer.
     if (deps.config.agents[picked.agentId] === undefined) {
       return reject(reply, { kind: 'agent_unavailable', agentId: picked.agentId }, deps.db, key, 'POST /v1/conversations')
     }
 
     const chat = createChat(deps.db, picked.agentId, Date.now(), {
       apiKeyId: key.id,
-      // 没给外部用户 id = 调用方自己存会话号续聊：此时 external_user_id 为 null，
-      // 而"活会话唯一"那条部分索引带 IS NOT NULL 条件，所以这些会话互不干扰，
-      // 也永远不会被粘性查询命中（粘性只对给了 id 的调用方生效）。
+      // No external user id = the caller keeps the conversation id itself: external_user_id stays
+      // null, and the "one live conversation" partial index only covers NOT NULL rows, so these
+      // conversations never collide with each other and are never hit by the stickiness lookup
+      // (stickiness only applies to callers that supply an id).
       externalUserId: externalUserId ?? null,
       serviceId: service.id,
     })
@@ -280,10 +294,10 @@ export const registerPublicApiRoutes = (app: FastifyInstance, deps: PublicApiDep
   })
 
   /**
-   * 在某个会话上跑一轮。
+   * Run one turn on an existing conversation.
    *
-   * 归属检查先做：不是这把钥匙的会话一律 404（不区分"不存在"与"不是你的"，
-   * 否则调用方可以拿会话号是否存在来探测别人的会话）。
+   * Ownership is checked first: a conversation that is not this key's answers 404 either way (it does
+   * not distinguish "does not exist" from "not yours"), otherwise conversation ids would be probeable.
    */
   app.post('/v1/conversations/:id/messages', { preHandler: requireKey(deps, 'conversations:write') }, async (request, reply) => {
     const key = request.apiKey
@@ -322,10 +336,11 @@ export const registerPublicApiRoutes = (app: FastifyInstance, deps: PublicApiDep
 }
 
 /**
- * 跑一轮并处理失败：返回 null = 已经回过响应（调用方直接 return reply）。
+ * Run one turn and handle failure: null means a response was already sent (the caller just returns it).
  *
- * 失败映射：agent 不在配置里 = 503；回合本身失败 = 502 且带 error 文本（对外措辞是
- * "这一轮失败了"，不是"你没配对"——配额与鉴权在这一步之前已经查过）。
+ * Failure mapping: the agent is not in the config -> 503; the turn itself failed -> 502 with the error
+ * text (the outward wording is "this turn failed", not "you are misconfigured" -- quota and
+ * authentication were already checked before this point).
  */
 const runTurn = async (
   deps: PublicApiDeps,
@@ -342,8 +357,9 @@ const runTurn = async (
   }
   try {
     const outcome = await ports.runTurn({ chatId, agentId, text, apiKeyId })
-    // 跑完了但结果是失败态：仍然 200 回话（调用方要的是"这一轮怎么了"），
-    // 用 state 与 error 表达，避免把"回合失败"伪装成"请求没送达"。
+    // The turn finished in a failed state: still 200 (the caller asked what happened this turn),
+    // expressed through state and error -- never disguise a failed turn as a request that never
+    // arrived.
     return outcome
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error)

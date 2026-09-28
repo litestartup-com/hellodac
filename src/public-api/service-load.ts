@@ -1,13 +1,17 @@
 /**
- * 服务负载（对外分发的输入）：每个 agent 现在有多忙。
+ * Service load: the input dispatch needs, i.e. how busy each agent of a service is.
  *
- * 三个数字全部从**已有表**读出来，不新增采集（口径 §4 的负载口径）：
- * - 会话数：`chat` 里该 agent 未移除的会话（对外与对内都算——机器是同一台，不能只看对外）；
- * - 队列深度：该 agent 上 pending/running 的回合（同会话串行，排着的就是队列）；
- * - 最近耗时：该 agent 最近一个跑完回合的时长（毫秒）。
+ * All three numbers come from tables that already exist; nothing new is collected
+ * (load contract: CONCEPTS-ALIGNED.md §4):
+ * - sessions: live chats of that agent (internal chats count too -- the machine is
+ *   shared, so pretending only outward work matters would misreport the load);
+ * - queue depth: pending/running runs on that agent (turns inside a conversation are
+ *   serial, so whatever is queued behind is queue depth);
+ * - last latency: duration of the most recently finished turn on that agent, in ms.
  *
- * "在线"不在库里：端点探活是运行时状态，由调用方（wiring 层）注入，所以这里只算数字，
- * 在线判断留给上层——判活的口径只有一处（supervisor/客户端探活），避免两套真相。
+ * Liveness is **not** in the database: whether an endpoint answers is runtime state, so
+ * the caller (the wiring layer) injects it. That keeps one liveness opinion in the
+ * system instead of two disagreeing ones.
  */
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
 import type { ResolvedService } from '../config.js'
@@ -16,9 +20,9 @@ import type { ServiceLoad } from './conversations.js'
 
 export interface LoadReaderOptions {
   db: Db
-  /** 该 agent 现在是否可达（由 wiring 层用同一套探活口径回答）。 */
+  /** Whether this agent is reachable right now (the wiring layer answers from its one liveness source). */
   isOnline: (agentId: string) => boolean
-  /** 最近 N 个已结束回合里取最后一个的时长；缺省 200 条足够覆盖“最近一轮”。 */
+  /** How many recent finished runs to inspect for the last latency; 200 is plenty. */
   recentRunLimit?: number
 }
 
@@ -27,7 +31,7 @@ export const loadServiceLoad = (service: ResolvedService, options: LoadReaderOpt
   const agents = [...service.workers]
   if (agents.length === 0) return []
 
-  // 活着的会话（含对内会话：同一台机器的资源是共享的）。
+  // Live conversations, internal ones included: they occupy the same agents.
   const sessionRows = db
     .select({ agentId: schema.chat.agentId })
     .from(schema.chat)
@@ -36,7 +40,7 @@ export const loadServiceLoad = (service: ResolvedService, options: LoadReaderOpt
   const sessions = new Map<string, number>()
   for (const row of sessionRows) sessions.set(row.agentId, (sessions.get(row.agentId) ?? 0) + 1)
 
-  // 排着的回合 = 该 agent 上还没跑完的 run。
+  // Queued work = runs on that agent that have not finished yet.
   const queueRows = db
     .select({ agentId: schema.run.agentId })
     .from(schema.run)
@@ -70,7 +74,7 @@ export const loadServiceLoad = (service: ResolvedService, options: LoadReaderOpt
   })
 }
 
-/** 同一把钥匙在各 agent 上的活会话数（分发时用于"同一调用方尽量分散"）。 */
+/** Live conversations this key holds per agent (dispatch spreads one caller's load out). */
 export const keySessionsByAgent = (db: Db, apiKeyId: string, agents: string[]): Record<string, number> => {
   if (agents.length === 0) return {}
   const rows = db

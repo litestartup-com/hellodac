@@ -1,36 +1,40 @@
 /**
- * 分发（口径：内部设计库 `manager/topics/CONCEPTS-ALIGNED.md`；策略细节见 `topics/service-model.md` §6）。
+ * Dispatch (contract: internal design library `manager/topics/CONCEPTS-ALIGNED.md`; strategy
  *
- * 新会话进来时挑一个 agent，之后**粘住不变**（换了 agent = 客户失忆，所以这里只负责"第一次选谁"）。
+ * Pick one agent when a new conversation arrives, then **stick to it** (moving a customer to
  *
- * 排序口径（依次比较，全部是"越少越好"）：
- *   1. 当前会话数（未达 `maxSessionsPerAgent` 才算候选）
- *   2. 本 agent 队列长度
- *   3. 最近一轮耗时（**未知排最后**：宁可给有实测数据的 agent，也不赌一个没数据的）
- *   4. 同一把钥匙在本 agent 上的会话数（同一调用方尽量分散，避免一个大客户占满一个 agent）
- *   5. 平手 → 按轮询种子取模，保证公平且**结果确定**（同输入同种子必得同结果）
+ * Ordering compares, always "less is better":
+ *   1. current sessions (only below `maxSessionsPerAgent` counts as a candidate)
+ *   2. queue depth on this agent
+ *   3. duration of the most recent turn (**unknown ranks last**: prefer an agent with real
+ *      measurements over betting on one without)
+ *   4. sessions of the same key on this agent (spread one caller out so a single big customer
+ *      cannot fill one agent)
+ *   5. exact tie -> rotate by seed, which is fair and **deterministic** (same input and seed
+ *      always give the same result)
  *
- * 纯函数：不读库、不看时钟。调用方把负载快照与种子传进来，因此可分发的每一步都能复算、
- * 能单测、能在界面上"预演"。
+ * Pure: no database, no clock. The caller passes the load snapshot and the seed, so every
+ * dispatch decision can be recomputed, unit-tested, and previewed in the UI.
  */
 export interface WorkerFacts {
   agentId: string
   online: boolean
-  /** 该 agent 当前接了几个会话。 */
+  /** Conversations this agent is serving right now. */
   sessions: number
-  /** 该 agent 本会话队列的长度（同一会话内排队的回合数）。 */
+  /** Turns queued inside this agent's conversations (turns are serial per conversation). */
   queueDepth: number
-  /** 最近一轮耗时（毫秒）；未知 = undefined。 */
+  /** Duration of the most recent turn in ms; undefined when never measured. */
   lastTurnMs?: number
 }
 
 export interface DispatchRequest {
   workers: WorkerFacts[]
-  /** 每个 agent 能同时接待的会话数（服务的 capacity.max_sessions_per_agent）。 */
+  /** Conversations one agent can serve at once (the service's capacity.max_sessions_per_agent). */
   maxSessionsPerAgent: number
-  /** 同一把钥匙（调用方）已在各 agent 上的会话数：agentId → 数量。 */
+  /** Conversations this key (caller) already holds per agent: agentId -> count. */
   keySessionsByAgent?: Record<string, number>
-  /** 轮询种子（通常是"本次分发序号"），让平手时轮流坐庄而不是永远选同一个。 */
+  /** Rotation seed (usually the dispatch sequence number) so ties take turns instead of
+   * always picking the same agent. */
   rotationSeed?: number
 }
 
@@ -39,10 +43,10 @@ export type DispatchResult =
   | { ok: false; reason: 'no_worker_online' | 'all_full'; capacity: number; inUse: number }
 
 /**
- * 耗时升序比较；未知（undefined）恒排在有实测数据之后，**两者都未知时返回 0**。
- * 注意别"简化"成 `(a ?? Infinity) - (b ?? Infinity)`：Infinity - Infinity = NaN，
- * 而 NaN !== 0，会让后面所有平手判据（同钥匙分散、轮询种子）被整个吞掉 —— 症状是
- * "轮询永远选同一台"，且排序结果变成 undefined 行为（曾实测踩中，见 dispatch.test.ts）。
+ * Compare latencies ascending; unknown (undefined) always ranks after a measured value, and
+ * **two unknowns compare equal (0)**. Do not "simplify" this to
+ * `(a ?? Infinity) - (b ?? Infinity)`: Infinity - Infinity is NaN, NaN !== 0, and an early
+ * return would swallow every tie-break below (same-key spread, rotation seed) -- the symptom is
  */
 const compareLatency = (a: number | undefined, b: number | undefined): number => {
   const left = a ?? Number.MAX_SAFE_INTEGER
@@ -50,7 +54,8 @@ const compareLatency = (a: number | undefined, b: number | undefined): number =>
   return left === right ? 0 : left - right
 }
 
-/** 候选 = 在线且未满；返回候选与被容量/在线状态排除的 agent（后者用于界面解释"为什么没人接"）。 */
+/** Candidates = online and below capacity; also reports who was excluded by capacity or
+ * liveness, which is what the UI needs to explain "why is nobody taking it". */
 export const dispatchCandidates = (
   req: DispatchRequest,
 ): { candidates: WorkerFacts[]; offline: string[]; full: string[] } => {
@@ -87,8 +92,9 @@ export const pickWorker = (req: DispatchRequest): DispatchResult => {
 
   const keySessions = req.keySessionsByAgent ?? {}
   const offset = (req.rotationSeed ?? 0) % candidates.length
-  // 稳定排序：平手时按「种子每加一，胜者顺延一位」轮转 —— 同种子同输入结果唯一，
-  // 且种子递增时依次轮到 a、b、c……，而不是看似随机的跳跃（运维看日志时好核对）。
+  // Stable sort: on a tie, "each seed step shifts the winner by one" -- same seed and input give
+  // one answer, and increasing the seed walks a, b, c in order rather than jumping around
+  // (which makes checking logs by hand possible).
   const ordered = candidates
     .map((worker, index) => ({ worker, rotated: (index - offset + candidates.length) % candidates.length }))
     .sort((a, b) => {

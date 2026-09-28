@@ -1,32 +1,34 @@
 /**
- * agent 放置（口径：内部设计库 `manager/topics/CONCEPTS-ALIGNED.md` §4.5；策略细节
- * 见 `topics/service-model.md` §5）。
+ * Agent placement (contract: internal design library `manager/topics/CONCEPTS-ALIGNED.md` §4.5;
+ * strategy details in `topics/service-model.md` §5).
  *
- * 输入 = 一张"负载快照"（每台机器的在线状态、已跑 agent 数、会话数、资源水位、是否混放
- * 内对的或别的服务的 agent），输出 = 新 agent 该落在哪几台机器上，以及**其余机器为什么
- * 没被选**。
+ * Input: one load snapshot (per machine: online state, agents already running, sessions, resource
+ * headroom, and whether it hosts an internal agent or another service's agents). Output: which
+ * machines a new agent should land on, and **why every other machine was rejected**.
  *
- * 三条纪律：
- * 1. **硬约束不做加权妥协**：隔离红线（同机混放对内 agent / 别的服务的 agent）与水位不足是
- *    一票否决，不因为"别的机器更忙"就放行——这类错误事后极难追。
- * 2. **纯函数**：输入不变则输出不变（平手按机器 id 排序），便于测试、界面预览与事后复算。
- * 3. **决策要能解释**：被排除的机器各带一个原因码，直接进审计与界面。
+ * Three rules:
+ * 1. **Hard constraints are never traded away**: the isolation red lines (an internal agent, or
+ *    another service's agents, on the same machine) and low headroom veto outright -- "the other
+ *    machine is busier" does not make them acceptable, because such mistakes are almost impossible
+ *    to trace afterwards.
+ * 2. **Pure**: same input, same output (ties break by machine id), so it can be unit-tested,
+ *    previewed in the UI, and recomputed after the fact.
  */
 export interface MachineFacts {
   id: string
   online: boolean
-  /** 该机器上已在跑的 agent 数（含本服务与其它服务）。 */
+  /** Agents already running on this machine (this service and any other). */
   agentCount: number
-  /** 该机器上 agent 所属的服务 id 列表。 */
+  /** Service ids owning the agents on this machine. */
   services: string[]
-  /** 该机器上是否有对内 agent（隔离红线：同一机器的文件视野可达彼此的 workspace）。 */
+  /** Whether this machine hosts an internal agent (red line: one OS user, one filesystem view). */
   hasPrivateAgents: boolean
-  /** 当前会话总数（用于轻微惩罚"已经在忙"的机器）。 */
+  /** Live conversations; used to mildly penalise a machine that is already busy. */
   sessions: number
   cpuFreePercent?: number
   memFreeBytes?: number
   diskFreeBytes?: number
-  /** 只读手册/工作区本就落在这台机器：同分时优先它，省网络与 IO。 */
+  /** Knowledge or workspace already lives here: preferred on ties, saves network and IO. */
   knowledgeAffinity?: boolean
 }
 
@@ -36,7 +38,7 @@ export interface Thresholds {
   minFreeDiskBytes: number
 }
 
-/** 用户 2026-09-27 确认的默认值。 */
+/** Defaults confirmed by the user on 2026-09-27. */
 export const DEFAULT_THRESHOLDS: Thresholds = {
   minFreeCpuPercent: 20,
   minFreeMemBytes: 1_500_000_000,
@@ -57,7 +59,7 @@ export type RejectReason =
 
 export interface PlacementRequest {
   serviceId: string
-  /** 要放几个 agent（= 服务的 `count` 声明）。 */
+  /** How many agents to place (the service's `count`). */
   count: number
   machines: MachineFacts[]
   strategy?: 'spread' | 'pack' | 'pin'
@@ -68,9 +70,9 @@ export interface PlacementRequest {
 
 export interface PlacementPlan {
   placements: Array<{ machineId: string; score: number; metricsKnown: boolean }>
-  /** 放不下的 agent 数：调用方据此排队/告警，而不是静默少配。 */
+  /** Agents that did not fit: callers queue or alert instead of silently under-provisioning. */
   shortfall: number
-  /** 每台被排除的机器一个原因（取第一个不满足的约束）。 */
+  /** One reason per rejected machine (the first constraint it failed). */
   rejections: Array<{ machineId: string; reason: RejectReason }>
 }
 
@@ -91,7 +93,7 @@ const resolveOptions = (req: PlacementRequest): ResolvedOptions => ({
 const metricsKnown = (facts: MachineFacts): boolean =>
   facts.cpuFreePercent !== undefined && facts.memFreeBytes !== undefined && facts.diskFreeBytes !== undefined
 
-/** 硬约束：返回第一个不满足的原因；全部满足返回 null。 */
+/** Hard constraints: the first failing reason, or null when everything passes. */
 export const blockingReason = (
   facts: MachineFacts,
   serviceId: string,
@@ -110,10 +112,11 @@ export const blockingReason = (
 }
 
 /**
- * 打分（越高越好，整数便于测试与展示）。
+ * Score (higher is better; integers keep tests and display simple).
  *
- * 指标缺失的机器**允许但排最后**（-1000）：单机自用场景没有 agent_metric 上报，
- * 一刀切拒绝会把最常见的部署挡在门外；但也不能让"没数据"的机器显得比"数据健康"的更好。
+ * A machine with no metrics is **allowed but ranked last** (-1000): single-machine setups report
+ * no agent_metric at all, and rejecting it outright would lock out the most common deployment --
+ * but "no data" must never look better than "healthy data" either.
  */
 export const scoreMachine = (facts: MachineFacts, serviceId: string, opts: ResolvedOptions, agentsOnMachine: number): number => {
   if (!metricsKnown(facts)) return -1000
@@ -121,8 +124,8 @@ export const scoreMachine = (facts: MachineFacts, serviceId: string, opts: Resol
   score += Math.min(4, (facts.memFreeBytes ?? 0) / opts.thresholds.minFreeMemBytes) * 10
   score += Math.min(4, (facts.diskFreeBytes ?? 0) / opts.thresholds.minFreeDiskBytes) * 5
   score -= facts.sessions
-  // spread 的核心：本机已有本服务的 agent 就大幅扣分（默认铺开，单机故障只影响一部分会话）；
-  // pack 反过来：先塞满一台再上下一台。
+  // The heart of spread: an agent of this service already here costs a lot (spread by default, so
+  // one machine failing takes down only part of the conversations); pack is the opposite.
   if (opts.strategy !== 'pack') {
     score -= facts.services.filter((id) => id === serviceId).length * 400
     score -= agentsOnMachine * 400
@@ -131,7 +134,7 @@ export const scoreMachine = (facts: MachineFacts, serviceId: string, opts: Resol
   return Math.round(score)
 }
 
-/** 逐个 agent 落位：每放一个就更新本机计数，于是 spread 会把下一个放到别处。 */
+/** Place agents one by one, updating the per-machine count -- that is what makes spread spread. */
 export const planPlacement = (req: PlacementRequest): PlacementPlan => {
   const opts = resolveOptions(req)
   const agentsOnMachine = new Map<string, number>(req.machines.map((m) => [m.id, m.agentCount]))
@@ -145,7 +148,8 @@ export const planPlacement = (req: PlacementRequest): PlacementPlan => {
       const used = agentsOnMachine.get(facts.id) ?? facts.agentCount
       const blocked = blockingReason(facts, req.serviceId, opts, used)
       if (blocked !== null) {
-        // 只在第一轮记录拒绝原因：后续轮次的拒绝多为"刚被填满"，重复记录会淹没真正的原因。
+        // Record rejections only in the first round: later rounds mostly fail with "just filled",
+        // and repeating those would drown out the real reason.
         if (!reported) rejections.push({ machineId: facts.id, reason: blocked })
         continue
       }
@@ -153,7 +157,7 @@ export const planPlacement = (req: PlacementRequest): PlacementPlan => {
     }
     reported = true
     if (candidates.length === 0) break
-    // 平手按 id 升序：纯函数必须给出确定结果，否则测试与事后复算都无从谈起。
+    // Ties break by ascending id: a pure function must be deterministic, or tests and
     candidates.sort((a, b) => (b.score === a.score ? a.machineId.localeCompare(b.machineId) : b.score - a.score))
     const chosen = candidates[0]
     if (chosen === undefined) break

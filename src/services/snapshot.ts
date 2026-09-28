@@ -1,29 +1,33 @@
 /**
- * 负载快照（口径：内部设计库 `manager/topics/CONCEPTS-ALIGNED.md` §4.5；负载项细节
- * 见 `topics/service-model.md` §4）。
+ * Load snapshot (contract: internal design library `manager/topics/CONCEPTS-ALIGNED.md` §4.5;
+ * the load items themselves are described in `topics/service-model.md` §4).
  *
- * 把**已经存在**的四路数据拼成放置器能吃的 `MachineFacts[]`，不新增任何采集：
- * - 机器与在线状态：由配置端点推导（本机 / agent 机器）+ `agent_machine.last_seen_at`
- * - 资源水位：`agent_metric` 最新一行；本机没有这行 → 指标缺失（放置器允许但排在最后）
- * - 会话数：`chat`（未归档）按 agent 归属到机器
- * - 隔离标记：该机器上是否有对内 agent、是否有别的服务的 agent（都从配置推导）
+ * Assembles four data sources that **already exist** into the `MachineFacts[]` the placer
+ * consumes; nothing new is collected:
+ * - machines and liveness: derived from configured endpoints (local / agent machines) plus
+ *   `agent_machine.last_seen_at`
+ * - resource headroom: the newest `agent_metric` row; absent on a local-only machine, which
+ *   means missing metrics (the placer allows that, ranked last)
+ * - sessions: live `chat` rows attributed to their agent's machine
+ * - isolation flags: whether the machine hosts an internal agent, or another service's agents
+ *   (both derived from the config)
  *
- * 机器 id 约定：`spawn.host`（agent 机器）或 `'local'`（本机进程/容器）。
- * 这个 id 同时用于放置决策与审计里的机器标识。
+ * Machine id convention: `spawn.host` (agent machine) or `'local'` (this host). The same id is
+ * used for placement decisions and as the machine label in the audit log.
  */
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { machineIdOf, type AppConfig, type ResolvedService } from '../config.js'
 import { schema, type Db } from '../db/index.js'
 import type { MachineFacts } from './placement.js'
 
-/** agent 机器多久没心跳算离线（与 routes/agents.ts 的 AGENT_OFFLINE_MS 同口径）。 */
+/** How long without a heartbeat an agent machine counts as offline (same window as routes/agents.ts). */
 const OFFLINE_MS = 90_000
 export const LOCAL_MACHINE = 'local'
 
 export const machineIdOfEndpoint = (config: AppConfig, endpointId: string): string =>
   machineIdOf(config.endpoints, endpointId)
 
-/** 服役中的服务（快照与放置器共用；缺省 = 没有对外服务）。 */
+/** Services in service (shared by the snapshot and the placer; empty = no outward service). */
 export const activeServices = (config: AppConfig): ResolvedService[] => config.services ?? []
 
 interface MachineAggregate {
@@ -58,7 +62,7 @@ const groupByMachine = (config: AppConfig): Map<string, MachineAggregate> => {
   return machines
 }
 
-/** 最新一行指标：CPU 忙占比 ×10 → 空闲百分比反算；内存与磁盘取空闲量。 */
+/** Newest metrics row: cpu busy permille -> free percent; memory and disk report free bytes. */
 const latestMetrics = (
   db: Db,
   machineId: string,
@@ -78,7 +82,7 @@ const latestMetrics = (
   return facts
 }
 
-/** 未归档会话按 agent 归属到机器（会话 = 一次长驻对话，机器负载的主要来源）。 */
+/** Live chats attributed to their agent's machine (a chat is a long-lived conversation: the main load). */
 const sessionsByMachine = (db: Db, machines: MachineAggregate[]): Map<string, number> => {
   const counts = new Map<string, number>()
   const allAgents = machines.flatMap((m) => m.agents)
@@ -97,7 +101,7 @@ const sessionsByMachine = (db: Db, machines: MachineAggregate[]): Map<string, nu
 }
 
 const isOnline = (db: Db, machineId: string, now: number): boolean => {
-  if (machineId === LOCAL_MACHINE) return true // 本机：manager 在跑就是在线
+  if (machineId === LOCAL_MACHINE) return true // this host: manager running means online
   const row = db.select().from(schema.agentMachine).where(eq(schema.agentMachine.id, machineId)).all()[0]
   if (row === undefined || row.revokedAt !== null || row.lastSeenAt === null) return false
   return now - row.lastSeenAt <= OFFLINE_MS
@@ -109,7 +113,7 @@ export interface SnapshotOptions {
   now?: number
 }
 
-/** 全部机器的负载快照（按机器 id 排序，便于展示与复算）。 */
+/** Load snapshot for every machine, sorted by machine id for stable display and recomputation. */
 export const loadMachineFacts = (options: SnapshotOptions): MachineFacts[] => {
   const now = options.now ?? Date.now()
   const machines = [...groupByMachine(options.config).values()]
