@@ -1,7 +1,7 @@
-// 任务页（UI 收尾 A）：全局任务流从 /nodes 迁出，独立成页并升级——
-// 工作区/状态筛选 + startedAt 游标分页。15 秒轮询只刷新第一页；用户翻页
-// 后停自动刷新（不打断滚动位置），手动「刷新」或改筛选回到第一页。
-// 行拼装与查询串在 run-row.js（纯函数层）。
+// Task page (UI wrap-up A): the global task stream moved out of /nodes into its own page and grew up --
+// workspace/status filters plus startedAt cursor paging. The 15s poll refreshes only the first page; once
+// the user pages, auto-refresh stops (so the scroll position is not disturbed), and the manual "refresh"
+// button or a filter change returns to page one. Row assembly and query strings live in run-row.js.
 import { $, esc, setHtml, apiJson, poll, t, loadI18n } from './ui.js'
 
 await loadI18n()
@@ -15,11 +15,13 @@ const fAgent = () => $('f-run-agent').value
 const fState = () => $('f-run-state').value
 
 /**
- * 正文折叠的收尾（UI 精简）：行先带 `clamped` 渲染（2 行，不闪全文），
- * 这里在布局后量真实高度——没溢出就把类撤掉、展开按钮继续隐藏。
+ * Finishing the body collapse (UI slimming): rows render with `clamped` first (2 lines, no full-text flash),
+ * and after layout the real height is measured here -- no overflow means the class comes off and the expand
+ * button stays hidden.
  *
- * 为什么用 scrollHeight 而不是 `-webkit-line-clamp` 自己判断：clamp 只截显示，
- * 不报告「有没有被截」。整段高度 > 可视高度才算溢出，量一次就知道。
+ * Why measure scrollHeight instead of asking `-webkit-line-clamp`: clamping only truncates what is displayed,
+ * it does not report whether anything was truncated. Overflow means the full height exceeds the visible
+ * height, and one measurement answers that.
  */
 const finalizeRunRows = () => {
   for (const body of document.querySelectorAll('#runs-list [data-run-body].clamped')) {
@@ -35,7 +37,7 @@ const finalizeRunRows = () => {
   }
 }
 
-// 展开/收起：纯前端，正文已在 DOM 里（不需要再请求后端）。
+// Expand/collapse: purely frontend, the body is already in the DOM (no need to ask the backend again).
 $('runs-list').addEventListener('click', (event) => {
   const toggle = event.target.closest('[data-run-toggle]')
   if (toggle === null) return
@@ -59,8 +61,8 @@ const loadPage = async (append) => {
     } else {
       setHtml('runs-list', runs.length === 0 ? `<p class="muted small">${esc(t('runs.empty'))}</p>` : runs.map(runRow).join(''))
     }
-    // 行里出现的未知 agentId（已从 config 移除的历史任务）补进下拉，
-    // 保证仍可筛选；下拉只增不删，改筛选不丢已收集的选项。
+    // Unknown agentIds appearing in rows (historical tasks whose agent left the config) are added to the
+    // dropdown so they remain filterable; the dropdown only ever grows, so changing filters loses no option.
     for (const run of runs) {
       if (!agentSeen.has(run.agentId)) agentSeen.set(run.agentId, run.agentName ?? run.agentId)
     }
@@ -69,10 +71,10 @@ const loadPage = async (append) => {
     $('runs-more').hidden = nextCursor === null
     pagesLoaded = append ? pagesLoaded + 1 : 1
     $('runs-updated').textContent = t('runs.refreshAt', { time: new Date().toLocaleTimeString(undefined, { hour12: false }) })
-    // 布局完成后再决定每行要不要给「展开」——首帧量到的还是未折叠高度。
+    // Decide per row whether to offer "expand" only after layout -- the first frame still measures the unclamped height.
     requestAnimationFrame(finalizeRunRows)
   } catch {
-    // 网络失败时保留上一帧，不刷成错误页。
+    // On a network failure keep the previous frame instead of painting an error page.
   } finally {
     loading = false
   }
@@ -83,8 +85,8 @@ const firstPage = () => {
   void loadPage(false)
 }
 
-// 工作区下拉：config agents 真相（/api/status）；任务流里出现的未知
-// agentId（已从 config 移除的历史任务）也补进下拉，保证仍可筛选。
+// Workspace dropdown: config agents are the source of truth (/api/status); unknown agentIds appearing in the
+// task stream (historical tasks whose agent left the config) are added as well so they remain filterable.
 const agentSeen = new Map() // id -> name
 const fillAgentSelect = () => {
   const sel = $('f-run-agent')
