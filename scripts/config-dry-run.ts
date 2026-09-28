@@ -1,11 +1,12 @@
 /**
- * `npm run config:dry` —— 改生产配置前的干跑校验。
+ * `npm run config:dry` -- dry-run check before editing the production config.
  *
- * 为什么需要它：`loadConfig` 会做迁移（可能写备份文件），直接在生产目录里跑一次
- * "试试看"本身就是一次写操作。这里是把它放进临时目录、用副本加载，所以**只读生产文件**：
- * 报错就改，绿了再重启（2026-09-27 首次对外服务上线即按这个顺序走）。
+ * Why it exists: `loadConfig` migrates (and may write a backup file), so running it in place
+ * to "see whether it parses" is already a write. This copies the config and `.env` into a temp
+ * directory and loads that copy, so the production files are only ever read: red means fix it,
+ * green means the restart will come up (the order used when the first outward service went live).
  *
- * 输出 = 解析后的端点/agent/服务清单 + 启动告警（当前配置的全部告警，含死路告警）。
+ * Output: the resolved endpoints/agents/services plus every startup warning.
  */
 import { copyFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
