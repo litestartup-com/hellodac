@@ -1,27 +1,27 @@
 {
-  "label": "健康",
+  "label": "Health",
   "order": 3,
   "blocks": [
     {
       "type": "kpi",
-      "title": "身体状况",
+      "title": "Body metrics",
       "items": [
-        { "label": "体重", "value": "—", "sub": "尚未记录", "tone": "muted" },
-        { "label": "本周锻炼", "value": "—", "sub": "尚未记录", "tone": "muted" }
+        { "label": "Weight", "value": "—", "sub": "Not recorded yet", "tone": "muted" },
+        { "label": "Exercise this week", "value": "—", "sub": "Not recorded yet", "tone": "muted" }
       ]
     },
     {
       "type": "checklist",
-      "title": "今日习惯",
+      "title": "Today's habits",
       "items": [
-        { "text": "23:00 前睡觉", "done": false },
-        { "text": "锻炼 30 分钟", "done": false },
-        { "text": "冥想 10 分钟", "done": false }
+        { "text": "Asleep before 23:00", "done": false },
+        { "text": "Exercise for 30 minutes", "done": false },
+        { "text": "Meditate for 10 minutes", "done": false }
       ]
     },
     {
       "type": "bars",
-      "title": "近 7 日体重",
+      "title": "Weight, last 7 days",
       "items": []
     }
   ]

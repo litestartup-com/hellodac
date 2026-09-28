@@ -1,25 +1,25 @@
 {
-  "label": "总览",
+  "label": "Overview",
   "order": 1,
   "blocks": [
     {
       "type": "kpi",
-      "title": "核心指标",
+      "title": "Core metrics",
       "items": [
-        { "label": "活跃用户", "value": "—", "sub": "尚未记录", "tone": "muted" },
-        { "label": "次周留存", "value": "—", "sub": "尚未记录", "tone": "muted" },
-        { "label": "付费转化", "value": "—", "sub": "尚未记录", "tone": "muted" }
+        { "label": "Active users", "value": "—", "sub": "Not recorded yet", "tone": "muted" },
+        { "label": "Week-2 retention", "value": "—", "sub": "Not recorded yet", "tone": "muted" },
+        { "label": "Paid conversion", "value": "—", "sub": "Not recorded yet", "tone": "muted" }
       ]
     },
     {
       "type": "list",
-      "title": "本周重点",
-      "items": [{ "text": "初始化生成的示例，第一次更新后会被替换", "tone": "muted" }]
+      "title": "This week's focus",
+      "items": [{ "text": "Sample generated at setup, replaced after the first update", "tone": "muted" }]
     },
     {
       "type": "note",
-      "title": "怎么用",
-      "text": "对这个 agent 说一句话，例如「这周留存涨到 32%」或「用户反馈导出很慢」。它会写进对应文档，并更新大盘。",
+      "title": "How to use it",
+      "text": "Say one sentence to this agent, for example \"retention rose to 32% this week\" or \"users say the export is slow\". It writes that into the matching document and updates the dashboard.",
       "tone": "info"
     }
   ]

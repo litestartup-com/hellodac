@@ -1,21 +1,21 @@
 {
-  "label": "回款",
+  "label": "Receivables",
   "order": 2,
   "blocks": [
     {
       "type": "progress",
-      "title": "回款完成度",
-      "items": [{ "label": "示例：本季度", "value": 0, "max": 100, "note": "尚未记录", "tone": "muted" }]
+      "title": "Collection progress",
+      "items": [{ "label": "Example: this quarter", "value": 0, "max": 100, "note": "Not recorded yet", "tone": "muted" }]
     },
     {
       "type": "table",
-      "title": "回款计划",
-      "columns": ["客户", "合同", "应收", "到期日", "状态"],
+      "title": "Collection plan",
+      "columns": ["Client", "Contract", "Receivable", "Due date", "Status"],
       "rows": []
     },
     {
       "type": "bars",
-      "title": "近 6 个月收入",
+      "title": "Revenue, last 6 months",
       "items": []
     }
   ]

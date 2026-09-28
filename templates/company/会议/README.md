@@ -1,5 +1,5 @@
-# 会议纪要
+# Meeting notes
 
-一次会议一个文件，命名 `YYYY-MM-DD-主题.md`。
+One file per meeting, named `YYYY-MM-DD-topic.md`.
 
-记录决议和负责人，不要只记讨论过程。
+Record the decisions and who owns them, not just the discussion.

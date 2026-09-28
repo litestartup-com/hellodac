@@ -1,23 +1,23 @@
 {
-  "label": "记账",
+  "label": "Expenses",
   "order": 2,
   "blocks": [
     {
       "type": "progress",
-      "title": "本月预算",
+      "title": "This month's budget",
       "items": [
-        { "label": "示例：餐饮", "value": 0, "max": 1000, "note": "尚未记录", "tone": "muted" }
+        { "label": "Example: dining", "value": 0, "max": 1000, "note": "Not recorded yet", "tone": "muted" }
       ]
     },
     {
       "type": "pie",
-      "title": "支出构成",
-      "items": [{ "label": "尚无数据", "value": 1 }]
+      "title": "Spending breakdown",
+      "items": [{ "label": "No data yet", "value": 1 }]
     },
     {
       "type": "table",
-      "title": "近期明细",
-      "columns": ["日期", "项目", "金额"],
+      "title": "Recent entries",
+      "columns": ["Date", "Item", "Amount"],
       "rows": []
     }
   ]

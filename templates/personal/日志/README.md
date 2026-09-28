@@ -1,5 +1,5 @@
-# 日志
+# Daily log
 
-一天一个文件，命名 `YYYY-MM-DD.md`。
+One file per day, named `YYYY-MM-DD.md`.
 
-助理会把你口述的内容按当天日期追加进来。原话尽量保留，方便日后回溯「当时到底是怎么说的」。
+The assistant appends what you dictate under that day's date. It keeps your own words as far as possible, so you can later trace back what was actually said at the time.

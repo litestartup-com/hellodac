@@ -1,22 +1,22 @@
 {
-  "label": "路线",
+  "label": "Roadmap",
   "order": 2,
   "blocks": [
     {
       "type": "table",
-      "title": "需求池",
-      "columns": ["需求", "优先级", "状态", "备注"],
+      "title": "Request pool",
+      "columns": ["Request", "Priority", "Status", "Notes"],
       "rows": []
     },
     {
       "type": "table",
-      "title": "发版记录",
-      "columns": ["版本", "日期", "内容"],
+      "title": "Release history",
+      "columns": ["Version", "Date", "Content"],
       "rows": []
     },
     {
       "type": "groups",
-      "title": "反馈归类",
+      "title": "Feedback by category",
       "groups": []
     }
   ]

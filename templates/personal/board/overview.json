@@ -1,38 +1,38 @@
 {
-  "label": "总览",
+  "label": "Overview",
   "order": 1,
   "blocks": [
     {
       "type": "kpi",
-      "title": "关键指标",
+      "title": "Key metrics",
       "items": [
-        { "label": "年度目标完成度", "value": "—", "sub": "尚未记录", "tone": "muted" },
-        { "label": "本月目标完成度", "value": "—", "sub": "尚未记录", "tone": "muted" },
-        { "label": "本周", "value": "—", "sub": "尚未记录", "tone": "muted" }
+        { "label": "Annual goal progress", "value": "—", "sub": "Not recorded yet", "tone": "muted" },
+        { "label": "Monthly goal progress", "value": "—", "sub": "Not recorded yet", "tone": "muted" },
+        { "label": "This week", "value": "—", "sub": "Not recorded yet", "tone": "muted" }
       ]
     },
     {
       "type": "metrics",
-      "title": "目标进度",
+      "title": "Goal progress",
       "items": [
-        { "name": "示例：体重", "value": "—", "target": "填入目标", "tone": "muted" }
+        { "name": "Example: weight", "value": "—", "target": "Set a target", "tone": "muted" }
       ]
     },
     {
       "type": "list",
-      "title": "本周计划",
+      "title": "This week's plan",
       "items": [
         {
-          "text": "告诉助理你这周想做什么，它会把这块填上",
-          "note": "这是初始化生成的示例内容，第一次更新后会被替换",
+          "text": "Tell the assistant what you want to do this week and it fills this in",
+          "note": "Sample content generated at setup, replaced after the first update",
           "tone": "muted"
         }
       ]
     },
     {
       "type": "note",
-      "title": "怎么用",
-      "text": "在 manager 上对这个 agent 说一句话，例如「今天午饭 38 块」或「这周要发布产品」。它会写进对应文档，并更新这个大盘。",
+      "title": "How to use it",
+      "text": "Say one sentence to this agent in manager, for example \"lunch today was 38\" or \"shipping the product this week\". It writes that into the matching document and updates this dashboard.",
       "tone": "info"
     }
   ]
