@@ -10,10 +10,11 @@ import { buildPublicApiApp } from './listener.js'
 import type { PublicApiPorts } from './routes.js'
 
 /**
- * `POST /v1/conversations` 与 `/messages` 的对外契约（口径 CONCEPTS-ALIGNED.md §4.2/§6）。
+ * Outward contract of `POST /v1/conversations` and `/messages` (contract CONCEPTS-ALIGNED.md §4.2/§6).
  *
- * 这里钉的是"客户能感知到的后果"：拿到会话号、同一用户回到同一会话、别人的会话看不见、
- * 满载会被明确拒绝、回合失败不会被伪装成成功。
+ * What is pinned here is what a customer can observe: they get a conversation id, the same user returns to the same
+ * conversation, a conversation belonging to somebody else is invisible, full capacity is refused explicitly, and a
+ * failed turn is never disguised as a successful one.
  */
 const agent = (id: string): Record<string, unknown> => ({
   id,
@@ -37,7 +38,7 @@ const config = (over: Partial<AppConfig> = {}): AppConfig =>
     services: [
       {
         id: 'chat',
-        label: '客服',
+        label: 'Support',
         workers: ['a', 'b'],
         surfaces: ['conversations'],
         knowledge: [],
@@ -49,7 +50,7 @@ const config = (over: Partial<AppConfig> = {}): AppConfig =>
         machines: ['m1'],
         maxAgentsPerMachine: 4,
       },
-      { id: 'report', label: '报表', workers: ['a'], surfaces: ['tasks'], knowledge: [], count: 1 },
+      { id: 'report', label: 'Reporting', workers: ['a'], surfaces: ['tasks'], knowledge: [], count: 1 },
     ],
     runner: { timeoutMs: 1000, silenceMs: 0, maxConsecutiveFailures: 3, dailyBudgetMicroUsd: null },
     databasePath: ':memory:',
@@ -68,7 +69,7 @@ interface Harness {
   turnCalls: Array<{ chatId: string; agentId: string; text: string; apiKeyId: string }>
 }
 
-/** chat.agent_id 是指向 agent(id) 的外键：夹具必须先把 agent 行落库，会话才建得起来。 */
+/** chat.agent_id is a foreign key to agent(id): the fixture must insert agent rows first or no conversation can be created. */
 const seedAgents = (db: Db, ids: string[] = ['a', 'b']): void => {
   for (const id of ids) {
     db.insert(schema.agent)
@@ -88,7 +89,7 @@ const setup = (over: {
   const { db } = openDb(':memory:')
   seedAgents(db)
   const { token, key } = mintApiKey(db, {
-    name: '甲方产品',
+    name: 'Customer product',
     scopes: over.scopes ?? ['services:read', 'usage:read', 'conversations:write'],
     scopeServices: over.scopeServices ?? ['chat'],
     createdBy: 'admin',
@@ -101,7 +102,7 @@ const setup = (over: {
     isOnline: (agentId) => online.has(agentId),
     runTurn: async (input) => {
       turnCalls.push(input)
-      // 记一行 run，模拟真实回合会留下的账（配额/并发都读它）。
+      // record a run row, the way a real turn leaves an entry (quota and concurrency both read it).
       db.insert(schema.run)
         .values({
           id: `run-${turnCalls.length}`,
@@ -112,7 +113,7 @@ const setup = (over: {
           idempotencyKey: null,
           apiKeyId: input.apiKeyId,
           state: 'done',
-          resultSummary: `答复：${input.text}`,
+          resultSummary: `reply: ${input.text}`,
           startedAt: 1,
           endedAt: 2,
           error: null,
@@ -123,7 +124,7 @@ const setup = (over: {
         runId: `run-${turnCalls.length}`,
         state: 'done' as const,
         sessionId: 'sess-1',
-        summary: `答复：${input.text}`,
+        summary: `reply: ${input.text}`,
         usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 15 },
         costMicroUsd: 1234,
         peakCostMicroUsd: 0,
@@ -148,20 +149,20 @@ const auth = (token: string): Record<string, string> => ({ authorization: `Beare
 const post = async (app: FastifyInstance, url: string, token: string, body: Record<string, unknown>) =>
   await app.inject({ method: 'POST', url, headers: auth(token), payload: body })
 
-test('建会话: 挑最闲的 agent、写清归属、返回会话号（带 text 时同一请求里跑完第一轮）', async () => {
+test('creating a conversation: picks the least busy agent, records ownership, returns the id (with text it runs the first turn too)', async () => {
   const h = setup()
-  // 让 a 忙起来（两个活会话），于是应当挑 b。
+  // make agent a busy (two live conversations), so agent b should be chosen.
   createChat(h.db, 'a')
   createChat(h.db, 'a')
 
-  const res = await post(h.app, '/v1/conversations', h.token, { externalUserId: 'user-1', text: '退款为什么失败' })
+  const res = await post(h.app, '/v1/conversations', h.token, { externalUserId: 'user-1', text: 'why did the refund fail' })
   assert.equal(res.statusCode, 201, res.body)
   const body = res.json() as { conversationId: string; agentId: string; created: boolean; reply: string }
-  assert.equal(body.agentId, 'b', '挑最闲的')
+  assert.equal(body.agentId, 'b', 'picks the least busy one')
   assert.equal(body.created, true)
-  assert.equal(body.reply, '答复：退款为什么失败')
+  assert.equal(body.reply, 'reply: why did the refund fail')
   assert.equal(h.turnCalls.length, 1)
-  assert.equal(h.turnCalls[0]?.apiKeyId, h.key.id, '账记在这把钥匙上')
+  assert.equal(h.turnCalls[0]?.apiKeyId, h.key.id, 'the run is booked to this key')
 
   const row = getChat(h.db, body.conversationId)
   assert.equal(row?.apiKeyId, h.key.id)
@@ -169,25 +170,25 @@ test('建会话: 挑最闲的 agent、写清归属、返回会话号（带 text 
   assert.equal(row?.serviceId, 'chat')
 })
 
-test('粘性: 同一个外部用户再次调用回到同一会话，且不再跑分发', async () => {
+test('stickiness: the same external user returns to the same conversation, without dispatching again', async () => {
   const h = setup()
   const first = await post(h.app, '/v1/conversations', h.token, { externalUserId: 'user-7' })
   assert.equal(first.statusCode, 201)
   const firstId = (first.json() as { conversationId: string }).conversationId
 
-  const again = await post(h.app, '/v1/conversations', h.token, { externalUserId: 'user-7', text: '还在吗' })
+  const again = await post(h.app, '/v1/conversations', h.token, { externalUserId: 'user-7', text: 'still there?' })
   assert.equal(again.statusCode, 200)
   const body = again.json() as { conversationId: string; created: boolean; agentId: string; reply: string }
-  assert.equal(body.conversationId, firstId, '同一用户 = 同一会话')
+  assert.equal(body.conversationId, firstId, 'same user = same conversation')
   assert.equal(body.created, false)
-  assert.equal(body.reply, '答复：还在吗')
-  assert.equal(h.db.select().from(schema.chat).all().length, 1, '没有多建会话')
+  assert.equal(body.reply, 'reply: still there?')
+  assert.equal(h.db.select().from(schema.chat).all().length, 1, 'no extra conversation was created')
 })
 
-test('粘性隔离: 不同钥匙的同一个外部用户 id 互不影响', async () => {
+test('stickiness isolation: the same external user id under different keys does not interfere', async () => {
   const h = setup()
   const other = mintApiKey(h.db, {
-    name: '另一个甲方',
+    name: 'Another customer',
     scopes: ['conversations:write'],
     scopeServices: ['chat'],
     createdBy: 'admin',
@@ -197,29 +198,29 @@ test('粘性隔离: 不同钥匙的同一个外部用户 id 互不影响', async
   assert.notEqual(
     (mine.json() as { conversationId: string }).conversationId,
     (theirs.json() as { conversationId: string }).conversationId,
-    '锚点是"钥匙 + 用户"，不是用户 id 本身',
+    'the anchor is "key + user", not the user id alone',
   )
 })
 
-test('续聊: 会话号 + 这把钥匙能发消息；别人的会话号 = 404（不区分不存在）', async () => {
+test('continuing: the conversation id plus this key can send a message; a conversation id belonging to somebody else answers 404 (indistinguishable from missing)', async () => {
   const h = setup()
   const created = await post(h.app, '/v1/conversations', h.token, {})
   const id = (created.json() as { conversationId: string }).conversationId
 
-  const mine = await post(h.app, `/v1/conversations/${id}/messages`, h.token, { text: '第二句' })
+  const mine = await post(h.app, `/v1/conversations/${id}/messages`, h.token, { text: 'second message' })
   assert.equal(mine.statusCode, 200, mine.body)
-  assert.equal((mine.json() as { reply: string }).reply, '答复：第二句')
+  assert.equal((mine.json() as { reply: string }).reply, 'reply: second message')
 
-  const other = mintApiKey(h.db, { name: '别人', scopes: ['conversations:write'], scopeServices: ['chat'], createdBy: 'admin' })
-  const stolen = await post(h.app, `/v1/conversations/${id}/messages`, other.token, { text: '偷看' })
+  const other = mintApiKey(h.db, { name: 'Someone else', scopes: ['conversations:write'], scopeServices: ['chat'], createdBy: 'admin' })
+  const stolen = await post(h.app, `/v1/conversations/${id}/messages`, other.token, { text: 'peek' })
   assert.equal(stolen.statusCode, 404)
   assert.equal((stolen.json() as { error: string }).error, 'unknown_conversation')
 
   const ghost = await post(h.app, '/v1/conversations/does-not-exist/messages', h.token, { text: 'x' })
-  assert.equal(ghost.statusCode, 404, '不存在与不是你的，对外同一种回答')
+  assert.equal(ghost.statusCode, 404, 'missing and not-yours get the same answer outward')
 })
 
-test('满载: 所有 agent 到并发上限 → 429 + Retry-After（不静默排队）', async () => {
+test('full: every agent at its cap -> 429 + Retry-After (no silent queuing)', async () => {
   const h = setup()
   for (let i = 0; i < 4; i += 1) createChat(h.db, 'a')
   for (let i = 0; i < 4; i += 1) createChat(h.db, 'b')
@@ -227,16 +228,16 @@ test('满载: 所有 agent 到并发上限 → 429 + Retry-After（不静默排�
   const res = await post(h.app, '/v1/conversations', h.token, {})
   assert.equal(res.statusCode, 429)
   assert.equal((res.json() as { error: string }).error, 'all_agents_busy')
-  assert.ok(res.headers['retry-after'] !== undefined, '要告诉调用方什么时候可以再试')
+  assert.ok(res.headers['retry-after'] !== undefined, 'the caller must be told when to try again')
 })
 
-test('全员离线 → 503；配额用完 → 429；服务不在钥匙范围 → 403', async () => {
+test('everyone offline -> 503; quota spent -> 429; service outside the key scope -> 403', async () => {
   const offline = setup({ online: [] })
   const down = await post(offline.app, '/v1/conversations', offline.token, {})
   assert.equal(down.statusCode, 503)
   assert.equal((down.json() as { error: string }).error, 'no_agent_online')
 
-  // 配额按"这把钥匙今天已经跑了几轮"算，所以先把今天的账记上一笔（quota 最小是 1）。
+  // quota counts how many runs this key already did today, so book one run first (the minimum quota is 1).
   const spent = setup({ quotaRunsDay: 1 })
   spent.db
     .insert(schema.run)
@@ -266,38 +267,38 @@ test('全员离线 → 503；配额用完 → 429；服务不在钥匙范围 →
   assert.equal((denied.json() as { error: string }).error, 'service_not_allowed')
 })
 
-test('wiring 没注入会话面时回 503，而不是假装建好了会话', async () => {
+test('without the conversation surface wired in, the answer is 503 rather than pretending a conversation exists', async () => {
   const h = setup({ withPorts: false })
   const res = await post(h.app, '/v1/conversations', h.token, {})
   assert.equal(res.statusCode, 503)
   assert.equal((res.json() as { error: string }).error, 'conversations_unavailable')
-  assert.equal(h.db.select().from(schema.chat).all().length, 0, '没有留下半个会话')
+  assert.equal(h.db.select().from(schema.chat).all().length, 0, 'not even half a conversation is left behind')
 })
 
-test('回合失败: 502 带原因，而不是 200 空答复（客户要能区分"没送到"与"跑了但失败"）', async () => {
+test('a failed turn: 502 with the reason, not 200 with an empty reply (a caller must tell "never arrived" from "ran and failed")', async () => {
   const { db } = openDb(':memory:')
   seedAgents(db)
-  const { token } = mintApiKey(db, { name: '甲方', scopes: ['conversations:write'], scopeServices: ['chat'], createdBy: 'admin' })
+  const { token } = mintApiKey(db, { name: 'Customer Co', scopes: ['conversations:write'], scopeServices: ['chat'], createdBy: 'admin' })
   const app = buildPublicApiApp({
     config: config(),
     db,
     ports: { isOnline: () => true, runTurn: async () => { throw new Error('agent blew up') } },
   })
-  const res = await post(app, '/v1/conversations', token, { text: '你好' })
+  const res = await post(app, '/v1/conversations', token, { text: 'hello' })
   assert.equal(res.statusCode, 502)
   assert.equal((res.json() as { detail: string }).detail, 'agent blew up')
 })
 
-test('数据库侧保证: 同一把钥匙 + 同一外部用户的活会话只能有一条（并发重复创建撞唯一索引）', () => {
+test('database guarantee: one key plus one external user can only have a single live conversation (concurrent creates hit the unique index)', () => {
   const h = setup()
   createChat(h.db, 'a', Date.now(), { apiKeyId: h.key.id, externalUserId: 'u-live', serviceId: 'chat' })
   assert.throws(
     () => createChat(h.db, 'b', Date.now(), { apiKeyId: h.key.id, externalUserId: 'u-live', serviceId: 'chat' }),
     /UNIQUE/i,
-    '靠索引挡住竞态，而不是"先查再插"',
+    'the index stops the race, not a check-then-insert',
   )
 
-  // 归档之后可以再开一个新的（部分索引只约束活会话）。
+  // after archiving, a fresh one can be opened (the partial index only covers live conversations).
   const first = findLiveConversation(h.db, h.key.id, 'u-live')
   assert.ok(first !== null)
   h.db.update(schema.chat).set({ removedAt: Date.now() }).where(eq(schema.chat.id, first.id)).run()
@@ -306,7 +307,7 @@ test('数据库侧保证: 同一把钥匙 + 同一外部用户的活会话只能
   )
 })
 
-test('粘性查询只认活会话（归档后同用户再来 = 新会话）', async () => {
+test('the stickiness lookup only sees live conversations (after archiving, the same user starts a new conversation)', async () => {
   const h = setup()
   const created = await post(h.app, '/v1/conversations', h.token, { externalUserId: 'u9' })
   const id = (created.json() as { conversationId: string }).conversationId

@@ -4,9 +4,9 @@ import { agentNames, parseAgentEndpoint, planAgents, type AgentsPlanRequest, typ
 import type { MachineFacts } from './placement.js'
 
 /**
- * 服务 agent 对账（`services[].count` ↔ 实际在跑的 agent）。
- * 用例都对着真实后果写：少配静默 → 客户被 429；乱搬机器 → 会话失忆；
- * 缩容硬断 → 正在跑的一轮被砍。
+ * Service agent reconciliation (`services[].count` vs the agents actually running).
+ * Cases are written against real outcomes: silent under-provisioning reaches customers as 429; moving agents loses
+ * conversations; cutting an agent mid-turn kills work in flight.
  */
 const machine = (id: string, over: Partial<MachineFacts> = {}): MachineFacts => ({
   id,
@@ -33,19 +33,19 @@ const plan = (over: Partial<AgentsPlanRequest> = {}) =>
 
 const ordinals = (agents: Array<{ ordinal: number }>): number[] => agents.map((a) => a.ordinal)
 
-test('命名可预测：服务 id + 序号派生端点与 agent', () => {
+test('predictable names: service id plus ordinal derive the endpoint and the agent', () => {
   assert.deepEqual(agentNames('support', 2), { endpointId: 'svc-support-2', agentId: 'support-2' })
 })
 
-test('反解派生端点：认得出服务与序号，且不误认普通节点', () => {
+test('parsing a derived endpoint: recognises service and ordinal, and does not mistake a normal node', () => {
   assert.deepEqual(parseAgentEndpoint('svc-support-2'), { serviceId: 'support', ordinal: 2 })
-  assert.deepEqual(parseAgentEndpoint('svc-a-b-2'), { serviceId: 'a-b', ordinal: 2 }, '服务 id 允许短横线，序号取最后一段')
+  assert.deepEqual(parseAgentEndpoint('svc-a-b-2'), { serviceId: 'a-b', ordinal: 2 }, 'service ids may contain dashes, so the ordinal is the last segment')
   assert.equal(parseAgentEndpoint('node-3081'), null)
   assert.equal(parseAgentEndpoint('svc-support'), null)
-  assert.equal(parseAgentEndpoint('svc-support-0'), null, '序号从 1 起')
+  assert.equal(parseAgentEndpoint('svc-support-0'), null, 'ordinals start at 1')
 })
 
-test('建服务：按声明数量起 agent，spread 铺到多台机器', () => {
+test('creating a service: start as many agents as declared, spread over several machines', () => {
   const result = plan({ existing: [], facts: [machine('a'), machine('b')], count: 3 })
   assert.equal(result.create.length, 3)
   assert.equal(result.shortfall, 0)
@@ -53,12 +53,12 @@ test('建服务：按声明数量起 agent，spread 铺到多台机器', () => {
   assert.deepEqual(
     result.create.map((a) => a.machineId).sort(),
     ['a', 'a', 'b'],
-    '两台机器 2+1，而不是全塞一台',
+    'two machines take 2+1 rather than piling everything on one',
   )
   assert.deepEqual(result.agents.map((a) => a.agentId), ['support-1', 'support-2', 'support-3'])
 })
 
-test('稳定：数量已达声明就不动（不重排、不搬机器）', () => {
+test('stability: once the count matches the declaration nothing moves (no renumbering, no relocating)', () => {
   const existing: ExistingAgent[] = [
     { ordinal: 2, machineId: 'b' },
     { ordinal: 1, machineId: 'a' },
@@ -66,11 +66,11 @@ test('稳定：数量已达声明就不动（不重排、不搬机器）', () =>
   const result = plan({ count: 2, existing, facts: [machine('a', { agentCount: 1 }), machine('b', { agentCount: 1 })] })
   assert.deepEqual(result.create, [])
   assert.deepEqual(result.remove, [])
-  assert.deepEqual(ordinals(result.agents), [1, 2], '序号是身份，只排序不重编')
+  assert.deepEqual(ordinals(result.agents), [1, 2], 'the ordinal is an identity: sort it, never rewrite it')
   assert.deepEqual(result.agents.map((a) => a.machineId), ['a', 'b'])
 })
 
-test('扩容：只补差额，沿用最小空闲序号', () => {
+test('scale-up: fill only the gap, reusing the smallest free ordinals', () => {
   const result = plan({
     count: 3,
     existing: [{ ordinal: 1, machineId: 'a' }],
@@ -81,7 +81,7 @@ test('扩容：只补差额，沿用最小空闲序号', () => {
   assert.equal(result.agents.length, 3)
 })
 
-test('缩容：先撤编号最大的，且不重复起', () => {
+test('scale-down: retire the highest ordinals first, and never start a duplicate', () => {
   const result = plan({
     count: 2,
     existing: [
@@ -96,7 +96,7 @@ test('缩容：先撤编号最大的，且不重复起', () => {
   assert.deepEqual(ordinals(result.agents), [1, 2])
 })
 
-test('缩容：已有 agent 序号不从 1 起时，也不会凭空多起一个', () => {
+test('scale-down: when existing ordinals do not start at 1, no extra agent is invented', () => {
   const result = plan({
     count: 1,
     existing: [
@@ -105,12 +105,12 @@ test('缩容：已有 agent 序号不从 1 起时，也不会凭空多起一个'
     ],
     facts: [machine('a', { agentCount: 1 }), machine('b', { agentCount: 1 })],
   })
-  assert.equal(result.agents.length, 1, '期望 1 个 agent 就只能有 1 个')
+  assert.equal(result.agents.length, 1, 'wanting one agent means exactly one exists')
   assert.deepEqual(result.create, [])
-  assert.deepEqual(result.keep.map((a) => a.ordinal), [2], '留低序号，且不重编为 1')
+  assert.deepEqual(result.keep.map((a) => a.ordinal), [2], 'keep the lower ordinal and do not rewrite it as 1')
 })
 
-test('缩容排水：还有会话在跑的 agent 不硬断，转 draining 等它空', () => {
+test('scale-down drains: an agent still serving is not cut off; it switches to draining', () => {
   const result = plan({
     count: 1,
     existing: [
@@ -121,11 +121,11 @@ test('缩容排水：还有会话在跑的 agent 不硬断，转 draining 等它
     facts: [machine('a', { agentCount: 2 }), machine('b', { agentCount: 1 })],
     sessionsByAgent: { 'support-2': 2, 'support-3': 0 },
   })
-  assert.deepEqual(ordinals(result.draining), [2], '2 号还在接待，等它空')
-  assert.deepEqual(ordinals(result.remove), [3], '3 号空闲，立刻撤')
+  assert.deepEqual(ordinals(result.draining), [2], 'agent 2 is still serving: wait for it to go quiet')
+  assert.deepEqual(ordinals(result.remove), [3], 'agent 3 is idle: retire it now')
 })
 
-test('放不下就如实少配：shortfall + 拒绝原因，不静默少起', () => {
+test('what does not fit is reported: shortfall plus rejection reasons, never a silent cut', () => {
   const result = plan({
     count: 3,
     facts: [machine('a', { agentCount: 4 }), machine('b', { online: false })],
@@ -138,23 +138,23 @@ test('放不下就如实少配：shortfall + 拒绝原因，不静默少起', ()
   ])
 })
 
-test('隔离红线：有对内 agent 的机器一台都不放（配额照给合格机器）', () => {
+test('isolation red line: not one agent goes on a machine that hosts an internal agent (quota still goes to fit machines)', () => {
   const result = plan({ count: 2, facts: [machine('a', { hasPrivateAgents: true }), machine('b')] })
-  assert.deepEqual(result.create.map((a) => a.machineId), ['b', 'b'], '红线是"不混放"，不是"拒绝扩容"')
+  assert.deepEqual(result.create.map((a) => a.machineId), ['b', 'b'], 'the red line forbids mixing, not scaling')
   assert.ok(!result.create.some((a) => a.machineId === 'a'))
   assert.ok(result.rejections.some((r) => r.machineId === 'a' && r.reason === 'private_agents_present'))
 })
 
-test('跨服务隔离：已经放了别的服务的机器不放', () => {
+test('cross-service isolation: a machine already hosting another service is skipped', () => {
   const result = plan({
     count: 2,
     facts: [machine('a', { agentCount: 1, services: ['report'] }), machine('b')],
   })
-  assert.ok(!result.create.some((a) => a.machineId === 'a'), '客服 agent 不该和报表 agent 同机')
+  assert.ok(!result.create.some((a) => a.machineId === 'a'), 'a support agent must not share a machine with a reporting agent')
   assert.ok(result.rejections.some((r) => r.machineId === 'a' && r.reason === 'other_service_present'))
 })
 
-test('pin：只允许在点名的机器上落位', () => {
+test('pin: only the named machines may be used', () => {
   const result = plan({
     count: 2,
     placement: 'pin',
@@ -165,31 +165,31 @@ test('pin：只允许在点名的机器上落位', () => {
   assert.ok(result.rejections.some((r) => r.machineId === 'a' && r.reason === 'not_in_pin_list'))
 })
 
-test('每机上限：满了就少配，且给出 machine_full', () => {
+test('per-machine cap: when it is reached the shortfall is reported with machine_full', () => {
   const result = plan({ count: 2, maxAgentsPerMachine: 1, facts: [machine('a')] })
   assert.deepEqual(result.create.map((a) => a.machineId), ['a'])
-  assert.equal(result.shortfall, 1, '上限是硬约束，不因为"还有内存"就多塞')
+  assert.equal(result.shortfall, 1, 'the cap is a hard constraint: spare memory does not buy another agent')
 })
 
-test('每机上限：本机已有本服务 agent 时也算占用', () => {
+test('per-machine cap: an agent of this service already on the machine counts against it', () => {
   const result = plan({
     count: 2,
     maxAgentsPerMachine: 2,
     existing: [{ ordinal: 1, machineId: 'a' }],
     facts: [machine('a', { agentCount: 1, services: ['support'] })],
   })
-  assert.deepEqual(result.create.map((a) => a.machineId), ['a'], '1 个在跑 + 上限 2 → 还能再加 1 个')
+  assert.deepEqual(result.create.map((a) => a.machineId), ['a'], 'one running plus a cap of two leaves room for one more')
   assert.equal(result.shortfall, 0)
 })
 
-test('水位不足：机器在线但不达标也不放', () => {
+test('low headroom: an online machine below the floors is still rejected', () => {
   const result = plan({ count: 1, facts: [machine('a', { cpuFreePercent: 5 })] })
   assert.equal(result.create.length, 0)
   assert.equal(result.shortfall, 1)
   assert.deepEqual(result.rejections, [{ machineId: 'a', reason: 'insufficient_cpu' }])
 })
 
-test('落单告警：已有 agent 的机器掉线/被挡 → 只报告，不自动搬（迁移属于自愈）', () => {
+test('stranded: an existing agent whose machine went away or is blocked is only reported, never moved (migration is self-healing)', () => {
   const result = plan({
     count: 3,
     existing: [
@@ -199,14 +199,14 @@ test('落单告警：已有 agent 的机器掉线/被挡 → 只报告，不自�
     ],
     facts: [machine('a'), machine('c', { hasPrivateAgents: true })],
   })
-  assert.deepEqual(result.keep.map((a) => a.agentId), ['support-1', 'support-2', 'support-3'], '一个都不撤')
+  assert.deepEqual(result.keep.map((a) => a.agentId), ['support-1', 'support-2', 'support-3'], 'not one is retired')
   assert.deepEqual(result.stranded, [
     { agent: { ...agentNames('support', 2), serviceId: 'support', ordinal: 2, machineId: 'gone' }, reason: 'machine_unknown' },
     { agent: { ...agentNames('support', 3), serviceId: 'support', ordinal: 3, machineId: 'c' }, reason: 'private_agents_present' },
   ])
 })
 
-test('落位保持：已有 agent 所在机器离线时，新 agent 不再往那台放', () => {
+test('placement stability: when the machine of an existing agent is offline, new agents stop going there', () => {
   const result = plan({
     count: 3,
     existing: [{ ordinal: 1, machineId: 'a' }],

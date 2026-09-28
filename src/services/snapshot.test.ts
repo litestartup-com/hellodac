@@ -5,8 +5,8 @@ import type { AppConfig, ResolvedAgent, ResolvedEndpoint } from '../config.js'
 import { LOCAL_MACHINE, loadMachineFacts } from './snapshot.js'
 
 /**
- * 负载快照：把已有四路数据拼成放置器的输入（service-model.md §4）。
- * 重点验证"缺数据"与"混放"这两类边界——它们决定放置器是允许还是拒绝一台机器。
+ * Load snapshot: assemble the four existing data sources into the input of the placer (service-model.md §4).
+ * Focus: the two boundary cases, missing data and mixed hosting, because they decide whether a machine is allowed.
  */
 const agent = (id: string, endpoint: string, isPublic: boolean): ResolvedAgent => ({
   id,
@@ -59,19 +59,19 @@ const addMetric = (db: Db, agentId: string, at: number, cpuPercent: number, memT
     .run()
 }
 
-test('单机自装: 本机永远是 online、指标缺失、对内 agent 标记为真', () => {
+test('single-machine install: this host is always online, metrics are missing, the internal-agent flag is set', () => {
   const { db } = openDb(':memory:')
   const cfg = config([agent('personal', 'A', false)], { A: endpoint(null) })
   const facts = loadMachineFacts({ db, config: cfg })
   assert.equal(facts.length, 1)
   assert.equal(facts[0]?.id, LOCAL_MACHINE)
-  assert.equal(facts[0]?.online, true, 'manager 在跑即本机在线')
-  assert.equal(facts[0]?.cpuFreePercent, undefined, '本机没有 agent_metric → 指标缺失，不是 0')
+  assert.equal(facts[0]?.online, true, 'manager running means this host is online')
+  assert.equal(facts[0]?.cpuFreePercent, undefined, 'no agent_metric on this host -> missing, not zero')
   assert.equal(facts[0]?.hasPrivateAgents, true)
   assert.equal(facts[0]?.agentCount, 1)
 })
 
-test('agent 机器: 在线看心跳新鲜度；指标取最新一行并反算空闲', () => {
+test('agent machine: online depends on heartbeat freshness; metrics come from the newest row, inverted to free', () => {
   const { db } = openDb(':memory:')
   const now = 1_800_000_000_000
   const cfg = config(
@@ -80,21 +80,21 @@ test('agent 机器: 在线看心跳新鲜度；指标取最新一行并反算空
   )
   addMachine(db, 'agent-alive', now - 5_000)
   addMachine(db, 'agent-stale', now - 10 * 60_000)
-  addMetric(db, 'agent-alive', now - 1_000, 125, 16_000_000_000, 4_000_000_000, 50_000_000_000) // 12.5% 忙
-  addMetric(db, 'agent-alive', now - 90_000, 900, 16_000_000_000, 15_000_000_000, 1_000_000_000) // 更旧的一行，必须被忽略
+  addMetric(db, 'agent-alive', now - 1_000, 125, 16_000_000_000, 4_000_000_000, 50_000_000_000) // 12.5% busy
+  addMetric(db, 'agent-alive', now - 90_000, 900, 16_000_000_000, 15_000_000_000, 1_000_000_000) // older row, must be ignored
 
   const facts = loadMachineFacts({ db, config: cfg, now })
   const alive = facts.find((f) => f.id === 'agent-alive')
   const stale = facts.find((f) => f.id === 'agent-stale')
   assert.equal(alive?.online, true)
-  assert.equal(alive?.cpuFreePercent, 87.5, '忙 12.5% → 空闲 87.5%')
-  assert.equal(alive?.memFreeBytes, 12_000_000_000, '空闲内存 = 总量 − 已用')
+  assert.equal(alive?.cpuFreePercent, 87.5, '12.5% busy -> 87.5% free')
+  assert.equal(alive?.memFreeBytes, 12_000_000_000, 'free memory = total - used')
   assert.equal(alive?.diskFreeBytes, 50_000_000_000)
-  assert.equal(stale?.online, false, '心跳过期 → 离线（放置器会一票否决）')
-  assert.equal(stale?.cpuFreePercent, undefined, '没有指标行 → 缺失')
+  assert.equal(stale?.online, false, 'stale heartbeat -> offline (the placer vetoes it)')
+  assert.equal(stale?.cpuFreePercent, undefined, 'no metrics row -> missing')
 })
 
-test('会话数按 agent 归属到机器，已归档的不算', () => {
+test('sessions are attributed to the machine of their agent; archived ones do not count', () => {
   const { db } = openDb(':memory:')
   const cfg = config(
     [agent('w1', 'R', true), agent('w2', 'R', true)],
@@ -108,14 +108,14 @@ test('会话数按 agent 归属到机器，已归档的不算', () => {
   }
   chat('c1', 'w1', null)
   chat('c2', 'w2', null)
-  chat('c3', 'w1', 1) // 已归档
+  chat('c3', 'w1', 1) // archived
 
   const facts = loadMachineFacts({ db, config: cfg })
-  assert.equal(facts[0]?.sessions, 2, '只数未归档会话')
+  assert.equal(facts[0]?.sessions, 2, 'only live sessions are counted')
   assert.equal(facts[0]?.agentCount, 2)
 })
 
-test('混放检测: 同机上有别的服务的 agent → services 列出两个（放置器据此一票否决）', () => {
+test('mixed hosting: another service on the same machine shows up in services (the placer vetoes it)', () => {
   const { db } = openDb(':memory:')
   const service = (id: string, workers: string[]) => ({
     id,
@@ -130,6 +130,6 @@ test('混放检测: 同机上有别的服务的 agent → services 列出两个�
     [service('support', ['w1']), service('report', ['w2'])],
   )
   const facts = loadMachineFacts({ db, config: cfg })
-  assert.deepEqual(facts[0]?.services.sort(), ['report', 'support'], '两个服务挤一台机器 → 快照如实反映')
-  assert.equal(facts[0]?.hasPrivateAgents, false, '全是对外 agent')
+  assert.deepEqual(facts[0]?.services.sort(), ['report', 'support'], 'two services on one machine are reported as they are')
+  assert.equal(facts[0]?.hasPrivateAgents, false, 'all agents here are outward-facing')
 })
