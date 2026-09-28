@@ -1,10 +1,10 @@
-// 债务 F6:apiJson 统一 Result 层(ui.js)行为测试——node:test,CI test:web 常驻。
+// Debt F6: behaviour tests for the unified Result layer (apiJson in ui.js) -- node:test, part of CI test:web.
 import { test, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { apiJson, showError, bannerHtml } from './ui.js'
 
 /**
- * 伪造全局 fetch。body 为字符串时响应不是 JSON(JSON.parse 抛错)。
+ * Fake the global fetch. When the body is a string the response is not JSON (JSON.parse throws).
  * @param {number} status
  * @param {unknown} body
  */
@@ -27,7 +27,7 @@ const reset = () => {
   globalThis.document = { cookie: '', getElementById: () => null }
 }
 
-test('债务 F6: ok 响应 → { ok:true, status, data }', async () => {
+test('debt F6: an ok response -> { ok:true, status, data }', async () => {
   try {
     reset()
     fakeFetch(200, { months: ['2026-09'] })
@@ -38,18 +38,18 @@ test('债务 F6: ok 响应 → { ok:true, status, data }', async () => {
   }
 })
 
-test('债务 F6: 非 ok 响应 → { ok:false, status, error, detail },JSON 错误体可读', async () => {
+test('debt F6: a non-ok response -> { ok:false, status, error, detail }, with a readable JSON error body', async () => {
   try {
     reset()
-    fakeFetch(400, { error: 'bad_month', detail: '月份格式不对' })
+    fakeFetch(400, { error: 'bad_month', detail: 'bad month format' })
     const r = await apiJson('/api/usage?month=x')
-    assert.deepEqual(r, { ok: false, status: 400, error: 'bad_month', detail: '月份格式不对' })
+    assert.deepEqual(r, { ok: false, status: 400, error: 'bad_month', detail: 'bad month format' })
   } finally {
     mock.timers.reset()
   }
 })
 
-test('债务 F6: 非 JSON 错误体 → detail 回退到 HTTP 状态,不抛', async () => {
+test('debt F6: a non-JSON error body -> detail falls back to the HTTP status, without throwing', async () => {
   try {
     reset()
     fakeFetch(500, '<html>boom</html>')
@@ -60,7 +60,7 @@ test('债务 F6: 非 JSON 错误体 → detail 回退到 HTTP 状态,不抛', as
   }
 })
 
-test('债务 F6: 401 原样进 Result(是否跳登录是页面的事)', async () => {
+test('debt F6: 401 goes into the Result as-is (redirecting to login is the page decision)', async () => {
   try {
     reset()
     fakeFetch(401, { error: 'unauthorized' })
@@ -72,15 +72,15 @@ test('债务 F6: 401 原样进 Result(是否跳登录是页面的事)', async ()
   }
 })
 
-test('债务 F6: showError 输出共享 banner 且转义 detail(不再回退手写样板)', () => {
-  const html = showError({ ok: false, status: 500, error: 'x', detail: '<script>alert(1)</script>' }, '读取失败')
-  assert.ok(html.includes('读取失败'))
-  assert.ok(!html.includes('<script>'), 'detail 必须转义')
+test('debt F6: showError emits the shared banner and escapes detail (no hand-written fallback)', () => {
+  const html = showError({ ok: false, status: 500, error: 'x', detail: '<script>alert(1)</script>' }, 'read failed')
+  assert.ok(html.includes('read failed'))
+  assert.ok(!html.includes('<script>'), 'detail must be escaped')
   assert.ok(html.includes('&lt;script&gt;'))
-  const reference = bannerHtml({ level: 'bad', title: '读取失败', body: 'x' })
-  assert.ok(html.startsWith(reference.slice(0, reference.indexOf('读取失败'))), '与 bannerHtml 同款骨架')
+  const reference = bannerHtml({ level: 'bad', title: 'read failed', body: 'x' })
+  assert.ok(html.startsWith(reference.slice(0, reference.indexOf('read failed'))), 'the same skeleton as bannerHtml')
 })
 
-test('债务 F6: ok Result 的 showError 返回空串(只渲染失败)', () => {
-  assert.equal(showError({ ok: true, status: 200, data: null }, '读取失败'), '')
+test('debt F6: showError on an ok Result returns an empty string (it only renders failures)', () => {
+  assert.equal(showError({ ok: true, status: 200, data: null }, 'read failed'), '')
 })
