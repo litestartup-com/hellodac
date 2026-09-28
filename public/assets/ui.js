@@ -6,8 +6,8 @@
 // also what makes the page scripts modules -- as classic scripts they shared one
 // global scope, so a second `const esc` was a hard SyntaxError.
 //
-// 债务 F7 第一步:本文件开启 @ts-check + JSDoc,由 tsconfig.public.json 在
-// CI typecheck 中检查(不引入 esbuild 构建,尊重 ui-redesign §6 口径)。
+// Debt F7, step one: this file enables @ts-check + JSDoc, checked by tsconfig.public.json during
+// CI typecheck (no esbuild build step; honours ui-redesign §6).
 
 /** @type {Record<string, string>} */
 const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
@@ -28,12 +28,12 @@ export const esc = (value) =>
 export const $ = (id) => document.getElementById(id)
 
 // ---------------------------------------------------------------------------
-// 多语言（DAC v1.0.0）
+// Multi-language (DAC v1.0.0)
 //
-// 静态页面由服务端按语言预渲染；这里的 t() 只服务**动态文案**（表格行、确认框、
-// 提示）。字典不内嵌在页面里（CSP `script-src 'self'` 禁内联脚本），启动时从
-// /api/i18n/<lang> 取一次——语言标签就在 <html lang> 上，服务端已写好。
-// 页面模块用 `await loadI18n()` 保证首屏渲染前字典就位，不要先画键名再补译文。
+// Static pages are pre-rendered server-side per language; t() here only serves **dynamic text** (table
+// rows, confirmations, hints). The dictionary is not inlined into the page (CSP script-src 'self' bans
+// inline scripts), so it is fetched once from /api/i18n/<lang> at startup -- the language tag already
+// sits on <html lang>, written by the server.
 // ---------------------------------------------------------------------------
 
 /** @type {Record<string, string>} */
@@ -47,8 +47,8 @@ let brand = null
 let loading = null
 
 /**
- * 取一次字典与品牌信息（并发调用共享同一个 Promise）。
- * 失败不抛：页面仍能用服务端渲染好的静态文案，动态文案回退键名。
+ * Fetch the dictionary and brand info once (concurrent callers share one Promise).
+ * Failures do not throw: the page keeps the server-rendered static text and dynamic text falls back to the key name.
  * @returns {Promise<void>}
  */
 export const loadI18n = () => {
@@ -64,18 +64,18 @@ export const loadI18n = () => {
       brand = data.brand ?? null
     })
     .catch(() => {
-      // 离线/后端未起：保持空字典，界面用键名或服务端文案，不炸页面。
+      // Offline or backend down: keep an empty dictionary, use key names or server text, and never break the page.
     })
   return loading
 }
 
 /**
- * 品牌信息（/api/i18n 提供；未就绪时给安全缺省，避免调用方到处判空）。
+ * Brand info (served by /api/i18n; safe defaults until it is ready, so callers never null-check).
  *
- * 字段名在这里**归一化**：服务端 `src/brand.ts` 是 `repoUrl`/`homepage`/`fullName`
- * （与 pages.ts 占位符同源），而调用方（shell.js 等）历史上一直用 `repo`/`site`/
- * `full`。2026-09-26 实测：不映射的话 `brand.repo` 永远为空 → 「Star on GitHub」
- * 一项**根本不渲染**，用户看到的是整个条目消失，而不是链接坏了。
+ * Field names are **normalised** here: the server (src/brand.ts) uses `repoUrl`/`homepage`/`fullName`,
+ * the same source as the pages.ts placeholders, while callers (shell.js and friends) have always used
+ * `repo`/`site`/`full`. Measured on 2026-09-26: without this mapping `brand.repo` stayed empty, so the
+ * "Star on GitHub" entry **did not render at all** -- users saw the item vanish, not a broken link.
  */
 export const brandInfo = () => {
   if (brand === null) {
@@ -92,18 +92,18 @@ export const brandInfo = () => {
 }
 
 /**
- * 测试注入品牌信息（与 useDictionary 同构；页面运行时走 loadI18n，不经过这里）。
+ * Tests inject brand info (same shape as useDictionary; the page runtime goes through loadI18n instead).
  * @param {null | { name?: string, full?: string, fullName?: string, tagline?: string, repo?: string, repoUrl?: string, site?: string, homepage?: string, supportEmail?: string }} info
  */
 export const useBrand = (info) => {
   brand = info
 }
 /**
- * 直接注入字典（测试与离线预渲染用）。
+ * Inject the dictionary directly (tests and offline pre-rendering).
  *
- * 为什么需要它：单测跑在 Node 里，没有页面、也不该真去 fetch——但断言必须打到
- * **真实译文**上（否则 `t()` 只返回键名，测试等于没测文案）。页面运行时不用这个
- * 入口，走 loadI18n()。
+ * Why this exists: unit tests run under Node, with no page and no real fetch -- but assertions must hit
+ * **real translations**, otherwise `t()` returns key names and the test checks no text at all. The page
+ * runtime does not use this entry point; it uses loadI18n().
  * @param {string} localeTag
  * @param {Record<string, string>} entries
  */
@@ -113,13 +113,13 @@ export const useDictionary = (localeTag, entries) => {
   loading = Promise.resolve()
 }
 
-/** 当前语言与可选语言（语言切换器用）。 */
+/** Current language and the available ones (used by the language switcher). */
 export const currentLocale = () => locale
 export const availableLocales = () => (locales.length > 0 ? locales : [locale])
 
 /**
- * 客户端翻译：`t('nav.nodes')`，`{name}` 插值。缺键返回键名（界面上直接看得见，
- * 配合 CI 的键一致性断言，缺键进不了发布）。
+ * Client-side translation: `t('nav.nodes')`, with `{name}` interpolation. A missing key returns the key
+ * name, which is visible in the UI; with the CI key-parity assertion, a missing key cannot ship.
  * @param {string} key
  * @param {Record<string, string | number>} [params]
  * @returns {string}
@@ -131,8 +131,8 @@ export const t = (key, params) => {
 }
 
 /**
- * process.platform → 可读平台名（未知平台回退原文）。机器行/本机卡共用，
- * 避免 machines 与 topology 各写一份映射漂移。
+ * process.platform -> readable platform name (unknown platforms pass through). Shared by machine rows
+ * and the local card, so machines.js and topology.js cannot drift into two different mappings.
  * @param {string} os
  * @returns {string}
  */
@@ -156,9 +156,9 @@ export const uniqueFrames = (frames) => {
 
 /** @param {string} name @param {number} [size] @returns {string} */
 export const icon = (name, size = 14) =>
-  // viewBox：sprite 画在 16 单位坐标系里，没有它 16 单位的图标会按 1:1
-  // 塞进 12-15px 的盒子——不缩放、还裁掉右边；xlink:href 是老 Edge 内核
-  // （EdgeHTML）唯一认的写法，没有它 <use> 整个不画，按钮成了隐形按钮。
+  // viewBox: the sprite draws in a 16-unit coordinate system, and without it a 16-unit icon is squeezed
+  // 1:1 into a 12-15px box -- unscaled, with the right side clipped. xlink:href is the only form the old
+  // Edge engine (EdgeHTML) understands: without it <use> draws nothing and the button becomes invisible.
   `<svg width="${size}" height="${size}" viewBox="0 0 16 16" aria-hidden="true"><use href="#i-${name}" xlink:href="#i-${name}" /></svg>`
 
 /**
@@ -198,8 +198,8 @@ export const bannerHtml = (b) => `<div class="banner ${b.level}">
 export const banner = (level, title, body) => bannerHtml({ level, title, body: esc(body) })
 
 // Cost arrives as integer micro-USD so no float is ever stored server-side.
-// 债务 F2:money 全站单一实现——`digits` 供紧凑卡片用 2 位(crons 列表),
-// 账本/回合明细默认 4 位;汇总金额的自适应精度见 moneyAdaptive。
+// Debt F2: money has one implementation site-wide -- `digits` is 2 for compact cards (the cron list)
+// and 4 by default for the ledger and turn details; adaptive precision for totals lives in moneyAdaptive.
 /**
  * @param {number | null | undefined} micro
  * @param {number} [digits]
@@ -208,9 +208,9 @@ export const banner = (level, title, body) => bannerHtml({ level, title, body: e
 export const money = (micro, digits = 4) => (micro === null || micro === undefined ? '—' : `$${(micro / 1e6).toFixed(digits)}`)
 
 /**
- * 汇总金额的自适应精度(债务 F2:收口自 spend.js 的本地变体)。
- * 一个回合花费只有几厘,固定 2 位会把一整天的工作显示成 "$0.00";
- * 固定 4 位又会把月总计显示成 "$12.3400"。
+ * Adaptive precision for totals (debt F2: converged from a local variant in spend.js).
+ * One turn costs a few tenths of a cent, so a fixed 2 decimals shows a whole day of work as "$0.00";
+ * a fixed 4 decimals would turn a monthly total into "$12.3400".
  * @param {number | null | undefined} micro
  * @returns {string}
  */
@@ -227,7 +227,7 @@ export const moneyAdaptive = (micro) => {
  * A relative timestamp, for lists where the question is "which one did I touch
  * last", not "what time was it".
  *
- * Falls back to an absolute date beyond a week: "37 天前" is a number nobody
+ * Falls back to an absolute date beyond a week: "37 days ago" is a number nobody
  * converts back into a day.
  * @param {number | null | undefined} ms
  * @returns {string}
@@ -243,7 +243,7 @@ export const ago = (ms) => {
   if (hours < 24) return t('time.hoursAgo', { count: hours })
   const days = Math.floor(hours / 24)
   if (days < 7) return t('time.daysAgo', { count: days })
-  // 超过一周显示日期：按当前语言格式化，不再写死 zh-CN。
+  // Beyond a week show the date, formatted for the current language instead of a hardcoded zh-CN.
   return new Date(ms).toLocaleDateString(locale, { month: '2-digit', day: '2-digit' })
 }
 
@@ -253,15 +253,16 @@ export const when = (ms) =>
     ? '—'
     : new Date(ms).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 
-// ---- 蜂群2计划 P3：CSRF 双提交 ----
+// ---- Hive plan P3: CSRF double submit ----
 
 /**
- * 登录时服务端种下的 CSRF cookie（非 httpOnly，前端可读）。
+ * The CSRF cookie the server sets at login (not httpOnly, so the frontend can read it).
  *
- * B2 更名期这里曾同时读更名前那个 cookie 名（前端按请求读盘、后端在已构建的 dist 里，
- * 两边会不同步）；生产 cutover（2026-09-24 13:30，manager + 3 节点全部跑新代码）后
- * 旧名回退已删除——现在只有 `dac_csrf` 一个口径。会话缺 cookie 时服务端 403 并补发，
- * 前端重试一次（见下面的 apiFetch）。
+ * During the B2 rename this file also read the pre-rename cookie name (the frontend reads from disk per
+ * request while the backend ran from an already-built dist, so the two could disagree); after the
+ * production cutover (2026-09-24 13:30, manager and all three nodes on the new code) that fallback was
+ * removed -- there is exactly one `dac_csrf` now. A session missing the cookie gets 403 and a fresh
+ * cookie, and the frontend retries once (see apiFetch below).
  * @returns {string}
  */
 export const csrfToken = () => {
@@ -270,9 +271,10 @@ export const csrfToken = () => {
 }
 
 /**
- * 全局 fetch 包装：非 GET 请求自动带上 X-CSRF-Token（与 cookie 一致）。
- * 页面脚本一律走它，服务端对所有非 GET /api/* 校验（登录与主脑内部 API 豁免）。
- * 升级自愈：老会话缺 csrf cookie 时服务端 403 并补发 cookie——带新 cookie 重试一次。
+ * Global fetch wrapper: non-GET requests automatically carry X-CSRF-Token (matching the cookie).
+ * Every page script goes through it; the server validates all non-GET /api/* (login and the internal
+ * brain API are exempt). Upgrade self-healing: a session missing the csrf cookie gets 403 plus a fresh
+ * cookie, so retry once with the new cookie.
  * @param {string} url
  * @param {RequestInit} [options]
  * @returns {Promise<Response>}
@@ -304,21 +306,21 @@ export const apiFetch = async (url, options = {}) => {
       const body = await response.clone().json()
       if (body.error === 'csrf_token_missing_or_mismatch' && csrfToken() !== '') return await once()
     } catch {
-      // 非 JSON 的 403：原样返回
+      // 403 that is not JSON: return it as-is
     }
   }
   return response
 }
 
 /**
- * 债务 F6:统一 Result 层。JSON API 页面一律走它,不再手写
- * "status 判断 + 读 JSON + 拼 banner" 三段样板。
+ * Debt F6: one Result layer. JSON API pages all go through it instead of hand-writing the three-step
+ * "check status + read JSON + build banner" boilerplate.
  *
- * 成功 → `{ ok:true, status, data }`;
- * 失败 → `{ ok:false, status, error, detail }`,detail 已是可展示文案
- * (JSON 错误体优先,非 JSON 或异常回退 `HTTP <status>`)。
+ * Success -> `{ ok:true, status, data }`;
+ * failure -> `{ ok:false, status, error, detail }`, where detail is already displayable text
+ * (the JSON error body wins; non-JSON or a thrown error falls back to `HTTP <status>`).
  *
- * 401 不做跳转——是否跳 /login 是页面的决定(测试页/内嵌页不需要)。
+ * 401 does not redirect -- going to /login is the page's decision (test and embedded pages do not need it).
  *
  * @template T
  * @param {string} url
@@ -340,16 +342,16 @@ export const apiJson = async (url, options = {}) => {
       detail = typeof body.detail === 'string' && body.detail !== '' ? body.detail : detail
     }
   } catch {
-    // 非 JSON 错误体：保留 HTTP 回退文案
+    // non-JSON error body: keep the HTTP fallback text
   }
   return { ok: false, status: response.status, error, detail }
 }
 
 /**
- * 债务 F6:共享失败 banner。`showError(r, title)` 把 Result 渲染成
- * banner 骨架(bannerHtml 同款,detal 自动转义)——页面只需
- * `if (!r.ok) { $('x').innerHTML = showError(r, '…'); return }`,不再手写样板。
- * ok Result 返回空串(调用方可用 `if (r.ok)` 短路,双保险)。
+ * Debt F6: shared failure banner. `showError(r, title)` renders a Result into the banner skeleton (the
+ * same as bannerHtml, with detail escaped automatically) -- a page only needs
+ * `if (!r.ok) { $('x').innerHTML = showError(r, '...'); return }` instead of boilerplate.
+ * An ok Result returns an empty string, so callers can shortcut on `if (r.ok)` as a second guard.
  *
  * @param {{ ok: boolean; status: number; error?: string; detail?: string }} r
  * @param {string} title
@@ -367,16 +369,16 @@ export const showError = (r, title) => {
 }
 
 /**
- * 债务 F3：SSE 自动重连 helper——原先 board.js 与 chat.js 两份逐字相同的
- * retryTimer/retryDelay 机制收敛到此（3s → ×2 → 30s 封顶）。
- * 公开版精简（DAC v1.0.0）：board 页已下线，当前调用方只剩 chat.js。
+ * Debt F3: SSE reconnection helper -- the byte-identical retryTimer/retryDelay machinery that used to
+ * live in both board.js and chat.js converged here (3s -> x2 -> capped at 30s).
+ * Public-release slimming (DAC v1.0.0): the board page is gone, so chat.js is the only caller left.
  *
- * `open()` 由调用方实现：创建 EventSource、挂 message 监听，返回实例。
- * 纪律（两页注释合并）：
- * - EventSource 自己会重试，但服务端直接关流（manager 重启）后不会——
- *   error 时主动退避重连；
- * - error 处理器只关「自己这一条」：旧实例的 handler 会迟到触发，关当前
- *   实例 = 每断一次漏一条连接。
+ * `open()` is implemented by the caller: create the EventSource, attach a message listener, return it.
+ * Discipline (the two page comments merged):
+ * - EventSource retries on its own, but not when the server closes the stream outright (a manager
+ *   restart), so back off and reconnect on error;
+ * - an error handler closes only **its own** connection: a handler from an old instance fires late, and
+ *   closing the current instance would lose one connection per drop.
  * @param {() => EventSource} open
  * @param {{ baseDelay?: number; maxDelay?: number }} [opts]
  * @returns {{ connect: () => void; disconnect: () => void }}
@@ -421,12 +423,13 @@ export const autoReconnect = (open, { baseDelay = 3_000, maxDelay = 30_000 } = {
 }
 
 /**
- * 债务 F4：轮询统一 helper——nodes/skills/shell 各自 setInterval（无失焦
- * 暂停、无错误退避）收敛到此。
+ * Debt F4: one polling helper -- the separate setInterval loops in nodes/skills/shell, which had no
+ * pause while hidden and no backoff on error, converged here.
  *
- * - `document.hidden` 时挂起（后台标签不浪费请求），恢复可见后按原间隔继续；
- * - fn 抛错时按 interval 退避（×2，上限 10×interval），成功即复位；
- * - 返回停止函数（页面卸载/抽屉关闭时用）。
+ * - suspended while `document.hidden` (a background tab should not spend requests), resumed at the same
+ *   interval once visible again;
+ * - when fn throws, back off by the interval (x2, capped at 10x), resetting on success;
+ * - returns a stop function, used on page unload and when a drawer closes.
  * @param {() => unknown} fn
  * @param {number} ms
  * @returns {() => void}
@@ -442,8 +445,8 @@ export const poll = (fn, ms) => {
       timer = setTimeout(tick, ms)
       return
     }
-    // 页面用法是 `poll(() => void load(), ms)`——同步包装;同步抛错也能
-    // 退避。真正返回 Promise 的 fn 走 then 链(浏览器场景,测试用同步 fn)。
+    // Pages call it as `poll(() => void load(), ms)` -- a synchronous wrapper, and a synchronous throw
+    // still backs off. A fn that really returns a Promise goes down the then chain (browser case; tests use sync fns).
     try {
       const result = fn()
       if (result !== null && typeof result === 'object' && 'then' in result) {
