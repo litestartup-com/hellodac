@@ -66,7 +66,7 @@ export const registerApiKeyRoutes = (
 ): void => {
   /** The list plus the surface state plus the assignable services (for the create form) -- none of them carries plaintext. */
   app.get('/api/keys', { preHandler: requireUser }, async (_request, reply) => {
-    const services = (config.services ?? []).map((service) => ({ id: service.id, label: service.label }))
+    const services = (config.services ?? []).map((service) => ({ id: service.id, label: service.label, surfaces: service.surfaces }))
     const listener = getPublicApiState()
     return reply.header('cache-control', 'no-store').send({
       keys: listApiKeys(db).map((key) => keyFace(db, key, services)),

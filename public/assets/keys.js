@@ -203,7 +203,7 @@ const renderList = () => {
 const serviceRow = (service) => `<div class="node-row" data-service-row="${esc(service.id)}">
   <div class="node-main">
     <div class="node-title"><span class="dot ok"></span>${esc(service.label)} <code class="muted">${esc(service.id)}</code></div>
-    <div class="node-sub">${service.surfaces.map((s) => esc(t(`keys.surface.${s}`))).join(', ')}</div>
+    <div class="node-sub">${(service.surfaces ?? []).map((s) => esc(t(`keys.surface.${s}`))).join(', ')}</div>
   </div>
 </div>`
 
