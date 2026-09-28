@@ -1,7 +1,7 @@
-// 债务 F1:chat.js 拆分第五步——state 层(asks:问答/授权卡片的开合状态机)。
+// Debt F1, step five of splitting chat.js: the state layer (asks -- the open/closed state machine of question and approval cards).
 //
-// track 是纯函数(帧 → Map 增删),与 trackAsks 原逻辑逐字一致,独立单测
-// (chat-state.test.mjs);syncAsks 的 DOM 挂载仍在 chat.js(需要 askNode/el)。
+// track is a pure function (frames -> Map add/remove), behaviourally identical to the original trackAsks and
+// unit-tested on its own (chat-state.test.mjs); mounting syncAsks in the DOM still lives in chat.js (needs askNode/el).
 
 /**
  * @returns {{

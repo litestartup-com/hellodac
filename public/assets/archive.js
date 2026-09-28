@@ -1,13 +1,13 @@
 // The archived conversations page.
 //
 // Archiving is a soft delete, and a soft delete nobody can see into is
-// indistinguishable from a real one. This page is what makes 「归档」 an honest
+// indistinguishable from a real one. This page is what makes "archived" an honest
 // word: everything hidden from the sidebar is listed here, with the way back.
 
 import { $, ago, banner, bannerHtml, esc, setHtml, when, apiJson, showError } from './ui.js'
 import { t, loadI18n } from './ui.js'
 
-// 字典先就位再渲染（服务端已渲染静态文案，动态文案靠它）。
+// dictionary first, then render (static text is server-rendered, dynamic text needs the dictionary).
 await loadI18n()
 
 const notice = (level, title, body) => {
@@ -45,7 +45,7 @@ const row = (chat) => {
 
 const load = async () => {
   try {
-    // 债务 F6:统一 Result 层——notice 也走共享 showError(detail 自动转义)。
+    // Debt F6: one Result layer -- notices go through the shared showError too (detail is escaped automatically).
     const r = await apiJson('/api/chats/archived')
     if (!r.ok) {
       $('archive-notice').innerHTML = showError(r, t('archive.readFailed'))

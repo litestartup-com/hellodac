@@ -1,10 +1,10 @@
-// 债务 F1:chat.js 拆分第一步——纯 reducer(转录的唯一画法)。
+// Debt F1, step one of splitting chat.js: the pure reducer (the single way a transcript is drawn).
 //
-// 帧 → block 列表的折叠逻辑,从 chat.js 原样搬出,无 DOM、无页面状态依赖,
-// 可独立单测(chat-reducer.test.mjs)。chat.js 的 live stream 与 load 重建
-// 共用它,保证「流式时一个样、刷新后一个样」。
+// Folding frames into a block list, moved verbatim out of chat.js: no DOM, no page state, so it is
+// unit-testable on its own (chat-reducer.test.mjs). The live stream and the rebuild after load in chat.js
+// share it, which is what keeps "the same while streaming, the same after a refresh".
 //
-// 帧契约见 chat.js 头注释(gateway 帧 + manager 自产 user/turn_done)。
+// Frame contract: see the chat.js header comment (gateway frames plus manager-produced user/turn_done).
 
 import { t, loadI18n } from './ui.js'
 
@@ -33,7 +33,7 @@ export const newAgentBlock = () => ({
    *
    * Worth its own field rather than a tool flag: while this is set the turn is
    * not working at all, and the waiting indicator would otherwise keep claiming
-   * it is "正在用 write_file" -- the exact reading that makes someone hit refresh
+   * it is "running write_file" -- the exact reading that makes someone hit refresh
    * on a turn that was never going to move on its own.
    */
   awaiting: null,

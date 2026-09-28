@@ -1,7 +1,8 @@
-// 蜂群 P5.2：技能清单（v1 只读）。
+// Hive P5.2: skill inventory (read-only in v1).
 //
-// 技能真相源 = 各 agent 工作区的 .skills/<name>/SKILL.md；版本 = 工作区 git
-// HEAD（与运行审计同源）。启停/分发是 P5.5 配置写回的事——本页不放假按钮。
+// Source of truth = the .skills/<name>/SKILL.md of each agent workspace; version = that workspace's git
+// HEAD (same source as the run audit). Enabling/disabling and distributing belong to P5.5 config
+// write-back, so this page does not pretend to offer them.
 import { $, esc, setHtml, apiJson, poll, t, loadI18n } from './ui.js'
 
 await loadI18n()
@@ -50,10 +51,10 @@ const load = async () => {
     setHtml('skills-list', data.agents.map(agentGroup).join(''))
     $('skills-refresh').textContent = t('skills.refreshAt', { time: new Date().toLocaleTimeString(undefined, { hour12: false }) })
   } catch {
-    // 保留上一帧
+    // keep the previous frame
   }
 }
 
 void load()
-// 债务 F4:页面级轮询统一走 ui.js 的 poll(document.hidden 挂起 + 错误退避)
+// Debt F4: page-level polling goes through ui.js poll (suspends while the document is hidden, backs off on error)
 poll(() => void load(), 30_000)

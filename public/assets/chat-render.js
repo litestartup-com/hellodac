@@ -1,8 +1,8 @@
-// 债务 F1:chat.js 拆分第二步——渲染层(帧/block → HTML 字符串)。
+// Debt F1, step two of splitting chat.js: the render layer (frames/blocks -> HTML strings).
 //
-// 全部是纯字符串构造,无 DOM 写入;折叠状态(openTools/openContext)、
-// markdown 缓存(mdCache)、会话状态(getState)由调用方注入,所以可以在
-// node 里单测(chat-render.test.mjs)。转义纪律与 md.js 一致:escape-first。
+// All pure string building, no DOM writes; folding state (openTools/openContext), the markdown cache
+// (mdCache) and the conversation state (getState) are injected by the caller, which is why it can be
+// unit-tested under node (chat-render.test.mjs). Escaping discipline matches md.js: escape-first.
 
 import { md } from './md.js'
 import { classifyTool, toolBody, toolSummary, toolTitle } from './tool-cards.js'
@@ -75,8 +75,8 @@ export const makeRenderer = ({ getState, openTools, openContext, mdCache: inject
   }
 
   /**
-   * 公开版精简（DAC v1.0.0）：大盘页已下线，所以 `board/*.json` 不再变成链接
-   * ——指向不存在视图的链接比没有链接更糟（UI.md §5），一律纯文本渲染。
+   * Public-release slimming (DAC v1.0.0): the dashboard page is gone, so board/*.json no longer becomes
+   * a link -- a link to a view that does not exist is worse than no link (UI.md §5); render plain text.
    */
   const writeRow = (tool) => {
     const inner = esc(tool.path)
@@ -90,8 +90,8 @@ export const makeRenderer = ({ getState, openTools, openContext, mdCache: inject
     if (tools.length === 0) return ''
     const failed = tools.filter((t) => t.failed).length
     const summary = failed > 0 ? t('chat.tools.summaryFailed', { count: tools.length, failed }) : t('chat.tools.summary', { count: tools.length })
-    // DSH web 的工具卡推导（tool-cards.js）：名字→variant 分类、标题、
-    // 摘要、正文（code/JSON）、结果文本——与 DSH 的 GenericToolCard 同源规则。
+    // Tool-card derivation from DSH web (tool-cards.js): name -> variant classification, title, summary,
+    // body (code/JSON), result text -- the same rules as DSH's GenericToolCard.
     const rows = tools
       .map((tool) => {
         const variant = classifyTool(tool.name)
@@ -105,7 +105,7 @@ export const makeRenderer = ({ getState, openTools, openContext, mdCache: inject
         const bodyHtml = body === null
           ? ''
           : `<details class="tool-body"><summary>${variant === 'code' ? esc(t('chat.tools.code')) : esc(t('chat.tools.args'))}</summary><pre>${esc(body)}</pre></details>`
-        // 失败的调用默认展开结果（这是出错时唯一要紧的东西）；成功的默认折叠。
+        // A failed call expands its result by default (the only thing that matters when it breaks); success stays folded.
         const resultHtml = tool.done && tool.resultText !== ''
           ? `<details class="tool-result"${tool.failed ? ' open' : ''}><summary>${esc(t('chat.tools.result'))}</summary><pre>${esc(tool.resultText)}</pre></details>`
           : ''
@@ -151,8 +151,8 @@ export const makeRenderer = ({ getState, openTools, openContext, mdCache: inject
     if (usage !== null && usage !== undefined && usage.outputTokens > 0 && durationSec > 0) {
       parts.push(`${Math.round(usage.outputTokens / durationSec)} tok/s`)
     }
-    // 变量名不要用 t：它会遮蔽 ui.js 的翻译函数（2026-09-24 线上事故，
-    // 症状是"footer 里 t is not a function"，即回答底部的三个按钮）。
+    // Do not name a variable t: it shadows the ui.js translation function (production incident 2026-09-24,
+    // symptom "t is not a function in footer", i.e. the three buttons under an answer).
     const tokenText = tokens(usage)
     if (tokenText !== null) parts.push(esc(tokenText))
     if (run !== undefined && run !== null && run.usage !== null && run.usage.costMicroUsd !== null) {
@@ -227,8 +227,8 @@ export const makeRenderer = ({ getState, openTools, openContext, mdCache: inject
   </details>`
   }
 
-  // DSH 的 QuestionComposer 选项语义：单选 radiogroup/radio、多选 group/checkbox，
-  // 状态经 aria-checked 暴露（选中态仍由 .on 类驱动视觉）。
+  // DSH's QuestionComposer option semantics: single choice uses radiogroup/radio, multiple choice group/checkbox,
+  // with state exposed through aria-checked (visual selection is still driven by the .on class).
   const optionRow = (qid, option, multi) => `<button type="button" class="ask-opt" data-q="${esc(qid)}" data-label="${esc(option.label)}" role="${multi ? 'checkbox' : 'radio'}" aria-checked="false">
     <span class="ask-opt-label">${esc(option.label)}</span>
     ${option.description === undefined ? '' : `<span class="ask-opt-desc">${esc(option.description)}</span>`}

@@ -4,8 +4,8 @@ import { $, esc, moneyAdaptive, apiJson, showError, bannerHtml, t, loadI18n } fr
 
 await loadI18n()
 
-// 金额显示走 ui.js 的 moneyAdaptive(债务 F2 收口):$0 / <1 分 4 位 / <$1 3 位 / 其余 2 位。
-// 一个回合花费只有几厘,固定 2 位会把一整天的工作显示成 "$0.00"。
+// Money is rendered through ui.js moneyAdaptive (debt F2): $0 / under a cent 4 decimals / under $1 3 / else 2.
+// One turn costs a few tenths of a cent, so a fixed 2 decimals would show a whole day of work as "$0.00".
 
 const tokens = (n) => {
   if (n < 1000) return String(n)
@@ -33,7 +33,7 @@ const utcToLocal = (hhmm) => {
  * `≥` and the models responsible are named, which is also the fix.
  */
 const renderTotals = (data) => {
-  // 变量名不要用 t：它会遮蔽 ui.js 的翻译函数 t()（2026-09-24 线上事故）。
+  // Do not name a variable t: it shadows the ui.js translation function t() (production incident 2026-09-24).
   const totals = data.totals
   const gap = totals.unpriced > 0
 
@@ -138,7 +138,7 @@ const renderModels = (rows) => {
  */
 const renderBanners = (data) => {
   const missing = data.byModel.filter((m) => !m.rateConfigured && m.runs > 0)
-  // 债务 F6:手写 banner 收敛进 ui.js 的 bannerHtml(body 预转义,可带 <code> 等内联标签)
+  // Debt F6: hand-written banners converged into ui.js bannerHtml (body pre-escaped, inline tags like <code> allowed)
   $('banners').innerHTML =
     missing.length === 0
       ? ''
@@ -157,7 +157,7 @@ const renderBanners = (data) => {
 
 const load = async (month) => {
   const query = month === null || month === undefined ? '' : `?month=${encodeURIComponent(month)}`
-  // 债务 F6:统一 Result 层——错误 banner 走共享 showError,不再手写样板。
+  // Debt F6: one Result layer -- error banners go through the shared showError instead of hand-written boilerplate.
   const r = await apiJson(`/api/usage${query}`, { credentials: 'same-origin' })
   if (r.status === 401) {
     window.location.href = '/login'

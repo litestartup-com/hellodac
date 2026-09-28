@@ -1,18 +1,18 @@
 // @ts-check
-// 能力三 v1（2026-09-20）：节点原生 GUI 的隧道命令——纯函数层，可单测
+// Capability three v1 (2026-09-20): the tunnel command for a node's native GUI -- pure function layer, unit-tested
 // （gui-access.test.mjs）。
-// 红线：SSH 私钥永不进 manager——只生成「怎么连」的命令，密钥留在用户本机
-// （体验优化：ssh_key 只是用户本机上的私钥**路径**，非密钥内容）。
+// Red line: an SSH private key never enters the manager -- only the "how to connect" command is generated,
+// and the key stays on the user's machine (ssh_key is only the *path* of a local private key, never its content).
 //
-// UI 精简（DAC v1.0.0）：原先这里还有三张常显卡（隧道卡/直连卡/配置入口按钮），
-// 挂在每个节点行右侧。节点行改成「状态 + ID + ⋮ 菜单」后它们没有调用方了——
-// 隧道命令与「打开 GUI」搬进原生访问抽屉（配一次、用一次，本就该在一起），
-// 所以三张卡随行内 UI 一起删除，只留这里真正共用的命令拼装。
+// UI slimming (DAC v1.0.0): this file used to carry three always-visible cards (tunnel, direct, config entry)
+// on the right of every node row. Once a node row became "status + ID + menu", nothing called them: the
+// tunnel command and "open GUI" moved into the native access drawer (configure once, use once, they belong
+// together), so the three cards went away with the inline UI and only the genuinely shared builder stays.
 
 /**
- * 用户在本机终端执行的隧道命令：本地 loopback localPort → 节点宿主机
- * loopback guiPort。ssh 端口 22 时省略 -p；配置了私钥路径则带 -i。
- * `-N`（纯隧道不开 shell）+ `-o ExitOnForwardFailure=yes`（映射口被占时大声失败）。
+ * The tunnel command the user runs in a local terminal: local loopback localPort -> the node host's
+ * loopback guiPort. The -p flag is omitted for port 22; -i is added when a key path is configured.
+ * -N (tunnel only, no shell) plus -o ExitOnForwardFailure=yes (fail loudly when the local port is taken).
  * @param {{ sshUser: string, sshHost: string, sshPort: number, guiPort: number, localPort: number, sshKey?: string | null }} access
  * @returns {string}
  */

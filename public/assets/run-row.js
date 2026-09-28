@@ -1,6 +1,6 @@
 // @ts-check
-// UI 收尾 A：任务流纯函数层——任务行拼装与查询串构造。
-// DOM 装配在 runs.js；可单测（runs.test.mjs）。
+// UI wrap-up A: pure function layer of the task stream -- task row assembly and query string building.
+// DOM assembly lives in runs.js; unit-testable (runs.test.mjs).
 import { ago, esc, t, loadI18n } from './ui.js'
 
 await loadI18n()
@@ -8,10 +8,11 @@ await loadI18n()
 export const RUN_STATE_DOT = { pending: 'muted', running: 'busy', done: 'ok', failed: 'bad', missed: 'warn' }
 
 /**
- * 状态 / 触发来源文案：**惰性求值**。
+ * Status / trigger wording: **lazy evaluation**.
  *
- * 模块加载期就 t() 会踩两类坑：字典还没到（客户端是异步取），测试里注入字典也
- * 已经来不及——两种情况下拿到的都是键名。改成函数，调用点永远取到当前译文。
+ * Calling t() at module load hits two problems: the dictionary is not there yet (the client fetches it
+ * asynchronously) and injecting a dictionary in tests is already too late -- both yield the key name.
+ * Making it a function means every call site sees the current translation.
  * @param {string} state
  * @returns {string}
  */
@@ -21,14 +22,14 @@ export const runStateLabel = (state) => t(`runs.state.${state}`)
 export const triggerLabel = (trigger) => (trigger === 'api' ? 'API' : t(`runs.trigger.${trigger}`))
 
 /**
- * 任务行：状态点 / 状态与触发来源文案 / 冲突徽标 / 会话链接 / 正文（默认 2 行折叠）。
+ * Task row: status dot / status and trigger wording / conflict badge / conversation link / body (2 lines by default).
  *
- * 为什么要折叠（改前实测最近 40 条 run）：正文中位 315 字、p90 1360 字、最长 2266 字，
- * 且有 65% 含换行——原来整段无截断地铺开，一屏只看得到两三条任务。
+ * Why collapse (measured over the last 40 runs before the change): median body 315 characters, p90 1360,
+ * max 2266, and 65% contain line breaks -- rendered in full, one screen held two or three tasks.
  *
- * 正文先带 `clamped` 类渲染（默认就是 2 行，不会先闪一下全文）；是否真的溢出由
- * runs.js 在布局后量 scrollHeight 决定，量出来没溢出就把类撤掉、也不给展开按钮
- * ——短任务（例如「收到」两个字）不该多一个没用的控件。
+ * The body always renders with the `clamped` class (2 lines, so the full text never flashes first);
+ * whether it really overflows is decided by runs.js measuring scrollHeight after layout -- if it does not
+ * overflow, the class is removed and no expand button appears: a short task ("ok") must not grow a control.
  * @param {{ agentName: string, trigger: string, state: string, summary?: string | null, error?: string | null, sourceChatId?: string | null, conflict?: string | null, startedAt: number }} r
  * @returns {string}
  */
@@ -63,7 +64,7 @@ export const runRow = (r) => {
 }
 
 /**
- * 任务流查询串（纯函数，供测试）：筛选 + 游标，空串 = 第一页默认。
+ * Task stream query string (pure function, for tests): filters plus cursor; empty means the default first page.
  * @param {{ agentId?: string, state?: string, before?: number | null }} f
  * @returns {string}
  */

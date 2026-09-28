@@ -1,10 +1,10 @@
-// 登录页脚本。
+// Login page script.
 //
-// P1-1：从 login.html 的内联 <script> 搬出来 —— CSP 的 script-src 'self' 不放行
-// 内联脚本，而登录页是唯一一张不在 shell 里的页面（没有会话就取不到侧栏数据）。
+// P1-1: moved out of the inline <script> in login.html -- CSP script-src 'self' does not allow inline
+// scripts, and the login page is the only page outside the shell (no session means no sidebar data).
 import { t, loadI18n } from './ui.js'
 
-// 字典先就位再画：登录页也要按语言显示（DAC v1.0.0）。
+// Dictionary first, then draw: the login page follows the language too (DAC v1.0.0).
 await loadI18n()
 
 const form = document.getElementById('form')
@@ -26,7 +26,7 @@ form.addEventListener('submit', async (event) => {
       }),
     })
     if (response.ok) {
-      // 蜂群2计划 P3：首登强制改密
+      // Hive plan P3: force a password change on first login
       const body = await response.json().catch(() => ({}))
       window.location.href = body.mustChangePassword === true ? '/password' : '/'
       return

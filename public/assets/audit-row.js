@@ -1,13 +1,15 @@
 // @ts-check
-// UI 精简（DAC v1.0.0）：审计流水的行——纯函数层，DOM 装配在 audit.js。
-// 可单测（audit-row.test.mjs）。与 run-row.js / node-row.js 同一分工。
+// UI slimming (DAC v1.0.0): a row of the audit stream -- pure function layer, DOM assembly lives in audit.js.
+// Unit-testable (audit-row.test.mjs). Same split as run-row.js / node-row.js.
 //
-// 这页原来直接复用 .node-row（每行一张独立阴影卡 + 无限长 detail），读起来
-// 像一摞卡片而不是一条时间线。改成站内既有的 hairline 列表语言（spend 页同款：
-// .row + .row-main + .row-title），事件类型给语义色点，时间右对齐弱化。
+// This page used to reuse .node-row directly (one shadowed card per row, unbounded detail), which read
+// like a stack of cards instead of a timeline. It now speaks the in-site hairline list language (the
+// same .row + .row-main + .row-title as the spend page): a semantic colour dot per event type, with the
+// timestamp right-aligned and de-emphasised.
 import { esc, t, when } from './ui.js'
 
-/** 事件类型 → 语义色点。失败红、破坏性橙、健康绿、中性灰；未知类型灰兜底。 */
+/** Event type -> semantic colour dot. Failure red, destructive orange, healthy green, neutral grey;
+ * unknown types fall back to grey. */
 export const KIND_META = {
   login_success: 'ok',
   login_failed: 'bad',
@@ -23,12 +25,12 @@ export const KIND_META = {
 /** @param {string} kind @returns {string} */
 export const kindLabel = (kind) => {
   const label = t(`audit.kind.${kind}`)
-  // t() 缺键时返回键名本身（而不是 undefined）——剥离前缀才是可读兜底。
+  // t() returns the key itself when the key is missing (never undefined), so stripping the prefix is the readable fallback.
   return label === `audit.kind.${kind}` ? kind : label
 }
 
 /**
- * 审计事件行。
+ * Audit event row.
  * @param {{ kind: string, actor: string, at: number, detail?: string | null }} e
  * @returns {string}
  */

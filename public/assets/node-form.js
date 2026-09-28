@@ -1,12 +1,13 @@
 // @ts-check
-// 能力一（2026-09-20）：新增节点向导的纯函数层——形态选择（runner）载荷组装
-// 与宿主机进程形态的黄字确认文案。DOM 装配留在 nodes.js。
+// Capability one (2026-09-20): pure function layer of the add-node wizard -- runner selection and payload
+// assembly, plus the yellow warning text for the host-process form. DOM assembly stays in nodes.js.
 import { esc, t } from './ui.js'
 
 /**
- * 组装 POST /api/nodes 的载荷。runner=auto = 省略字段（后端按部署自动判定
- * 容器/进程形态）；显式选择才下发。dsh_version 空串 = 跟随矩阵首行（省略）。
- * 能力四（M1-7）：host 选了 = agent 远端节点（host + url 一起下发）。
+ * Assemble the POST /api/nodes payload. runner=auto omits the field (the backend decides container vs
+ * process from the deployment); only an explicit choice is sent. An empty dsh_version means "follow the
+ * first row of the matrix".
+ * Capability four (M1-7): a chosen host means an agent-run remote node (host and url travel together).
  * @param {{ name: string, port: string, runner: string, dshVersion: string, host: string, url: string, agent: Record<string, unknown> }} input
  * @returns {Record<string, unknown>}
  */
@@ -24,8 +25,8 @@ export const nodeCreatePayload = (input) => {
 }
 
 /**
- * 宿主机进程形态的确认文案——该节点以本机用户权限运行，可操作整台机器
- * （与 M5 §6 拍板的黄字风险口径一致）。
+ * Confirmation text for the host-process form -- that node runs with the local user's privileges and can
+ * operate the whole machine (the same yellow-risk wording agreed in M5 §6).
  * @param {string} name
  * @returns {string}
  */
@@ -33,8 +34,8 @@ export const hostRunnerConfirmText = (name) =>
   t('nodes.form.hostRunnerConfirm', { name })
 
 /**
- * 舰队 M3-1：ops 节点第三档沙箱（danger-full-access）确认文案——整机全量
- * 能力，审批卡片兜底（Q2 拍板口径）。
+ * Fleet M3-1: confirmation text for the third sandbox tier of an ops node (danger-full-access) -- full
+ * machine capability, backstopped by approval cards (as agreed in Q2).
  * @param {string} name
  * @returns {string}
  */
@@ -42,10 +43,10 @@ export const dangerSandboxConfirmText = (name) =>
   t('nodes.form.dangerSandboxConfirm', { name })
 
 /**
- * 能力二/P1：节点行「DSH 版本」下拉的 option 列表（纯函数）。
- * 数据源 = GET /api/nodes 的 supportedDsh（矩阵，前端不硬编码版本清单）。
+ * Capability two / P1: the option list for the "DSH version" dropdown on a node row (pure function).
+ * Source = supportedDsh from GET /api/nodes (the matrix; the frontend never hardcodes the version list).
  * @param {Array<{ dsh: string, status: string }>} list
- * @param {string | null | undefined} current 当前配置钉版（null/空 = 跟随默认）
+ * @param {string | null | undefined} current currently pinned version in config (null/empty = follow the default)
  * @returns {string}
  */
 export const versionOptionsHtml = (list, current) => {

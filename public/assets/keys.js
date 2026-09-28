@@ -1,11 +1,11 @@
-// 对外 API 钥匙管理面（后台，会话 cookie 鉴权）。
+// Outward API key administration (admin side, authenticated by session cookie).
 //
-// 明文只在创建响应里出现一次：创建成功后立刻显示在 token-reveal 区并提示"只显示这一次"，
-// 列表永远拿不到它（服务端结构上就没有这个字段）。
+// The plaintext appears in the creation response exactly once: it is displayed in the token-reveal area
+// with a "shown once" warning, and the list can never obtain it (the server has no such field).
 //
-// 数据面约定（2026-09-27 事故修正）：`apiJson` 返回的是 `{ok, status, data}`（失败时
-// `{ok:false, error, detail}`），**不是 Response**——错误地把 `.json()` 挂在它上面会让
-// 整个页面停在 "Loading…"（keys-page.test.mjs 现在是这条的运行时守卫）。
+// Data contract (corrected after the 2026-09-27 incident): `apiJson` resolves to `{ok, status, data}` (or
+// `{ok:false, error, detail}` on failure), **not a Response** -- calling .json() on it leaves the whole page
+// stuck at "Loading..." (keys-page.test.mjs is the runtime guard for this now).
 import { $, esc, setHtml, apiJson, poll, t, loadI18n } from './ui.js'
 
 await loadI18n()
@@ -57,7 +57,7 @@ const load = async () => {
   if (services !== null && services.options.length === 0) {
     services.innerHTML = data.services.map((s) => `<option value="${esc(s.id)}">${esc(s.label)} (${esc(s.id)})</option>`).join('')
   }
-  // 配置里还没有服务时，创建表单无法提交——给出明确指引，而不是让按钮点了没反应。
+  // With no service configured the create form cannot submit, so give clear guidance instead of a dead button.
   const createButton = $('key-create')
   if (createButton !== null) createButton.disabled = data.services.length === 0
   setMessage(data.services.length === 0 ? t('keys.noServices') : '')

@@ -1,4 +1,4 @@
-// 蜂群2计划 P3：修改密码页（首登强制改密的唯一出口）。
+// Hive plan P3: the password change page (the only way out of the forced first-login change).
 import { $, apiJson, t, loadI18n } from './ui.js'
 
 await loadI18n()
@@ -17,7 +17,7 @@ $('password-form').addEventListener('submit', async (event) => {
   save.disabled = true
   save.textContent = t('password.saving')
   try {
-    // 债务 F6:统一 Result 层——错误码映射不变,文案来源换成 r.error/r.detail。
+    // Debt F6: one Result layer -- the error code mapping is unchanged, only the text source moves to r.error/r.detail.
     const r = await apiJson('/api/account/password', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
