@@ -39,6 +39,13 @@ const DYNAMIC = [
   /^spend-hint$/,
   /^archive-hint$/,
   /^logout$/, // shell.js: the logout button inside the overflow menu
+  // v2 keys/services pages (2026-09-29): row menus and the editor form are assembled by JS into
+  // slots, exactly like the node menus above.
+  /^key-menu-/, // keys.js: one menu popover per key row
+  /^key-more-/, // keys.js: the three-dot trigger
+  /^service-menu-/, // services.js: one menu popover per service row
+  /^service-more-/, // services.js: the three-dot trigger
+  /^svc-/, // services.js: the shared editor form (rendered into the drawer / edit slot)
 ]
 
 /** The shell script: every page loads it, so its references must be findable on every page. */

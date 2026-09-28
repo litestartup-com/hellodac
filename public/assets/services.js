@@ -1,18 +1,13 @@
-// Outward service overview + the declaration editor (admin side, session cookie).
+// Outward service overview + declaration editor (admin side, session cookie).
 //
-// Two truths live on this page and they are different things:
-//   - the snapshot (`GET /api/services`): what is running right now -- agents online, capacity in
-//     use, queue, keys;
-//   - the declaration (`GET/POST /api/config/services`): what the config file says should exist.
-// The page's whole job is making the second one editable without SSH: the editor previews the exact
-// YAML that would be written, asks the real loader whether it would boot, and only then writes.
-//
-// The editor is deliberately "single form + live verdict", not a multi-step wizard: every field of a
-// service declaration fits on one form, and the live preview IS the explanation of each field.
-//
-// Data contract (the 2026-09-27 incident): `apiJson` resolves to `{ok, status, data}`, not a
-// `Response`. services-page.test.mjs is the runtime guard.
+// The v2 refactor mirrors the nodes page: three views (list / detail / edit) plus a drawer for
+// creating. Two truths live here and they are different things:
+//   - the snapshot (`GET /api/services`): what is running -- agents online, capacity in use, queue, keys;
+//   - the declaration (`GET/POST/DELETE /api/config/services`): what manager.config.yaml says.
+// The editor (shared by the create drawer and the full-width edit view) previews the exact YAML that
+// would be written and asks the real loader whether it would boot before writing anything.
 import { $, esc, setHtml, apiJson, poll, t, loadI18n } from './ui.js'
+import { triggerButtonHtml, menuItemHtml, menuPanelHtml, placePanel } from './menu.js'
 
 await loadI18n()
 
@@ -24,7 +19,6 @@ const searchParams = () => {
   }
 }
 
-/** Where a flow sends the operator next; a module var so the smoke test can assert it. */
 let lastRedirect = null
 const redirect = (url) => {
   lastRedirect = url
@@ -36,9 +30,7 @@ const redirect = (url) => {
 }
 
 // ---------------------------------------------------------------------------
-// Editor state. The form fields are a projection of this; the DOM updates it on
-// change, and the preview/apply read it. One object so the test hook can drive
-// the real functions instead of a DOM.
+// State
 // ---------------------------------------------------------------------------
 const draft = {
   id: '',
@@ -52,103 +44,98 @@ const draft = {
   capacity: 4,
   maxAgentsPerMachine: 4,
   thresholds: null, // kept verbatim from the declaration (the form has no such field)
-  knowledge: [], // { host, mount }
+  knowledge: [],
 }
 
 let editorCtx = null // { configHash, services, workers, machines }
-let editingId = null // null = creating; else the service id being edited
-let previewTimer = null
-let openedFromParam = false
 let snapshot = { services: [], keysExist: false }
+let editingId = null // null = creating
+let detailId = null // the service whose detail view is open
+let view = 'list' // list | detail | form
+let previewTimer = null
+let openMenuService = null
+let openedFromParam = false
 
-const editorOpen = () => !($('editor')?.hidden ?? true)
+const menuId = (id) => `service-menu-${id}`
 
-// ---------------------------------------------------------------------------
-// The snapshot: what is running (the operational truth, unchanged from before)
-// ---------------------------------------------------------------------------
-const pill = (text, cls) => `<span class="pill-mini${cls === undefined ? '' : ` ${cls}`}">${esc(text)}</span>`
+const show = (id) => { const el = $(id); if (el !== null) el.hidden = false }
+const hide = (id) => { const el = $(id); if (el !== null) el.hidden = true }
 
-const agentRow = (agent) => {
-  const state = agent.online ? pill(t('services.online')) : pill(t('services.offline'), 'muted')
-  const model = agent.provider === null || agent.model === null
-    ? `<span class="muted">${esc(t('services.modelHostDefault'))}</span>`
-    : `<code>${esc(agent.provider)}/${esc(agent.model)}</code>`
-  return `<div class="node-row">
-    <div class="node-main">
-      <div class="node-title">${esc(agent.name)} ${state} <code class="muted">${esc(agent.id)}</code></div>
-      <div class="node-detail">${esc(t('services.sessions'))}: <strong>${agent.sessions}/${agent.maxSessions}</strong>
-        · ${esc(t('services.queue'))}: ${agent.queueDepth} · ${model}
-        · ${agent.sandboxMode === null ? esc(t('services.permissionUndeclared')) : `<code>${esc(agent.sandboxMode)}</code>`}</div>
-      <div class="node-meta">${esc(agent.endpoint)} · ${esc(agent.machine)}</div>
-    </div>
-  </div>`
+const showView = (next) => {
+  view = next
+  hide('view-list'); hide('view-detail'); hide('view-form')
+  show(`view-${next}`)
 }
 
-const keyRow = (key) => {
-  const quota = key.quotaRunsDay === null
-    ? `${key.usedToday} ${esc(t('services.perDayUnlimited'))}`
-    : `${key.usedToday} ${esc(t('services.perDay', { n: key.quotaRunsDay }))}`
-  const state = key.revokedAt === null ? '' : ` ${pill(t('services.keyRevoked'), 'muted')}`
-  return `<div class="node-row">
-    <div class="node-main">
-      <div class="node-title">${esc(key.name)}${state} <code class="muted">${esc(key.id)}</code></div>
-      <div class="node-meta">${esc(t('services.keyToday'))}: <strong>${quota}</strong>
-        · ${esc(t('services.keyInFlight'))}: ${key.active}/${key.maxConcurrency}</div>
-    </div>
-  </div>`
-}
-
+// ---------------------------------------------------------------------------
+// List view
+// ---------------------------------------------------------------------------
 const capacityLine = (service) => {
   const capacity = service.capacity
-  const allOnline = capacity.onlineAgents >= capacity.declaredAgents
-  return `<div class="node-meta">
-    ${esc(t('services.capacity'))}:
-    <strong>${capacity.onlineAgents}/${capacity.declaredAgents}</strong> ${esc(t('services.agentsOnline'))}
-    · <strong>${capacity.inUse}/${capacity.maxConcurrent}</strong> ${esc(t('services.inUse'))}
-    ${allOnline ? '' : ` · <span class="warn">${esc(t('services.reachable', { n: capacity.onlineMaxConcurrent }))}</span>`}
-    · ${capacity.queued} ${esc(t('services.queued'))}
-  </div>`
+  return `${capacity.onlineAgents}/${capacity.declaredAgents} ${esc(t('services.agentsOnline'))} · ${capacity.inUse}/${capacity.maxConcurrent} ${esc(t('services.inUse'))} · ${capacity.queued} ${esc(t('services.queued'))}`
 }
 
-const renderSnapshot = () => {
+const serviceRow = (service) => {
+  const dot = service.capacity.onlineAgents > 0 ? 'ok' : 'bad'
+  return `<div class="node-row" data-service-row="${esc(service.id)}">
+  <div class="node-main">
+    <div class="node-title"><span class="dot ${dot}"></span>${esc(service.label)} <code class="muted">${esc(service.id)}</code></div>
+    <div class="node-sub">${capacityLine(service)}</div>
+  </div>
+  <div class="node-ver">${service.keys.length} ${esc(t('services.keysShort'))}</div>
+  ${triggerButtonHtml({ id: `service-more-${service.id}`, label: t('common.more'), controls: menuId(service.id) })}
+</div>`
+}
+
+const serviceMenuHtml = (service) => menuPanelHtml({
+  id: menuId(service.id),
+  label: t('common.more'),
+  items: [
+    menuItemHtml({ label: t('services.detail'), attrs: `data-service-detail="${esc(service.id)}"` }),
+    menuItemHtml({ label: t('services.edit'), attrs: `data-service-edit="${esc(service.id)}"` }),
+    menuItemHtml({ label: t('services.issueKey'), attrs: `data-service-key="${esc(service.id)}"` }),
+    menuItemHtml({ kind: 'sep' }),
+    menuItemHtml({ kind: 'danger', label: t('services.delete'), attrs: `data-service-delete="${esc(service.id)}" data-service-delete-name="${esc(service.label)}"` }),
+  ],
+})
+
+const closeMenu = () => {
+  if (openMenuService === null) return
+  const panel = document.getElementById(menuId(openMenuService))
+  if (panel !== null) panel.setAttribute('hidden', '')
+  const trigger = document.getElementById(`service-more-${openMenuService}`)
+  if (trigger !== null) trigger.setAttribute('aria-expanded', 'false')
+  openMenuService = null
+}
+
+const openMenu = (service, trigger) => {
+  if (openMenuService !== null) closeMenu()
+  openMenuService = service.id
+  const panel = document.getElementById(menuId(service.id))
+  if (panel === null || trigger === null) return
+  panel.removeAttribute('hidden')
+  const rect = trigger.getBoundingClientRect()
+  const pos = placePanel({ rect, width: panel.offsetWidth, height: panel.offsetHeight, viewport: { w: window.innerWidth, h: window.innerHeight } })
+  panel.style.left = `${pos.left}px`
+  panel.style.top = `${pos.top}px`
+  trigger.setAttribute('aria-expanded', 'true')
+}
+
+const renderList = () => {
   const list = $('services-list')
   if (list === null) return
   const services = snapshot.services ?? []
-
-  const newButton = $('service-new')
-  if (newButton !== null) newButton.hidden = editorOpen()
-
-  if (services.length === 0) {
-    setHtml('services-list', `<div class="card"><p class="muted small">${esc(t('services.empty'))}</p></div>`)
-    if (newButton !== null) newButton.hidden = false
-    return
-  }
-
-  const anyKey = snapshot.keysExist === true
-  const html = services.map((service) => `<section class="section">
-    <div class="section-head">
-      <h2>${esc(service.label)} <code class="muted">${esc(service.id)}</code></h2>
-      <span class="muted small">${service.surfaces.map((s) => esc(t(`services.surface.${s}`))).join(', ')} · ${esc(t('services.idleReclaim', { hours: service.sessionIdleHours }))}</span>
-      <a class="btn ghost" href="/keys?service=${esc(service.id)}">${esc(t('services.issueKey'))}</a>
-      <button class="btn ghost" type="button" data-edit="${esc(service.id)}">${esc(t('services.edit'))}</button>
-    </div>
-    <div class="card">
-      ${capacityLine(service)}
-      <div class="node-meta">${esc(t('services.placement'))}: <code>${esc(service.placement)}</code>
-        · ${esc(t('services.permission'))}: <code>${esc(service.permission)}</code>
-        · ${esc(t('services.declaredCount', { n: service.declaredCount }))}</div>
-    </div>
-    <div class="nodes-list">${service.agents.map(agentRow).join('')}</div>
-    <h3 class="muted small">${esc(t('services.keysServing'))}</h3>
-    <div class="nodes-list">${service.keys.length === 0 ? `<p class="muted small">${esc(t('services.noKeys'))}</p>` : service.keys.map(keyRow).join('')}</div>
-  </section>`).join('')
-  setHtml('services-list', anyKey ? html : `${html}<p class="muted small">${esc(t('services.noKeysAnywhere'))}</p>`)
+  const count = $('services-count')
+  if (count !== null) count.textContent = String(services.length)
+  setHtml('services-list', services.length === 0
+    ? `<p class="muted small">${esc(t('services.empty'))}</p>`
+    : services.map(serviceRow).join('') + services.map(serviceMenuHtml).join(''))
   const refreshed = $('services-refresh')
   if (refreshed !== null) refreshed.textContent = new Date().toLocaleTimeString()
 }
 
 // ---------------------------------------------------------------------------
-// The declaration editor
+// The editor form (shared by drawer and edit view; one instance at a time)
 // ---------------------------------------------------------------------------
 const agentLabel = (worker) => {
   if (worker.blockedReason === null) return `${esc(worker.name)} <code class="muted">${esc(worker.id)}</code>`
@@ -165,15 +152,98 @@ const machineLabel = (machine) => {
   return `${esc(machine.id)}${serving}`
 }
 
-const renderKnowledgeRows = () => {
-  const wrap = $('svc-knowledge')
-  if (wrap === null) return
-  wrap.innerHTML = draft.knowledge.map((row, index) => `<div class="form-row">
-    <input type="text" data-knowledge="${index}" data-field="host" placeholder="${esc(t('services.form.knowledge.host'))}" value="${esc(row.host)}" />
-    <input type="text" data-knowledge="${index}" data-field="mount" placeholder="${esc(t('services.form.knowledge.mount'))}" value="${esc(row.mount)}" />
-    <button type="button" class="btn ghost" data-knowledge-remove="${index}">${esc(t('services.form.knowledgeRemove'))}</button>
-  </div>`).join('')
-}
+const editorFormHtml = () => `<form id="service-form" class="card" novalidate>
+  <p id="svc-msg" class="muted" hidden></p>
+
+  <div class="field-row">
+    <label class="field">
+      <span class="field-label">${esc(t('services.form.label'))}</span>
+      <input id="svc-label" class="text-input" maxlength="80" placeholder="${esc(t('services.form.labelHint'))}" />
+    </label>
+    <label class="field">
+      <span class="field-label">${esc(t('services.form.id'))}</span>
+      <input id="svc-id" class="text-input mono" maxlength="41" pattern="[a-z0-9][a-z0-9-]{0,40}" placeholder="${esc(t('services.form.idHint'))}" />
+    </label>
+  </div>
+
+  <label class="field">
+    <span class="field-label">${esc(t('services.form.agents'))}</span>
+    <span id="svc-agents" class="checks"></span>
+    <span class="field-hint muted small">${esc(t('services.form.agentsHint'))}</span>
+  </label>
+
+  <div class="field-row">
+    <label class="field">
+      <span class="field-label">${esc(t('services.form.capacity'))}</span>
+      <input id="svc-capacity" class="text-input" type="number" min="1" max="64" value="4" />
+    </label>
+    <label class="field">
+      <span class="field-label">${esc(t('services.form.permission'))}</span>
+      <select id="svc-permission" class="text-input pill-select">
+        <option value="read">${esc(t('services.form.permission.read'))}</option>
+        <option value="write">${esc(t('services.form.permission.write'))}</option>
+      </select>
+    </label>
+  </div>
+
+  <details class="node-advanced">
+    <summary>${esc(t('services.form.moreSettings'))}</summary>
+    <div class="node-advanced-body">
+      <label class="field">
+        <span class="field-label">${esc(t('services.form.surfaces'))}</span>
+        <span class="checks">
+          <label class="checkbox-line"><input id="svc-surface-conversations" type="checkbox" value="conversations" checked /> <span>${esc(t('services.form.surface.conversations'))}</span></label>
+          <label class="checkbox-line"><input id="svc-surface-tasks" type="checkbox" value="tasks" /> <span>${esc(t('services.form.surface.tasks'))}</span> <span class="muted small">${esc(t('services.form.surface.tasksNote'))}</span></label>
+        </span>
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">${esc(t('services.form.idle'))}</span>
+          <input id="svc-idle" class="text-input" type="number" min="1" max="8760" value="24" />
+        </label>
+        <label class="field">
+          <span class="field-label">${esc(t('services.form.maxAgents'))}</span>
+          <input id="svc-max-agents" class="text-input" type="number" min="1" max="64" value="4" />
+        </label>
+      </div>
+      <label class="field">
+        <span class="field-label">${esc(t('services.form.placement'))}</span>
+        <select id="svc-placement" class="text-input pill-select">
+          <option value="spread">${esc(t('services.form.placement.spread'))}</option>
+          <option value="pack">${esc(t('services.form.placement.pack'))}</option>
+          <option value="pin">${esc(t('services.form.placement.pin'))}</option>
+        </select>
+      </label>
+      <div id="svc-machines-wrap" hidden>
+        <label class="field">
+          <span class="field-label">${esc(t('services.form.machines'))}</span>
+          <span id="svc-machines" class="checks"></span>
+          <span class="field-hint muted small">${esc(t('services.form.machinesHint'))}</span>
+        </label>
+      </div>
+      <label class="field">
+        <span class="field-label">${esc(t('services.form.knowledge'))}</span>
+        <span id="svc-knowledge"></span>
+      </label>
+      <button id="svc-knowledge-add" class="btn-quiet btn-sm" type="button">${esc(t('services.form.knowledgeAdd'))}</button>
+      <span class="field-hint muted small">${esc(t('services.form.knowledgeHint'))}</span>
+    </div>
+  </details>
+
+  <div id="svc-preview-wrap" hidden>
+    <h3 class="section-label">${esc(t('services.form.preview'))}</h3>
+    <div id="svc-preview-state" class="banner"></div>
+    <div id="svc-preview-errors"></div>
+    <div id="svc-preview-warnings"></div>
+    <div id="svc-preview-diff"></div>
+    <pre class="yaml-preview"><code id="svc-preview-yaml"></code></pre>
+  </div>
+
+  <div class="form-actions">
+    <button type="button" id="svc-cancel" class="btn-quiet btn-sm">${esc(t('common.cancel'))}</button>
+    <button type="button" id="svc-apply" class="btn btn-sm">${esc(t('services.form.apply'))}</button>
+  </div>
+</form>`
 
 const renderForm = () => {
   const label = $('svc-label'); if (label !== null) label.value = draft.label
@@ -189,7 +259,7 @@ const renderForm = () => {
   const agents = $('svc-agents')
   if (agents !== null && editorCtx !== null) {
     if (editorCtx.workers.length === 0) {
-      agents.innerHTML = `<p class="muted small">${esc(t('services.form.agentsNone'))}</p>`
+      agents.innerHTML = `<span class="muted small">${esc(t('services.form.agentsNone'))}</span>`
     } else {
       agents.innerHTML = editorCtx.workers.map((worker) => {
         const picked = draft.workers.includes(worker.id)
@@ -213,66 +283,75 @@ const renderForm = () => {
     </label>`).join('')
   }
 
-  renderKnowledgeRows()
-  const title = $('editor-title')
+  const knowledge = $('svc-knowledge')
+  if (knowledge !== null) {
+    knowledge.innerHTML = draft.knowledge.map((row, index) => `<span class="form-row">
+      <input type="text" data-knowledge="${index}" data-field="host" placeholder="${esc(t('services.form.knowledge.host'))}" value="${esc(row.host)}" />
+      <input type="text" data-knowledge="${index}" data-field="mount" placeholder="${esc(t('services.form.knowledge.mount'))}" value="${esc(row.mount)}" />
+      <button type="button" class="btn-quiet btn-sm" data-knowledge-remove="${index}">${esc(t('services.form.knowledgeRemove'))}</button>
+    </span>`).join('')
+  }
+
+  const msg = $('svc-msg'); if (msg !== null) msg.hidden = true
+  const previewWrap = $('svc-preview-wrap'); if (previewWrap !== null) previewWrap.hidden = true
+  const title = $('service-editor-title')
   if (title !== null) title.textContent = editingId === null ? t('services.editorNew') : t('services.editorEdit', { id: editingId })
-  const msg = $('svc-msg')
-  if (msg !== null) msg.textContent = ''
-  const state = $('svc-preview-state')
-  if (state !== null) state.innerHTML = ''
-  const previewWrap = $('svc-preview-wrap')
-  if (previewWrap !== null) previewWrap.hidden = true
 }
 
-const openEditor = (serviceId = null) => {
-  editingId = serviceId
-  if (serviceId !== null && editorCtx !== null) {
-    const raw = editorCtx.services.find((service) => service.id === serviceId)
-    if (raw !== undefined) {
-      draft.id = raw.id
-      draft.label = raw.label
-      draft.workers = [...raw.workers]
-      draft.surfaces = [...raw.surfaces]
-      draft.permission = raw.permission
-      draft.sessionIdleHours = raw.session_idle_hours
-      draft.placement = raw.placement
-      draft.machines = [...raw.machines]
-      draft.capacity = raw.capacity.max_sessions_per_agent
-      draft.maxAgentsPerMachine = raw.max_agents_per_machine ?? 4
-      draft.thresholds = raw.thresholds ?? null
-      draft.knowledge = raw.knowledge.map((k) => ({ host: k.host, mount: k.mount }))
-    }
-  } else {
-    draft.id = ''
-    draft.label = ''
-    draft.workers = []
-    draft.surfaces = ['conversations']
-    draft.permission = 'read'
-    draft.sessionIdleHours = 24
-    draft.placement = 'spread'
-    draft.machines = []
-    draft.capacity = 4
-    draft.maxAgentsPerMachine = 4
-    draft.thresholds = null
-    draft.knowledge = []
-  }
-  const editor = $('editor')
-  if (editor !== null) editor.hidden = false
-  const newButton = $('service-new')
-  if (newButton !== null) newButton.hidden = true
+const resetDraft = () => {
+  draft.id = ''
+  draft.label = ''
+  draft.workers = []
+  draft.surfaces = ['conversations']
+  draft.permission = 'read'
+  draft.sessionIdleHours = 24
+  draft.placement = 'spread'
+  draft.machines = []
+  draft.capacity = 4
+  draft.maxAgentsPerMachine = 4
+  draft.thresholds = null
+  draft.knowledge = []
+}
+
+const loadDraft = (serviceId) => {
+  const raw = (editorCtx?.services ?? []).find((service) => service.id === serviceId)
+  if (raw === undefined) return
+  draft.id = raw.id
+  draft.label = raw.label
+  draft.workers = [...raw.workers]
+  draft.surfaces = [...raw.surfaces]
+  draft.permission = raw.permission
+  draft.sessionIdleHours = raw.session_idle_hours
+  draft.placement = raw.placement
+  draft.machines = [...raw.machines]
+  draft.capacity = raw.capacity.max_sessions_per_agent
+  draft.maxAgentsPerMachine = raw.max_agents_per_machine ?? 4
+  draft.thresholds = raw.thresholds ?? null
+  draft.knowledge = raw.knowledge.map((k) => ({ host: k.host, mount: k.mount }))
+}
+
+const renderEditorInto = (slotId) => {
+  const slot = $(slotId)
+  if (slot !== null) slot.innerHTML = editorFormHtml()
   renderForm()
   schedulePreview()
 }
 
+const openEditor = (serviceId = null) => {
+  editingId = serviceId
+  if (serviceId === null) resetDraft()
+  else loadDraft(serviceId)
+  renderEditorInto('service-editor-slot')
+  const editor = $('service-editor')
+  if (editor !== null) editor.hidden = false
+}
+
 const closeEditor = () => {
-  const editor = $('editor')
+  const editor = $('service-editor')
   if (editor !== null) editor.hidden = true
-  const newButton = $('service-new')
-  if (newButton !== null) newButton.hidden = false
   editingId = null
 }
 
-/** Gather the draft the form currently shows (the values live in `draft`; the form is its projection). */
 const currentDraft = () => ({
   id: draft.id,
   label: draft.label,
@@ -288,7 +367,6 @@ const currentDraft = () => ({
   knowledge: draft.knowledge.map((k) => ({ host: k.host, mount: k.mount, read_only: true })),
 })
 
-/** The preview lives on the server (it runs the real loader), so "live" means debounced, not local. */
 const schedulePreview = () => {
   if (previewTimer !== null) clearTimeout(previewTimer)
   previewTimer = setTimeout(() => { void runPreview() }, 400)
@@ -312,7 +390,6 @@ const runPreview = async () => {
 const renderPreview = (preview) => {
   const wrap = $('svc-preview-wrap')
   if (wrap !== null) wrap.hidden = false
-
   const state = $('svc-preview-state')
   if (state !== null) {
     state.className = 'banner'
@@ -320,22 +397,12 @@ const renderPreview = (preview) => {
       ? `<strong>${esc(t('services.form.previewOk'))}</strong>`
       : `<strong>${esc(t('services.form.previewError'))}</strong>`
   }
-
   const errors = $('svc-preview-errors')
-  if (errors !== null) {
-    errors.innerHTML = (preview.errors ?? []).map((line) => `<div class="banner warn">${esc(line)}</div>`).join('')
-  }
-
+  if (errors !== null) errors.innerHTML = (preview.errors ?? []).map((line) => `<div class="banner warn">${esc(line)}</div>`).join('')
   const warnings = $('svc-preview-warnings')
-  if (warnings !== null) {
-    warnings.innerHTML = (preview.warnings ?? []).map((line) => `<div class="banner warn">${esc(line)}</div>`).join('')
-  }
-
+  if (warnings !== null) warnings.innerHTML = (preview.warnings ?? []).map((line) => `<div class="banner warn">${esc(line)}</div>`).join('')
   const diff = $('svc-preview-diff')
-  if (diff !== null) {
-    diff.innerHTML = (preview.diff ?? []).map((line) => `<div class="${line.kind === 'add' ? 'diff-add' : 'diff-remove'}">${line.kind === 'add' ? '+' : '-'} ${esc(line.text)}</div>`).join('')
-  }
-
+  if (diff !== null) diff.innerHTML = (preview.diff ?? []).map((line) => `<div class="${line.kind === 'add' ? 'diff-add' : 'diff-remove'}">${line.kind === 'add' ? '+' : '-'} ${esc(line.text)}</div>`).join('')
   const yaml = $('svc-preview-yaml')
   if (yaml !== null) yaml.textContent = preview.yaml ?? ''
 }
@@ -344,7 +411,7 @@ const apply = async () => {
   const applyButton = $('svc-apply')
   if (applyButton !== null) applyButton.disabled = true
   const msg = $('svc-msg')
-  if (msg !== null) msg.textContent = t('services.form.applying')
+  if (msg !== null) { msg.hidden = false; msg.textContent = t('services.form.applying') }
   try {
     const response = await apiJson('/api/config/services', {
       method: 'POST',
@@ -355,19 +422,102 @@ const apply = async () => {
       if (msg !== null) msg.textContent = `${t('services.form.applyFailed')}: ${response.detail}`
       return
     }
-    if (msg !== null) msg.textContent = t('services.form.applied')
     closeEditor()
-    // The round trip the key page started ("create a service first"): go back with the new service
-    // preselected. lastRedirect is asserted by the smoke test.
-    if (searchParams().get('return') === 'keys') redirect(`/keys?service=${encodeURIComponent(draft.id)}`)
     await load()
+    // The round trip the key page started ("create a service first"): go back with the new service preselected.
+    if (searchParams().get('return') === 'keys') redirect(`/keys?service=${encodeURIComponent(draft.id)}`)
   } finally {
     if (applyButton !== null) applyButton.disabled = false
   }
 }
 
 // ---------------------------------------------------------------------------
-// Wiring
+// Detail view
+// ---------------------------------------------------------------------------
+const keyRowOfService = (key) => `<div class="node-row" data-key-row="${esc(key.id)}">
+  <div class="node-main">
+    <div class="node-title"><span class="dot ok"></span>${esc(key.name)} <code class="muted">${esc(key.id)}</code>${key.revokedAt === null ? '' : ` <span class="pill-mini muted">${esc(t('services.keyRevoked'))}</span>`}</div>
+    <div class="node-sub">${esc(t('services.keyToday'))}: ${key.quotaRunsDay === null ? `${key.usedToday} ${esc(t('keys.runsUnlimitedShort'))}` : `${key.usedToday}/${key.quotaRunsDay}`}</div>
+  </div>
+</div>`
+
+const agentRowOfService = (agent) => {
+  const dot = agent.online ? 'ok' : 'bad'
+  const model = agent.provider === null || agent.model === null
+    ? `<span class="muted">${esc(t('services.modelHostDefault'))}</span>`
+    : `<code>${esc(agent.provider)}/${esc(agent.model)}</code>`
+  return `<div class="node-row">
+  <div class="node-main">
+    <div class="node-title"><span class="dot ${dot}"></span>${esc(agent.name)} <code class="muted">${esc(agent.id)}</code></div>
+    <div class="node-sub">${agent.sessions}/${agent.maxSessions} ${esc(t('services.sessionsShort'))} · ${agent.queueDepth} ${esc(t('services.queued'))} · ${model} · ${esc(agent.machine)}</div>
+  </div>
+</div>`
+}
+
+const renderDetail = (service) => {
+  const draftRaw = (editorCtx?.services ?? []).find((s) => s.id === service.id)
+  const title = $('service-detail-title')
+  if (title !== null) title.innerHTML = `${esc(service.label)} <code class="muted">${esc(service.id)}</code>`
+
+  const issueKey = $('service-detail-key')
+  if (issueKey !== null) issueKey.setAttribute('href', `/keys?service=${encodeURIComponent(service.id)}`)
+
+  const machines = service.machines.length === 0 ? '—' : service.machines.map((m) => `<code>${esc(m)}</code>`).join(', ')
+  const knowledge = (draftRaw?.knowledge ?? []).length === 0
+    ? '—'
+    : (draftRaw?.knowledge ?? []).map((k) => `<code>${esc(k.host)} → ${esc(k.mount)} (ro)</code>`).join(', ')
+
+  const body = $('service-detail-body')
+  if (body !== null) {
+    body.innerHTML = `
+    <section class="section">
+      <div class="section-head"><h2>${esc(t('services.overview'))}</h2></div>
+      <div class="card dl">
+        <div class="dl-row"><span class="dl-label">${esc(t('services.capacity'))}</span><span class="dl-value">${capacityLine(service)}</span></div>
+        <div class="dl-row"><span class="dl-label">${esc(t('services.form.permission'))}</span><span class="dl-value"><code>${esc(service.permission)}</code> ${service.permission === 'read' ? `<span class="muted small">${esc(t('services.form.permission.read'))}</span>` : `<span class="muted small">${esc(t('services.form.permission.write'))}</span>`}</span></div>
+        <div class="dl-row"><span class="dl-label">${esc(t('services.idleShort'))}</span><span class="dl-value">${service.sessionIdleHours}h</span></div>
+        <div class="dl-row"><span class="dl-label">${esc(t('services.form.placement'))}</span><span class="dl-value"><code>${esc(service.placement)}</code></span></div>
+        <div class="dl-row"><span class="dl-label">${esc(t('services.form.machines'))}</span><span class="dl-value">${machines}</span></div>
+        <div class="dl-row"><span class="dl-label">${esc(t('services.form.knowledge'))}</span><span class="dl-value">${knowledge}</span></div>
+      </div>
+    </section>
+    <section class="section">
+      <div class="section-head"><h2>${esc(t('services.agents'))}</h2><span class="muted small">${String(service.agents.length)}</span></div>
+      <div class="card"><div class="nodes-list">${service.agents.map(agentRowOfService).join('')}</div></div>
+    </section>
+    <section class="section">
+      <div class="section-head"><h2>${esc(t('services.keysServing'))}</h2><span class="muted small">${String(service.keys.length)}</span></div>
+      <div class="card"><div class="nodes-list">${service.keys.length === 0 ? `<p class="muted small">${esc(t('services.noKeys'))}</p>` : service.keys.map(keyRowOfService).join('')}</div></div>
+    </section>`
+  }
+}
+
+const openDetail = (id) => {
+  const service = (snapshot.services ?? []).find((s) => s.id === id)
+  if (service === undefined) return
+  detailId = id
+  renderDetail(service)
+  showView('detail')
+}
+
+const openEdit = (id) => {
+  editingId = id
+  loadDraft(id)
+  renderEditorInto('edit-form-slot')
+  showView('form')
+}
+
+const deleteService = async (id, label) => {
+  if (!window.confirm(t('services.deleteConfirm', { label }))) return
+  const response = await apiJson(`/api/config/services/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  if (!response.ok) return
+  detailId = null
+  showView('list')
+  await load()
+}
+
+// ---------------------------------------------------------------------------
+// Loading + wiring
 // ---------------------------------------------------------------------------
 const load = async () => {
   const snapshotResponse = await apiJson('/api/services')
@@ -376,32 +526,70 @@ const load = async () => {
   const ctxResponse = await apiJson('/api/config/services')
   if (ctxResponse.ok) editorCtx = ctxResponse.data
 
-  renderSnapshot()
-  // A poll must never clobber a form someone is filling in.
-  if (editorOpen() && editingId !== null && editorCtx !== null) {
-    const stillThere = editorCtx.services.some((service) => service.id === editingId)
-    if (stillThere) renderForm()
+  if (view === 'list') renderList()
+  if (view === 'detail' && detailId !== null) {
+    const service = (snapshot.services ?? []).find((s) => s.id === detailId)
+    if (service !== undefined) renderDetail(service)
   }
-  // The keys page's "create a service first" lands here with ?create=1: the editor opens itself once
-  // (after the context exists, so the candidate list renders), and applying with ?return=keys sends
-  // the operator back with the new service preselected.
-  if (!openedFromParam && searchParams().get('create') === '1' && !editorOpen()) {
+  // The keys page's "create a service first" lands here with ?create=1.
+  if (!openedFromParam && searchParams().get('create') === '1') {
     openedFromParam = true
     openEditor()
+  }
+  // Deep link: ?service=<id> opens the detail.
+  if (view === 'list' && searchParams().get('service') !== null) {
+    const id = searchParams().get('service')
+    if (id !== null && id !== '') openDetail(id)
   }
 }
 
 document.addEventListener('click', (event) => {
   const target = event.target
   if (!(target instanceof HTMLElement)) return
-  const editId = target.dataset.edit
-  if (editId !== undefined) {
-    openEditor(editId)
+
+  if (target.dataset.close !== undefined) {
+    closeEditor()
+    if (view === 'form') showView('detail')
     return
   }
-  if (target.id === 'service-new') openEditor()
-  if (target.id === 'svc-cancel') closeEditor()
+
+  const trigger = target.closest('.menu-trigger')
+  if (trigger !== null) {
+    const serviceId = trigger.id.replace('service-more-', '')
+    const service = (snapshot.services ?? []).find((s) => s.id === serviceId)
+    if (service !== undefined) {
+      if (openMenuService === service.id) closeMenu()
+      else openMenu(service, trigger)
+    }
+    return
+  }
+  if (!target.closest('.menu-panel')) closeMenu()
+
+  if (target.dataset.serviceDetail !== undefined) { closeMenu(); openDetail(target.dataset.serviceDetail); return }
+  if (target.dataset.serviceEdit !== undefined) { closeMenu(); openEdit(target.dataset.serviceEdit); return }
+  if (target.dataset.serviceKey !== undefined) { closeMenu(); redirect(`/keys?service=${encodeURIComponent(target.dataset.serviceKey)}`); return }
+  if (target.dataset.serviceDelete !== undefined) { closeMenu(); void deleteService(target.dataset.serviceDelete, target.dataset.serviceDeleteName ?? target.dataset.serviceDelete); return }
+
+  if (target.id === 'new-service') { openEditor(); return }
+  if (target.id === 'back-list') { detailId = null; showView('list'); return }
+  if (target.id === 'back-detail') { showView('detail'); return }
+  if (target.id === 'service-detail-edit' && detailId !== null) { openEdit(detailId); return }
+  if (target.id === 'service-detail-delete' && detailId !== null) {
+    const service = (snapshot.services ?? []).find((s) => s.id === detailId)
+    void deleteService(detailId, service?.label ?? detailId)
+    return
+  }
+  if (target.id === 'svc-cancel') {
+    if (view === 'form') showView('detail')
+    else closeEditor()
+    return
+  }
   if (target.id === 'svc-apply') { void apply(); return }
+  if (target.id === 'svc-knowledge-add') {
+    draft.knowledge.push({ host: '', mount: '/knowledge' })
+    renderForm()
+    return
+  }
 
   const agent = target.dataset.agent
   if (agent !== undefined && target instanceof HTMLInputElement) {
@@ -420,14 +608,24 @@ document.addEventListener('click', (event) => {
   const removeIndex = target.dataset.knowledgeRemove
   if (removeIndex !== undefined) {
     draft.knowledge = draft.knowledge.filter((_row, index) => index !== Number(removeIndex))
-    renderKnowledgeRows()
+    renderForm()
     schedulePreview()
     return
   }
-  if (target.id === 'svc-knowledge-add') {
-    draft.knowledge.push({ host: '', mount: '/knowledge' })
-    renderKnowledgeRows()
+
+  const row = target.closest('[data-service-row]')
+  if (row !== null) {
+    openDetail(row.dataset.serviceRow ?? '')
+    return
   }
+  const keyLink = target.closest('[data-key-row]')
+  if (keyLink !== null) {
+    redirect(`/keys?key=${encodeURIComponent(keyLink.dataset.keyRow ?? '')}`)
+  }
+})
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') closeMenu()
 })
 
 document.addEventListener('input', (event) => {
@@ -473,18 +671,21 @@ document.addEventListener('change', (event) => {
 await load()
 poll(load, 15_000)
 
-// ---------------------------------------------------------------------------
 // Test surface: the smoke test drives the real functions through this hook
 // (never present in production -- it is created only when the test flags it).
-// ---------------------------------------------------------------------------
 if (globalThis.__DAC_TEST__ === true) {
   globalThis.__DAC_SERVICES_TEST__ = {
+    load,
     openEditor,
+    openDetail,
+    openEdit,
     apply,
     runPreview,
+    deleteService,
     currentDraft,
-    snapshot: () => snapshot,
     setDraft: (patch) => { Object.assign(draft, patch) },
+    view: () => view,
     lastRedirect: () => lastRedirect,
+    snapshot: () => snapshot,
   }
 }
