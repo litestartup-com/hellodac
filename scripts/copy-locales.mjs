@@ -1,11 +1,12 @@
-// scripts/copy-locales.mjs —— 把语言包拷进 dist。
+// scripts/copy-locales.mjs —— copy the locale files into dist.
 //
-// 为什么需要这一步：`tsc` 只编译 TS，不搬 JSON；而 manager 容器镜像只拷
-// `dist`（见 images/manager/Dockerfile），运行期 `dist/i18n/index.js` 就找不到
-// `dist/i18n/locales/*.json` 而启动失败——2026-09-24 实测（第一次带 i18n 的
-// 构建在本机就炸了 ENOENT，正好说明这一步不能靠"记得手动拷"）。
+// Why this step exists: `tsc` only compiles TS, it does not move JSON; and the manager container
+// image copies only `dist` (see images/manager/Dockerfile), so at runtime `dist/i18n/index.js`
+// would not find `dist/i18n/locales/*.json` and boot would fail -- measured on 2026-09-24 (the first
+// build with i18n blew up with ENOENT locally, which is exactly why this step cannot rely on
+// "remember to copy by hand").
 //
-// 单一真相源仍是 src/i18n/locales/*.json；本脚本只做派生。
+// The single source of truth is still src/i18n/locales/*.json; this script only derives.
 import { cpSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'

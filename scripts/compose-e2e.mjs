@@ -1,16 +1,17 @@
-// scripts/compose-e2e.mjs — 债务 R10:compose 全栈 E2E(CI 门禁)。
+// scripts/compose-e2e.mjs — Debt R10: full-stack compose E2E (a CI gate).
 //
-// 前置(由 .github/workflows/ci.yml 的 compose-e2e job 完成):
-//   bash scripts/gen-env.sh(MANAGER_PASSWORD 预置)
+// Prerequisites (done by the compose-e2e job in .github/workflows/ci.yml):
+//   bash scripts/gen-env.sh (MANAGER_PASSWORD pre-set)
 //   cp manager.config.container.example.yaml manager.config.yaml
 //   cp deploy/nginx/default.conf.example deploy/nginx/default.conf
 //   docker compose up -d --build
 //
-// 本脚本经 nginx(127.0.0.1:80)验证发布门:
-//   启动 → 登录(自动建管理员)→ 首登强制改密 → 节点认领(brain 脊柱只读 +
-//   personal 工蜂被 manager 认领)→ 动态开通(worker 工蜂)→ 停机 →
-//   恢复保护(manager 运行中 restore 必须拒绝)→ 下线(容器被移除)。
-// 任何一步失败退出码非 0。
+// This script verifies the release gate through nginx (127.0.0.1:80):
+//   start → login (the admin is created automatically) → forced password change on first login →
+//   node claiming (the brain spine is read-only + the personal worker is claimed by the manager) →
+//   dynamic provisioning (a worker) → stop → restore protection (a restore must be refused while the
+//   manager runs) → decommission (the container is removed).
+// Any failing step exits non-zero.
 import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 
@@ -43,7 +44,7 @@ const json = async (response) => {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-/** 登录并把 Set-Cookie 解析成 {cookie, csrf, headers}。 */
+/** Log in and parse Set-Cookie into {cookie, csrf, headers}. */
 const login = async (password) => {
   const response = await fetch(`${BASE}/api/login`, {
     method: 'POST',
@@ -57,7 +58,7 @@ const login = async (password) => {
   return { status: response.status, body: await json(response), cookie, csrf }
 }
 
-/** 等待 fetch 条件满足;超时返回 false。 */
+/** Wait until the fetch condition holds; on timeout return false. */
 const waitFor = async (label, predicate, timeoutMs, intervalMs = 2_000) => {
   const deadline = Date.now() + timeoutMs
   for (;;) {
@@ -77,13 +78,13 @@ const docker = (args) => {
 
 const main = async () => {
   if (PASSWORD === '') {
-    check('.env 里有 MANAGER_INITIAL_PASSWORD', false, '先跑 gen-env.sh(MANAGER_PASSWORD 预置)')
+    check('.env has MANAGER_INITIAL_PASSWORD', false, 'run gen-env.sh first (MANAGER_PASSWORD pre-set)')
     process.exit(1)
   }
 
-  // ---- 启动:nginx 入口可达(经 nginx 转发到 manager)----
+  // ---- start: the nginx entry point is reachable (proxying through to the manager) ----
   const nginxUp = await waitFor(
-    'nginx 入口可达并转发 manager',
+    'nginx entry point reachable and proxying to the manager',
     async () => {
       try {
         const r = await fetch(`${BASE}/login`)
@@ -96,10 +97,10 @@ const main = async () => {
   )
   if (!nginxUp) process.exit(1)
 
-  // ---- 登录 + 首登强制改密 ----
+  // ---- login + forced password change on first login ----
   const first = await login(PASSWORD)
-  check('初始密码登录成功', first.status === 200, `got ${first.status}`)
-  check('首登强制改密标记', first.body.mustChangePassword === true)
+  check('login with the initial password succeeds', first.status === 200, `got ${first.status}`)
+  check('forced password change flag on first login', first.body.mustChangePassword === true)
   if (first.status !== 200) process.exit(1)
   const headers1 = { cookie: first.cookie, 'x-csrf-token': first.csrf }
 
@@ -108,17 +109,17 @@ const main = async () => {
     headers: { 'content-type': 'application/json', ...headers1 },
     body: JSON.stringify({ currentPassword: PASSWORD, newPassword: NEW_PASSWORD }),
   })
-  check('首登强制改密成功', changed.status === 200, `got ${changed.status}`)
+  check('forced password change on first login succeeds', changed.status === 200, `got ${changed.status}`)
   const setCookie = changed.headers.getSetCookie()
   const cookie = setCookie.map((c) => c.split(';')[0]).join('; ')
   const csrfLine = setCookie.find((c) => c.startsWith('dac_csrf='))
   const csrf = csrfLine === undefined ? '' : (csrfLine.split(';')[0] ?? '').slice('dac_csrf='.length)
-  check('改密后换发会话', cookie !== '' && cookie !== first.cookie)
+  check('the session is reissued after the password change', cookie !== '' && cookie !== first.cookie)
   const headers = { cookie, 'x-csrf-token': csrf }
 
-  // ---- 节点认领:brain(脊柱,只读)+ personal(工蜂,manager 经 docker.sock 认领)----
+  // ---- node claiming: brain (the spine, read-only) + personal (a worker, claimed by the manager over docker.sock) ----
   const nodesOk = await waitFor(
-    '节点列表:brain 与 personal 都在册',
+    'node list: both brain and personal are registered',
     async () => {
       const r = await fetch(`${BASE}/api/nodes`, { headers })
       if (r.status !== 200) return false
@@ -130,13 +131,13 @@ const main = async () => {
   )
   if (!nodesOk) process.exit(1)
 
-  // 脊柱节点 up/down 必须 409(由 compose 管理)
+  // brain up/down on the spine node must be 409 (managed by compose)
   const brainUp = await fetch(`${BASE}/api/nodes/brain/up`, { method: 'POST', headers })
-  check('脊柱主脑 up 被拒(compose 管理)', brainUp.status === 409, `got ${brainUp.status}`)
+  check('up on the brain spine is refused (managed by compose)', brainUp.status === 409, `got ${brainUp.status}`)
 
-  // personal 工蜂被 boot 对账认领为 live(镜像已由 compose build 就位)
+  // the personal worker is claimed as live by the boot reconcile (the image is already in place from compose build)
   const personalLive = await waitFor(
-    'personal 工蜂被 boot 对账认领为 live',
+    'the personal worker is claimed as live by the boot reconcile',
     async () => {
       const r = await fetch(`${BASE}/api/nodes`, { headers })
       const body = await json(r)
@@ -147,17 +148,17 @@ const main = async () => {
   )
   if (!personalLive) process.exit(1)
 
-  // ---- 动态开通:worker 工蜂 ----
+  // ---- dynamic provisioning: a worker ----
   const created = await fetch(`${BASE}/api/nodes`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify({ name: 'worker', install: false }),
   })
-  check('动态开通 worker 节点 201', created.status === 201, `got ${created.status}: ${String((await json(created)).detail ?? '')}`)
+  check('dynamic provisioning of the worker node returns 201', created.status === 201, `got ${created.status}: ${String((await json(created)).detail ?? '')}`)
   if (created.status !== 201) process.exit(1)
 
   const workerLive = await waitFor(
-    'worker 工蜂经 docker.sock 拉起为 live',
+    'the worker comes up live over docker.sock',
     async () => {
       const r = await fetch(`${BASE}/api/nodes`, { headers })
       const body = await json(r)
@@ -168,11 +169,11 @@ const main = async () => {
   )
   if (!workerLive) process.exit(1)
 
-  // ---- 停机:worker down → 容器停止并移除 ----
+  // ---- stop: worker down → the container is stopped and removed ----
   const down = await fetch(`${BASE}/api/nodes/worker/down`, { method: 'POST', headers })
   check('worker down 200', down.status === 200, `got ${down.status}`)
   const workerCold = await waitFor(
-    'worker 停机后落 cold,容器被移除',
+    'the worker lands cold after the stop, the container is removed',
     async () => {
       const r = await fetch(`${BASE}/api/nodes`, { headers })
       const body = await json(r)
@@ -184,25 +185,26 @@ const main = async () => {
   )
   if (!workerCold) process.exit(1)
 
-  // ---- 恢复保护:manager 运行中 restore 必须拒绝(备份先成功,顺带验证加密快照)----
+  // ---- restore protection: a restore must be refused while the manager runs (the backup succeeds first, verifying the encrypted snapshot on the way) ----
   const backup = docker(['compose', 'exec', '-T', 'manager', 'node', 'dist/cli/backup.js'])
-  check('容器内 backup 成功(加密快照)', backup.code === 0, backup.err || backup.out)
+  check('backup inside the container succeeds (encrypted snapshot)', backup.code === 0, backup.err || backup.out)
   const restore = docker(['compose', 'exec', '-T', 'manager', 'node', 'dist/cli/backup.js', 'restore', 'latest'])
   check(
-    'manager 运行中 restore 被拒绝(停机/恢复保护)',
-    // 断言用**英文**子串：i18n 迁移（B4，2026-09-24）把 CLI 与服务端 detail 全部英文化了，
-    // 这里原来断言中文 `/运行/` → 自 v1.1.1 起 compose-e2e 必红（2026-09-24 定位）。
-    // 改断言时请对着 src/cli/backup.ts 的 "still running" 那句一起改。
+    'a restore is refused while the manager runs (stop/restore protection)',
+    // The assertion uses an **English** substring: the i18n migration (B4, 2026-09-24) made every CLI and
+    // server-side detail English, so the Chinese `/运行/` this used to assert on made compose-e2e red from
+    // v1.1.1 on (pinned down on 2026-09-24).
+    // When changing the assertion, change it together with the "still running" line in src/cli/backup.ts.
     restore.code !== 0 && /still running|stop it before restoring/i.test(restore.out + restore.err),
     `code=${restore.code} ${restore.out} ${restore.err}`,
   )
 
-  // ---- 下线:worker 删除(磁盘目录保留,配置与内存清理)----
+  // ---- decommission: delete the worker (the on-disk directory is kept, config and memory are cleaned) ----
   const removed = await fetch(`${BASE}/api/nodes/worker`, { method: 'DELETE', headers })
-  check('worker 下线 200', removed.status === 200, `got ${removed.status}`)
+  check('worker decommission returns 200', removed.status === 200, `got ${removed.status}`)
   const nodesAfter = await json(await fetch(`${BASE}/api/nodes`, { headers }))
   const stillThere = (nodesAfter.nodes ?? []).some((n) => n.id === 'worker')
-  check('worker 已从节点列表消失', !stillThere)
+  check('the worker is gone from the node list', !stillThere)
 
   console.log(`\n${failures === 0 ? 'compose E2E: all checks passed' : `${failures} check(s) failed`}\n`)
   process.exit(failures === 0 ? 0 : 1)

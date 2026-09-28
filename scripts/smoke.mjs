@@ -2,7 +2,7 @@
 //
 //   node scripts/smoke.mjs [password] [baseUrl]
 //
-// Covers auth boundaries, endpoint status, the workspace adapter, and (蜂群 P6)
+// Covers auth boundaries, endpoint status, the workspace adapter, and (Hive P6)
 // the full conversation pipeline: chat turn over the relay, and a brain
 // dispatch with its delegation/notification trail. Password and BRAIN_TOKEN
 // fall back to the .env in the working directory.
@@ -71,7 +71,7 @@ const main = async () => {
   check('GET / redirects', root.status === 302, `-> ${root.headers.get('location')}`)
 
   const app = await fetch(`${base}/app`, { redirect: 'follow' })
-  // 蜂群 Q5 起 /app 直达最近会话：未登录时经 302 链最终落在 /login。
+  // Since Hive Q5 /app goes straight to the most recent chat: unauthenticated it ends up on /login through the 302 chain.
   check('GET /app unauthenticated lands on /login', app.status === 200 && new URL(app.url).pathname === '/login', `final=${new URL(app.url).pathname}`)
 
   const apiAnon = await fetch(`${base}/api/status`)
@@ -84,12 +84,12 @@ const main = async () => {
   })
   check('wrong password is 401', bad.status === 401)
 
-  // 蜂群2计划 P3：首登强制改密后旧密码失效——若 SMOKE_NEW_PASSWORD 已设，
-  // 先用它重试登录（前一次 smoke 已改过密）。
+  // Hive plan 2 P3: after the forced password change on first login the old password is dead -- when
+  // SMOKE_NEW_PASSWORD is set, retry the login with it first (an earlier smoke run already changed it).
   let effectivePassword = password
   let { response: login, body: loginBody } = await tryLogin(password)
   if (login.status !== 200 && newPassword !== null) {
-    info('login', '初始密码已失效，用 SMOKE_NEW_PASSWORD 重试')
+    info('login', 'the initial password is dead, retrying with SMOKE_NEW_PASSWORD')
     const retry = await tryLogin(newPassword)
     login = retry.response
     loginBody = retry.body
@@ -110,7 +110,7 @@ const main = async () => {
 
   const auth = { headers: { cookie, ...(csrf === '' ? {} : { 'x-csrf-token': csrf }) } }
 
-  // 蜂群2计划 P3：首登强制改密
+  // Hive plan 2 P3: forced password change on first login
   if (loginBody.mustChangePassword === true) {
     const next = newPassword ?? `${password}-new1`
     const changed = await fetch(`${base}/api/account/password`, {
@@ -121,7 +121,7 @@ const main = async () => {
     check('forced password change succeeds', changed.status === 200, `status=${changed.status}`)
     if (changed.status === 200) {
       check('password change is audited', true)
-      info('password', `已改为 ${next}（后续运行请设 SMOKE_NEW_PASSWORD=${next}）`)
+      info('password', `changed to ${next} (set SMOKE_NEW_PASSWORD=${next} for later runs)`)
     }
   }
 
@@ -143,8 +143,8 @@ const main = async () => {
     if ((w.git?.dirty ?? []).length > 0) info(`${agent.id} dirty`, (w.git.dirty ?? []).join(', '))
     if (w.git?.lastCommit) info(`${agent.id} head`, `${w.git.lastCommit.hash} ${w.git.lastCommit.message.slice(0, 60)}`)
 
-    // 笔记库型工作区（有 RULE.md）才跑结构化数据检查；向导建的通用工作区
-    // 只有 AGENTS.md + git，没有 note-data 结构——那不是缺陷。
+    // The structured-data check runs only for a note-vault workspace (one with RULE.md); a generic
+    // workspace built by the wizard has only AGENTS.md + git and no note-data structure -- that is not a defect.
     const isNoteVault = (w.docs ?? []).some((d) => d.name === 'RULE.md' && d.present === true)
     if (!isNoteVault) {
       check(`${agent.id}: generic workspace is a clean git repo`, w.git?.isRepo === true && (w.git?.dirty ?? []).length === 0)
@@ -170,7 +170,7 @@ const main = async () => {
   const unknown = await fetch(`${base}/api/agents/does-not-exist/workspace`, auth)
   check('unknown agent is 404', unknown.status === 404)
 
-  console.log(`\n-- conversation (蜂群 P6: chat turn + brain dispatch) --`)
+  console.log(`\n-- conversation (Hive P6: chat turn + brain dispatch) --`)
   const collectFrames = async (chatId, cookie, timeoutMs) => {
     const frames = []
     const controller = new AbortController()
@@ -191,7 +191,7 @@ const main = async () => {
             frames.push(frame)
             if (frame.kind === 'turn_done') return frames
           } catch {
-            // 半帧/心跳，忽略
+            // a half frame / heartbeat, ignore
           }
         }
         buffer = ''
@@ -222,7 +222,7 @@ const main = async () => {
       const sent = await fetch(`${base}/api/chats/${chatId}/messages`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...auth.headers },
-        body: JSON.stringify({ text: '只回复一个词：收到' }),
+        body: JSON.stringify({ text: 'Reply with exactly one word: ok' }),
       })
       check('message accepted', sent.status === 202, `status=${sent.status}`)
       const frames = await collectFrames(chatId, auth.headers.cookie, 180_000)
@@ -245,7 +245,7 @@ const main = async () => {
         const dispatch = await fetch(`${base}/api/internal/dispatch`, {
           method: 'POST',
           headers: { 'content-type': 'application/json', 'X-Brain-Token': brainToken },
-          body: JSON.stringify({ agentId: personal.id, prompt: '只回复一个词：收到', sourceChatId: brainChat.chat?.id ?? '' }),
+          body: JSON.stringify({ agentId: personal.id, prompt: 'Reply with exactly one word: ok', sourceChatId: brainChat.chat?.id ?? '' }),
         })
         const dispatchBody = await json(dispatch)
         check('brain dispatch runs', dispatch.status === 200, dispatch.status === 200 ? `state=${dispatchBody.state}` : `status=${dispatch.status} ${dispatchBody.detail ?? ''}`)

@@ -1,18 +1,18 @@
 /**
- * 0.1.2 切主路：manager.config.yaml 一次性接线迁移（幂等，可反复跑）。
+ * 0.1.2 main-path switch: one-shot wiring migration of manager.config.yaml (idempotent, safe to rerun).
  *
- * 规则（对每个 endpoints 段）：
- * - `prefix: /api` → `/api-gw/v1/proxy`（已迁移则跳过，其它值保持并告警）；
- * - `key_ref` 为空时取同段 `sandbox_key_ref` 的值（同一把门钥匙，语义一致）；
- *   sandbox_key_ref 也为空 → 该端点无法迁移，列出并退出码 2（大声失败）。
+ * Rules (per endpoints section):
+ * - `prefix: /api` → `/api-gw/v1/proxy` (skip when already migrated, keep any other value and warn);
+ * - when `key_ref` is empty take the value of `sandbox_key_ref` in the same section (the same front-door key, same semantics);
+ *   when sandbox_key_ref is empty too → that endpoint cannot be migrated: list it and exit with 2 (fail loud).
  *
- * 附带 .env 镜像标签迁移（gen-env 幂等不覆盖旧值 → 老部署标签必须显式升）：
- * - DSH_NODE_IMAGE=hellodac/dac-node:0.1.1-rc.2 → 0.1.2-rc.1；
- * - MANAGER_VERSION=1.0.1 / 1.0.2 → 1.0.3。
- * .env 备份：首次改动前拷为 .env.pre-012.bak（已存在不覆盖）。
+ * Along with the .env image tag migration (gen-env is idempotent and never overwrites old values → an old deployment's tags must be raised explicitly):
+ * - DSH_NODE_IMAGE=hellodac/dac-node:0.1.1-rc.2 -> 0.1.2-rc.1;
+ * - MANAGER_VERSION=1.0.1 / 1.0.2 -> 1.0.3.
+ * .env backup: copy to .env.pre-012.bak before the first change (never overwritten if it exists).
  *
- * 备份：首次运行前把原文件拷为 <config>.pre-012.bak（已存在不覆盖）。
- * 用法：node scripts/upgrade-012.mjs [config路径]
+ * Backup: copy the original file to <config>.pre-012.bak before the first run (never overwritten if it exists).
+ * Usage: node scripts/upgrade-012.mjs [config path]
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 
@@ -29,7 +29,7 @@ if (!existsSync(configPath)) {
 const original = readFileSync(configPath, 'utf8')
 const lines = original.split(/\r?\n/)
 
-// ---- .env 镜像标签迁移（gen-env 幂等不覆盖旧值 → 老部署的标签必须显式升）----
+// ---- .env image tag migration (gen-env is idempotent and never overwrites old values → an old deployment's tags must be raised explicitly) ----
 const envPath = `${dirnameOf(configPath)}.env`
 let envChanged = false
 if (existsSync(envPath)) {
@@ -44,11 +44,11 @@ if (existsSync(envPath)) {
     const envBak = `${envPath}.pre-012.bak`
     if (!existsSync(envBak)) writeFileSync(envBak, envOriginal, 'utf8')
     writeFileSync(envPath, envLines.join('\n'), 'utf8')
-    console.log(`upgrade-012: 已迁移 .env 镜像标签（DSH_NODE_IMAGE→0.1.2-rc.1、MANAGER_VERSION→1.0.3），备份 ${envBak}`)
+    console.log(`upgrade-012: migrated the .env image tags (DSH_NODE_IMAGE→0.1.2-rc.1, MANAGER_VERSION→1.0.3), backup ${envBak}`)
   }
 }
 
-// 只在 endpoints 段内扫描（段边界：'endpoints:' 到下一个顶层键，通常 'agents:'）
+// Scan only inside the endpoints section (section boundaries: 'endpoints:' to the next top-level key, usually 'agents:')
 const sectionStart = lines.findIndex((l) => /^endpoints:\s*$/.test(l))
 if (sectionStart === -1) {
   console.error('upgrade-012: no endpoints: section found — nothing to do')
@@ -88,7 +88,7 @@ for (let i = sectionStart + 1; i < sectionEnd; i += 1) {
     }
   }
   if (f.name === 'key_ref' && f.value === '""') {
-    // 置空标记：sandbox_key_ref 已在同一段扫描到（key_ref 位于其前时先置空后回填）
+    // Empty marker: sandbox_key_ref was already seen in the same section (when key_ref comes first it is emptied and then filled back in)
     current.keyLine = i
   }
 }
@@ -106,19 +106,19 @@ for (const ep of report) {
 }
 
 if (missing.length > 0) {
-  console.error(`upgrade-012: 这些端点没有 sandbox_key_ref，无法自动接 key（请人工配 key_ref）：${missing.join(', ')}`)
+  console.error(`upgrade-012: these endpoints have no sandbox_key_ref, the key cannot be wired automatically (set key_ref by hand): ${missing.join(', ')}`)
   process.exit(2)
 }
 
 for (const ep of report) {
-  console.log(`  ${ep.name}: prefix=${ep.hadPrefixChange ? '/api-gw/v1/proxy (已迁)' : ep.prefix === '/api-gw/v1/proxy' ? '已迁移' : ep.prefix}${ep.keyLine !== undefined ? ` key_ref=${ep.sandboxKey}` : ''}`)
+  console.log(`  ${ep.name}: prefix=${ep.hadPrefixChange ? '/api-gw/v1/proxy (migrated)' : ep.prefix === '/api-gw/v1/proxy' ? 'already migrated' : ep.prefix}${ep.keyLine !== undefined ? ` key_ref=${ep.sandboxKey}` : ''}`)
 }
 
 if (!changed) {
-  console.log('upgrade-012: 配置已是 0.1.2 接线，无需改动')
+  console.log('upgrade-012: the config is already on the 0.1.2 wiring, nothing to change')
 } else {
   const bak = `${configPath}.pre-012.bak`
   if (!existsSync(bak)) writeFileSync(bak, original, 'utf8')
   writeFileSync(configPath, lines.join('\n'), 'utf8')
-  console.log(`upgrade-012: 已写入 ${configPath}（原文件备份于 ${bak}）`)
+  console.log(`upgrade-012: wrote ${configPath} (original backed up at ${bak})`)
 }

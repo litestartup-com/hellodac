@@ -1,9 +1,9 @@
-# 一次性诊断探针 v2：直连 personal 节点 facade（3081），建会话 → 提问 → 观察 mux 帧。
-# 单线程版：接收循环跑在主线程（Task::Run 委托版实测收不到帧），RPC 与帧泵交错。
+# One-shot diagnostic probe v2: direct to the personal node facade (3081), create a session → ask a question → watch the mux frames.
+# Single-threaded version: the receive loop runs on the main thread (the Task::Run delegate version received no frames in practice), RPC and the frame pump interleave.
 $ErrorActionPreference = 'Stop'
 $envFile = Join-Path $PSScriptRoot '..\.env'
 $key = ((Get-Content $envFile | Where-Object { $_ -like 'GW_KEY_A=*' }) -replace '^GW_KEY_A=', '')
-if ([string]::IsNullOrEmpty($key)) { throw 'GW_KEY_A 未找到' }
+if ([string]::IsNullOrEmpty($key)) { throw 'GW_KEY_A not found' }
 $base = 'http://127.0.0.1:3081/api-gw/v1/proxy'
 $headers = @{ 'X-API-Key' = $key }
 
@@ -12,11 +12,11 @@ function Invoke-Rpc([string]$method, $payload) {
   return Invoke-RestMethod -Uri "$base/$method" -Method Post -Headers $headers -ContentType 'application/json' -Body $body -TimeoutSec 60
 }
 
-# ---- 连接 mux WS ----
+# ---- connect the mux WS ----
 $ws = [System.Net.WebSockets.ClientWebSocket]::new()
 $ws.Options.SetRequestHeader('X-API-Key', $key)
 $ws.ConnectAsync([Uri]'ws://127.0.0.1:3081/api-gw/v1/proxy/events.mux', [System.Threading.CancellationToken]::None).GetAwaiter().GetResult()
-Write-Host "mux 已连接 state=$($ws.State)"
+Write-Host "mux connected state=$($ws.State)"
 $buf = [byte[]]::new(65536)
 $seg = [ArraySegment[byte]]::new($buf)
 
@@ -44,16 +44,16 @@ function Dump-Window([int]$seconds) {
       try {
         $json = $text | ConvertFrom-Json
         if ($json.method -in @('question/requested','question/resolved','approval/requested','approval/resolved')) {
-          Write-Host ("★ 关键帧: method={0} payload={1}" -f $json.method, (($json.payload | ConvertTo-Json -Depth 6 -Compress)))
+          Write-Host ("★ key frame: method={0} payload={1}" -f $json.method, (($json.payload | ConvertTo-Json -Depth 6 -Compress)))
         } elseif ($json.method -eq 'session/event' -and $json.payload.event.type -in @('approval/asked','approval/decided')) {
-          Write-Host ("◎ 会话事件: {0} data={1}" -f $json.payload.event.type, (($json.payload.event.data | ConvertTo-Json -Compress)))
+          Write-Host ("◎ session event: {0} data={1}" -f $json.payload.event.type, (($json.payload.event.data | ConvertTo-Json -Compress)))
         } elseif ($total -le 3) {
-          Write-Host ("· 样本帧: {0}" -f ($text.Substring(0, [Math]::Min(160, $text.Length))))
+          Write-Host ("· sample frame: {0}" -f ($text.Substring(0, [Math]::Min(160, $text.Length))))
         }
-      } catch { Write-Host ("· 非 JSON 帧: {0}" -f ($text.Substring(0, [Math]::Min(80, $text.Length)))) }
+      } catch { Write-Host ("· non-JSON frame: {0}" -f ($text.Substring(0, [Math]::Min(80, $text.Length)))) }
     }
   }
-  Write-Host "本窗口共收 $total 帧"
+  Write-Host "received $total frames in this window"
 }
 
 try {
@@ -61,16 +61,16 @@ try {
   $sessionId = $created.result.value.sessionId
   Write-Host "session: $sessionId"
 
-  Write-Host '=== 提问探针 ==='
-  Invoke-Rpc 'session.prompt' @{ sessionId = $sessionId; mode = 'queue'; content = @(@{ type = 'text'; text = '请只使用提问卡片工具（ask_user_question）问我一个问题：午饭想吃哪个？给我三个选项：米饭、面条、饺子。不要做任何其他事，不要读写任何文件。' }) } | Out-Null
+  Write-Host '=== question probe ==='
+  Invoke-Rpc 'session.prompt' @{ sessionId = $sessionId; mode = 'queue'; content = @(@{ type = 'text'; text = 'Please use only the question card tool (ask_user_question) to ask me one question: what do I want for lunch? Give me three options: rice, noodles, dumplings. Do nothing else, do not read or write any file.' }) } | Out-Null
   Dump-Window 75
 
-  Write-Host '=== 审批探针 ==='
-  Invoke-Rpc 'session.prompt' @{ sessionId = $sessionId; mode = 'queue'; content = @(@{ type = 'text'; text = '请执行 shell 命令 echo hello-probe，只执行这一条，不要做任何其他事。' }) } | Out-Null
+  Write-Host '=== approval probe ==='
+  Invoke-Rpc 'session.prompt' @{ sessionId = $sessionId; mode = 'queue'; content = @(@{ type = 'text'; text = 'Please run the shell command echo hello-probe, just this one, and do nothing else.' }) } | Out-Null
   Dump-Window 60
 
   Invoke-Rpc 'session.cancel' @{ sessionId = $sessionId } | Out-Null
-  Write-Host "探针结束 session=$sessionId"
+  Write-Host "probe finished session=$sessionId"
 } finally {
   try { $ws.CloseAsync([System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure, 'done', [System.Threading.CancellationToken]::None).GetAwaiter().GetResult() | Out-Null } catch {}
 }

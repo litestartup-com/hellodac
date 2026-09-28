@@ -1,4 +1,4 @@
-# 调试：前台启动临时 manager（cwd=$tmp），15 秒后杀，打印输出。
+# Debug: start a temporary manager in the foreground (cwd=$tmp), kill it after 15 seconds, print its output.
 $repo = 'C:\Users\Administrator\Documents\deepseek-workspace\dsh-agent-manager'
 $key = ((Get-Content "$repo\.env" | Where-Object { $_ -like 'GW_KEY_A=*' }) -replace '^GW_KEY_A=', '')
 $tmp = Join-Path $env:TEMP 'dac-mgr-boot-test'

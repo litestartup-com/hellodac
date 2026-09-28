@@ -1,4 +1,4 @@
-# P0 验收链路冒烟（临时实例：独立目录 + 独立端口 + 独立库，不碰生产）。用后即删。
+# P0 acceptance-path smoke (temporary instance: its own directory + port + database, touches no production). Deleted right after use.
 $ErrorActionPreference = 'Continue'
 $root = (Get-Location).Path
 $tmp = Join-Path $env:TEMP "dac-p0-smoke-$(Get-Random)"
@@ -45,47 +45,47 @@ $env:GW_KEY_SMOKE = 'dummy-gateway-key'
 $env:MANAGER_INITIAL_PASSWORD = 'smoke-initial-pass'
 $env:DEEPSEEK_API_KEY = 'sk-dummy'
 
-Write-Output '=== 1) 起临时 manager（含门面）==='
+Write-Output '=== 1) start the temporary manager (facade included) ==='
 $log = Join-Path $tmp 'manager.log'
 $proc = Start-Process -FilePath 'node' -ArgumentList (Join-Path $root 'dist\index.js') -WorkingDirectory $tmp -PassThru -WindowStyle Hidden -RedirectStandardOutput $log -RedirectStandardError (Join-Path $tmp 'manager.err')
 Start-Sleep -Seconds 7
 try {
   $health = Invoke-WebRequest -Uri 'http://127.0.0.1:18080/login' -TimeoutSec 6 -UseBasicParsing -SkipHttpErrorCheck
-  Write-Output "  后台 /login => HTTP $($health.StatusCode)"
+  Write-Output "  backend /login => HTTP $($health.StatusCode)"
   $api = Invoke-WebRequest -Uri 'http://127.0.0.1:18081/v1/health' -TimeoutSec 6 -UseBasicParsing -SkipHttpErrorCheck
-  Write-Output "  门面 /v1/health => HTTP $($api.StatusCode)  body=$($api.Content)"
+  Write-Output "  facade /v1/health => HTTP $($api.StatusCode)  body=$($api.Content)"
 } catch {
-  Write-Output "  启动失败: $($_.Exception.Message)"
+  Write-Output "  start failed: $($_.Exception.Message)"
   Write-Output '  --- manager.log ---'
   if (Test-Path $log) { Get-Content $log -Tail 15 | ForEach-Object { "    $_" } }
   Write-Output '  --- manager.err ---'
   if (Test-Path (Join-Path $tmp 'manager.err')) { Get-Content (Join-Path $tmp 'manager.err') -Tail 15 | ForEach-Object { "    $_" } }
 }
 
-Write-Output '=== 2) 无钥匙访问受保护端点（期望 401）==='
+Write-Output '=== 2) reach a protected endpoint with no key (401 expected) ==='
 $noKey = Invoke-WebRequest -Uri 'http://127.0.0.1:18081/v1/services' -TimeoutSec 6 -UseBasicParsing -SkipHttpErrorCheck
 Write-Output "  HTTP $($noKey.StatusCode)  body=$($noKey.Content)"
 
-Write-Output '=== 3) 用 CLI 发一把钥匙（临时库）==='
+Write-Output '=== 3) mint one key with the CLI (temporary database) ==='
 Push-Location $tmp
 try {
   $out = (& node (Join-Path $root 'node_modules\tsx\dist\cli.mjs') (Join-Path $root 'src\cli\apikey.ts') create --name '冒烟' --services support --scopes 'services:read,usage:read' --quota 5 2>&1 | Out-String)
 } finally { Pop-Location }
 Write-Output ($out -split "`n" | Select-Object -First 6 | ForEach-Object { "  $_" })
 $token = ([regex]::Match($out, 'dac_[0-9a-f]{12}_[A-Za-z0-9_-]{43}')).Value
-Write-Output "  取到 token: $(if ($token) { '是' } else { '否 ✗' })"
+Write-Output "  token obtained: $(if ($token) { 'yes' } else { 'no ✗' })"
 
-Write-Output '=== 4) 带钥匙调用（期望 200 + 只看到自己的服务）==='
+Write-Output '=== 4) call with the key (200 expected + only your own service visible) ==='
 $ok = Invoke-WebRequest -Uri 'http://127.0.0.1:18081/v1/services' -Headers @{ Authorization = "Bearer $token" } -TimeoutSec 6 -UseBasicParsing -SkipHttpErrorCheck
 Write-Output "  /v1/services => HTTP $($ok.StatusCode)  body=$($ok.Content)"
 $usage = Invoke-WebRequest -Uri 'http://127.0.0.1:18081/v1/usage' -Headers @{ Authorization = "Bearer $token" } -TimeoutSec 6 -UseBasicParsing -SkipHttpErrorCheck
 Write-Output "  /v1/usage    => HTTP $($usage.StatusCode)  body=$($usage.Content)"
 
-Write-Output '=== 5) 会话 cookie 冒充钥匙（期望 401）==='
+Write-Output '=== 5) impersonate a key with the session cookie (401 expected) ==='
 $cookie = Invoke-WebRequest -Uri 'http://127.0.0.1:18081/v1/services' -Headers @{ Cookie = "mgr_sid=$('z' * 43)" } -TimeoutSec 6 -UseBasicParsing -SkipHttpErrorCheck
 Write-Output "  HTTP $($cookie.StatusCode)"
 
-Write-Output '=== 6) 吊销后立即失效（期望 200 → 401）==='
+Write-Output '=== 6) revoked takes effect immediately (200 → 401 expected) ==='
 $keyId = ([regex]::Match($out, 'id\s*:\s*([0-9a-f]{12})')).Groups[1].Value
 Push-Location $tmp
 try {
@@ -93,9 +93,9 @@ try {
 } finally { Pop-Location }
 Write-Output "  CLI: $rev"
 $after = Invoke-WebRequest -Uri 'http://127.0.0.1:18081/v1/services' -Headers @{ Authorization = "Bearer $token" } -TimeoutSec 6 -UseBasicParsing -SkipHttpErrorCheck
-Write-Output "  吊销后 /v1/services => HTTP $($after.StatusCode)  body=$($after.Content)"
+Write-Output "  after revoke /v1/services => HTTP $($after.StatusCode)  body=$($after.Content)"
 
-Write-Output '=== 7) 审计是否留痕（临时库）==='
+Write-Output '=== 7) did the audit log leave a trace (temporary database) ==='
 $sql = @'
 import { DatabaseSync } from 'node:sqlite'
 const db = new DatabaseSync(process.argv[2], { readOnly: true })
@@ -105,8 +105,8 @@ db.close()
 Set-Content -Path (Join-Path $tmp 'peek.mjs') -Value $sql -Encoding UTF8
 node --experimental-sqlite (Join-Path $tmp 'peek.mjs') (Join-Path $tmp 'manager.db') 2>$null
 
-Write-Output '=== 清理 ==='
+Write-Output '=== cleanup ==='
 Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 2
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
-Write-Output "  临时实例已停、目录已删: $(-not (Test-Path $tmp))"
+Write-Output "  temporary instance stopped, directory removed: $(-not (Test-Path $tmp))"

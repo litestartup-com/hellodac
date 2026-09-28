@@ -1,8 +1,8 @@
-// scripts/fresh-boot-smoke.mjs — 蜂群2计划 P6：全新克隆旅程 E2E（CI 常驻）。
+// scripts/fresh-boot-smoke.mjs — Hive plan 2 P6: the fresh-clone journey E2E (always on in CI).
 //
-// 模拟一个全新用户：临时目录 + 最小配置（无 spawn → 不需要 DSH 与凭据）→
-// 用 build 产物 dist/index.js 启动 → 登录（自动建管理员）→ 首登强制改密 →
-// 业务 API 放行 → 登出。任何一步失败退出码非 0。
+// Simulates a brand-new user: temporary directory + minimal config (no spawn → no DSH and no credentials) →
+// start from the build output dist/index.js → login (the admin is created automatically) → forced password
+// change on first login → the business API is let through → logout. Any failing step exits non-zero.
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const dist = join(root, 'dist', 'index.js')
 if (!existsSync(dist)) {
-  console.error('dist/index.js 不存在——先 npm run build。')
+  console.error('dist/index.js does not exist -- run npm run build first.')
   process.exit(1)
 }
 
@@ -53,7 +53,7 @@ child.stderr.on('data', (chunk) => {
   stderr += String(chunk)
 })
 
-/** 停掉子进程并等它真正退出（Windows 上句柄未释放时删目录会 EBUSY）。 */
+/** Stop the child process and wait for it to really exit (on Windows, deleting a directory with open handles fails with EBUSY). */
 const stop = () =>
   new Promise((resolveStop) => {
     if (child.exitCode !== null) {
@@ -75,7 +75,7 @@ const main = async () => {
         `  port: ${PORT}`,
         'endpoints:',
         '  A:',
-        '    url: http://127.0.0.1:1', // 永不连通：E2E 不需要真 DSH
+        '    url: http://127.0.0.1:1', // never reachable: E2E needs no real DSH
         '    driver: apiproxy',
         'agents:',
         '  personal:',
@@ -88,7 +88,7 @@ const main = async () => {
       'utf8',
     )
 
-    // 等 /healthz
+    // wait for /healthz
     let up = false
     for (let i = 0; i < 60; i += 1) {
       try {
@@ -98,17 +98,17 @@ const main = async () => {
           break
         }
       } catch {
-        // 还没起
+        // not up yet
       }
       await new Promise((resolveWait) => setTimeout(resolveWait, 500))
     }
     check('manager boots on a fresh clone', up, up ? '' : `stderr: ${stderr.slice(-300)}`)
     if (!up) return
 
-    // 未登录 401
+    // unauthenticated = 401
     check('anonymous /api/status is 401', (await fetch(`${base}/api/status`)).status === 401)
 
-    // 登录（自动建管理员）
+    // login (the admin is created automatically)
     const login = await fetch(`${base}/api/login`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -125,11 +125,11 @@ const main = async () => {
     check('CSRF cookie issued', csrf !== '')
     const headers = { cookie, ...(csrf === '' ? {} : { 'x-csrf-token': csrf }) }
 
-    // 强制改密期间业务 API 403
+    // the business API is 403 while the password change is pending
     const blocked = await fetch(`${base}/api/status`, { headers: { cookie } })
     check('business API blocked until password change', blocked.status === 403)
 
-    // 无 CSRF 令牌的改密请求被拒
+    // a password change request without a CSRF token is rejected
     const noCsrf = await fetch(`${base}/api/account/password`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', cookie },
@@ -137,7 +137,7 @@ const main = async () => {
     })
     check('password change without CSRF token is 403', noCsrf.status === 403)
 
-    // 改密
+    // change the password
     const changed = await fetch(`${base}/api/account/password`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...headers },
@@ -145,7 +145,7 @@ const main = async () => {
     })
     check('forced password change succeeds', changed.status === 200)
 
-    // P1-5：改密吊销旧会话 + 换发当前会话（浏览器靠 Set-Cookie 自动续上）
+    // P1-5: the password change revokes the old session and reissues the current one (the browser picks it up via Set-Cookie)
     const changedCookies = changed.headers.getSetCookie()
     const cookie2 = changedCookies.map((c) => c.split(';')[0]).join('; ')
     const csrf2Line = changedCookies.find((c) => c.startsWith('dac_csrf='))
@@ -155,14 +155,14 @@ const main = async () => {
     check('old session is revoked after password change', staleSession.status === 401, `got ${staleSession.status}`)
     const headers2 = { cookie: cookie2, ...(csrf2 === '' ? {} : { 'x-csrf-token': csrf2 }) }
 
-    // 业务 API 放行 + 审计留痕
+    // the business API is let through + the audit log keeps a trace
     const status = await json(await fetch(`${base}/api/status`, { headers: headers2 }))
     check('business API works after change', (status.agents ?? []).length === 1)
     const audit = await json(await fetch(`${base}/api/audit`, { headers: headers2 }))
     const kinds = (audit.entries ?? []).map((e) => e.kind)
     check('audit trail has login_success and password_change', kinds.includes('login_success') && kinds.includes('password_change'), kinds.join(','))
 
-    // 旧密码失效、新密码可登录
+    // the old password stops working, the new one can log in
     const oldLogin = await fetch(`${base}/api/login`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -170,7 +170,7 @@ const main = async () => {
     })
     check('old password no longer works', oldLogin.status === 401)
 
-    // 登出
+    // logout
     const logout = await fetch(`${base}/api/logout`, { method: 'POST', headers: headers2 })
     check('logout succeeds', logout.status === 200)
   } finally {

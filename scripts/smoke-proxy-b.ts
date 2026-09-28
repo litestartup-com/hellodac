@@ -1,14 +1,14 @@
 /**
- * S3-3 验收冒烟：manager 走 proxy 路径（方案 B），经新网关插件间接访问本机 DSH /api。
+ * S3-3 acceptance smoke: the manager takes the proxy path (Option B) and reaches the local DSH /api indirectly through the new gateway plugin.
  *
- * 前置：先起 scripts/proxy-host.mjs（在 dsh-api-gateway 仓库），监听 127.0.0.1:3999。
+ * Prerequisite: start scripts/proxy-host.mjs first (in the dsh-api-gateway repo), listening on 127.0.0.1:3999.
  *
- * 顺序：host.describe → session.list → 403 白名单 / 401 鉴权负例 →
- * session.create → session.history → mux 订阅(经代理 WS) + session.prompt → turn_end →
- * session.cancel → 清理。
+ * Order: host.describe → session.list → 403 allowlist / 401 auth negative cases →
+ * session.create → session.history → mux subscribe (over the proxied WS) + session.prompt → turn_end →
+ * session.cancel → cleanup.
  *
- * 用法：npx tsx scripts/smoke-proxy-b.ts [proxy-url]
- * 默认 proxy = http://127.0.0.1:3999/api-gw/v1/proxy，key = smoke-key（SMOKE_KEY 覆盖）。
+ * Usage: npx tsx scripts/smoke-proxy-b.ts [proxy-url]
+ * Default proxy = http://127.0.0.1:3999/api-gw/v1/proxy, key = smoke-key (SMOKE_KEY overrides).
  */
 
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -37,9 +37,9 @@ const step = async (name: string, fn: () => Promise<void>): Promise<void> => {
   try { await fn() } catch (error) { fail(name + ': ' + (error as Error).message) }
 }
 
-// 负例（直接 fetch，不走 UpstreamClient）：白名单外 403、错 key 401、health 无需鉴权。
+// Negative cases (plain fetch, not through UpstreamClient): 403 outside the allowlist, 401 on a wrong key, health needs no auth.
 const proxyRoot = baseArg.replace(/\/api-gw\/v1\/proxy\/?$/, '')
-await step('负例：白名单外 403 / 错 key 401 / health 开放', async () => {
+await step('negative cases: 403 outside the allowlist / 401 on a wrong key / health open', async () => {
   const blocked = await fetch(proxyRoot + '/api-gw/v1/proxy/credentials.set', {
     method: 'POST', headers: { 'x-api-key': key, 'content-type': 'application/json' }, body: '{}',
   })
@@ -54,12 +54,12 @@ await step('负例：白名单外 403 / 错 key 401 / health 开放', async () =
   log('health: status=' + healthBody.status + ' upstream=' + healthBody.upstream)
 })
 
-await step('host.describe（经代理）', async () => {
+await step('host.describe (through the proxy)', async () => {
   const version = await client.probeVersion()
   log('DSH version (via proxy): ' + version)
 })
 
-await step('session.list（经代理）', async () => {
+await step('session.list (through the proxy)', async () => {
   const list = await client.listSessions()
   log('sessions: ' + list.length)
 })
@@ -67,18 +67,18 @@ await step('session.list（经代理）', async () => {
 const tmpDir = mkdtempSync(join(tmpdir(), 'manager-smoke-b-'))
 let sessionId = ''
 try {
-  await step('session.create（经代理，临时 cwd）', async () => {
+  await step('session.create (through the proxy, temporary cwd)', async () => {
     const created = await client.createSession(tmpDir, null)
     sessionId = created.sessionId
     log('created session ' + sessionId)
   })
 
-  await step('session.history（经代理）', async () => {
+  await step('session.history (through the proxy)', async () => {
     const history = await client.history(sessionId)
     log('events=' + history.events.length)
   })
 
-  await step('mux 订阅（经代理 WS）+ session.prompt → turn_end', async () => {
+  await step('mux subscribe (proxied WS) + session.prompt → turn_end', async () => {
     const kinds = new Set<string>()
     const unsub = client.subscribe(sessionId, (_sid: string, frame: GatewayFrame) => { kinds.add(frame.kind) })
     try {
@@ -94,12 +94,12 @@ try {
     }
   })
 
-  await step('session.cancel（经代理）', async () => {
+  await step('session.cancel (through the proxy)', async () => {
     await client.cancel(sessionId)
     log('cancel ok')
   })
 } finally {
-  try { rmSync(tmpDir, { recursive: true, force: true }) } catch { /* 清理失败不影响结果 */ }
+  try { rmSync(tmpDir, { recursive: true, force: true }) } catch { /* a failed cleanup does not affect the result */ }
 }
 
-log('ALL PROXY SMOKE STEPS PASSED (方案 B)')
+log('ALL PROXY SMOKE STEPS PASSED (Option B)')

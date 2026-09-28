@@ -1,5 +1,5 @@
-# 探针：manager 层三链路复现（临时实例 → 生产 facade 3081）。
-# 走真实 API：登录 → 建 chat → capabilities → fresh 时切权限 → 发消息 → 再切 → 模型目录/选择。
+# Probe: reproduce the three chains at the manager layer (temporary instance → production facade 3081).
+# Goes through the real API: login → create chat → capabilities → switch permission while fresh → send a message → switch again → model catalog/selection.
 $ErrorActionPreference = 'Stop'
 $repo = 'C:\Users\Administrator\Documents\deepseek-workspace\dsh-agent-manager'
 $key = ((Get-Content "$repo\.env" | Where-Object { $_ -like 'GW_KEY_A=*' }) -replace '^GW_KEY_A=', '')
@@ -38,8 +38,8 @@ $env:MANAGER_USERNAME = 'admin'
 $env:MANAGER_INITIAL_PASSWORD = 'probe-pass-123'
 $env:LOG_LEVEL = 'warn'
 
-# 入口与依赖经 junction 链接进 $tmp（cwd 在 $tmp，manager 读 cwd 下的
-# manager.config.yaml）；环境变量在脚本进程内直接设置。
+# Links the entry point and dependencies into $tmp via junctions (cwd is in $tmp, and the manager reads
+# manager.config.yaml from the cwd); environment variables are set directly inside the script process.
 cmd /c mklink /J "$tmp\node_modules" "$repo\node_modules" 2>&1 | Out-Null
 cmd /c mklink /J "$tmp\src" "$repo\src" 2>&1 | Out-Null
 $proc = Start-Process -FilePath 'node' -ArgumentList '--import','tsx','src/index.ts' -WorkingDirectory $tmp -PassThru -WindowStyle Hidden
@@ -48,19 +48,19 @@ try {
   for ($i = 0; $i -lt 30 -and -not $up; $i++) {
     try { $r = Invoke-WebRequest -Uri "$base/healthz" -UseBasicParsing -TimeoutSec 2; if ($r.StatusCode -eq 200) { $up = $true } } catch { Start-Sleep -Seconds 1 }
   }
-  if (-not $up) { 'manager 未起'; exit 1 }
-  'manager 已起'
+  if (-not $up) { 'manager did not start'; exit 1 }
+  'manager is up'
 
   $login = Invoke-RestMethod -Uri "$base/api/login" -Method Post -ContentType 'application/json' -Body (@{ username = 'admin'; password = 'probe-pass-123' } | ConvertTo-Json) -SessionVariable sess -TimeoutSec 10
   $csrf = $sess.Cookies.GetCookies("$base")['dac_csrf'].Value
   $authHeaders = @{ 'x-csrf-token' = $csrf }
-  '已登录'
+  'logged in'
 
-  '--- 首登改密 ---'
+  '--- forced password change on first login ---'
   $pw = Invoke-RestMethod -Uri "$base/api/account/password" -Method Post -Headers $authHeaders -ContentType 'application/json' -Body (@{ currentPassword = 'probe-pass-123'; newPassword = 'probe-pass-456' } | ConvertTo-Json) -WebSession $sess -TimeoutSec 10
   $csrf = $sess.Cookies.GetCookies("$base")['dac_csrf'].Value
   $authHeaders = @{ 'x-csrf-token' = $csrf }
-  "改密回执: $($pw | ConvertTo-Json -Compress)"
+  "password change ack: $($pw | ConvertTo-Json -Compress)"
 
   $chat = Invoke-RestMethod -Uri "$base/api/chats" -Method Post -Headers $authHeaders -ContentType 'application/json' -Body (@{ agentId = 'personal' } | ConvertTo-Json) -WebSession $sess -TimeoutSec 10
   $chatId = $chat.chat.id
@@ -69,40 +69,40 @@ try {
   $state = Invoke-RestMethod -Uri "$base/api/chats/$chatId" -Headers $authHeaders -WebSession $sess -TimeoutSec 15
   "sessionState=$($state.sessionState) capabilities=$($state.composer.capabilities | ConvertTo-Json -Compress)"
 
-  '--- fresh 时切权限（预期 409 no_session） ---'
+  '--- switch permission while fresh (409 no_session expected) ---'
   try {
     Invoke-RestMethod -Uri "$base/api/chats/$chatId/sandbox-mode" -Method Post -Headers $authHeaders -ContentType 'application/json' -Body (@{ mode = 'workspace-write' } | ConvertTo-Json) -WebSession $sess -TimeoutSec 10 | Out-Null
-    '意外成功'
-  } catch { "fresh 切换: HTTP $([int]$_.Exception.Response.StatusCode) $($_.ErrorDetails.Message)" }
+    'succeeded unexpectedly'
+  } catch { "switch while fresh: HTTP $([int]$_.Exception.Response.StatusCode) $($_.ErrorDetails.Message)" }
 
-  '--- 发一条消息绑定会话 ---'
+  '--- send one message to bind the session ---'
   $msg = Invoke-RestMethod -Uri "$base/api/chats/$chatId/messages" -Method Post -Headers $authHeaders -ContentType 'application/json' -Body (@{ text = '你好' } | ConvertTo-Json) -WebSession $sess -TimeoutSec 10
-  "消息回执: $($msg | ConvertTo-Json -Compress)"
+  "message ack: $($msg | ConvertTo-Json -Compress)"
   $bound = $false
   for ($i = 0; $i -lt 10 -and -not $bound; $i++) {
     Start-Sleep -Seconds 3
     $st = Invoke-RestMethod -Uri "$base/api/chats/$chatId" -Headers $authHeaders -WebSession $sess -TimeoutSec 15
     $turnInfo = (@($st.turns) | ForEach-Object { ($_.state) + '/' + ($_.error) }) -join ', '
-    "轮询 $($i+1): sessionState=$($st.sessionState) busyRunId=$($st.busyRunId) turns=$turnInfo"
+    "poll $($i+1): sessionState=$($st.sessionState) busyRunId=$($st.busyRunId) turns=$turnInfo"
     if ($st.sessionState -ne 'fresh') { $bound = $true }
   }
 
-  '--- 会话建立后再切权限（预期 200） ---'
+  '--- switch permission after the session is established (200 expected) ---'
   try {
     $sm = Invoke-RestMethod -Uri "$base/api/chats/$chatId/sandbox-mode" -Method Post -Headers $authHeaders -ContentType 'application/json' -Body (@{ mode = 'workspace-write' } | ConvertTo-Json) -WebSession $sess -TimeoutSec 10
-    "切权限回执: $($sm | ConvertTo-Json -Compress)"
-  } catch { "切权限失败: HTTP $([int]$_.Exception.Response.StatusCode) $($_.ErrorDetails.Message)" }
+    "permission switch ack: $($sm | ConvertTo-Json -Compress)"
+  } catch { "permission switch failed: HTTP $([int]$_.Exception.Response.StatusCode) $($_.ErrorDetails.Message)" }
 
-  '--- 模型目录 ---'
+  '--- model catalog ---'
   try {
     $cat = Invoke-RestMethod -Uri "$base/api/chats/$chatId/models" -Headers $authHeaders -WebSession $sess -TimeoutSec 15
     $g = @($cat.catalog.groups)[0]
     $m = @($g.models)[0]
-    "目录: groups=$(@($cat.catalog.groups).Count) 首个=$($g.id)/$($m.id)"
-    '--- 模型选择 ---'
+    "catalog: groups=$(@($cat.catalog.groups).Count) first=$($g.id)/$($m.id)"
+    '--- model selection ---'
     $sel = Invoke-RestMethod -Uri "$base/api/chats/$chatId/model" -Method Post -Headers $authHeaders -ContentType 'application/json' -Body (@{ provider = $g.id; model = $m.id } | ConvertTo-Json) -WebSession $sess -TimeoutSec 15
-    "选择回执: $($sel | ConvertTo-Json -Compress)"
-  } catch { "模型链路失败: HTTP $([int]$_.Exception.Response.StatusCode) $($_.ErrorDetails.Message)" }
+    "selection ack: $($sel | ConvertTo-Json -Compress)"
+  } catch { "model chain failed: HTTP $([int]$_.Exception.Response.StatusCode) $($_.ErrorDetails.Message)" }
 } finally {
   Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
   Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue

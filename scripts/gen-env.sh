@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# 蜂群2计划 P2/P5：生成/补全 .env（幂等：已有且非空的值绝不覆盖）。
-# 用法：bash scripts/gen-env.sh [env文件]；DEEPSEEK_API_KEY 可先 export 预置。
+# Hive plan 2 P2/P5: generate/complete .env (idempotent: an existing non-empty value is never overwritten).
+# Usage: bash scripts/gen-env.sh [env file]; DEEPSEEK_API_KEY can be pre-set by exporting it.
 set -euo pipefail
 
 ENV_FILE="${1:-.env}"
@@ -16,23 +16,25 @@ ensure() { # key value
 [ -f "$ENV_FILE" ] || : > "$ENV_FILE"
 
 ensure SESSION_SECRET "$(gen)"
-# 债务 H1：manager/node 容器以 HOST_UID:HOST_GID 运行（compose user: 指令）。
-# 不写入时 compose 回落 1000:1000，与本机部署用户（如 GH runner 的 1001）
-# 不一致 → data/workspaces bind mount 只读 → manager 启动即崩（SQLITE_CANTOPEN）。
-# install.sh 有同款两行，gen-env 直接用的场景（CI compose-e2e / 手动引导）也必须写。
+# Debt H1: the manager/node containers run as HOST_UID:HOST_GID (the compose user: directive).
+# When it is not written, compose falls back to 1000:1000, which does not match the deploying user
+# on this machine (e.g. 1001 for a GH runner) → the data/workspaces bind mount goes read-only →
+# the manager crashes at boot (SQLITE_CANTOPEN).
+# install.sh has the same two lines; the direct gen-env use cases (CI compose-e2e / manual bootstrap) must write them too.
 ensure HOST_UID "$(id -u)"
 ensure HOST_GID "$(id -g)"
 ensure GW_KEY_A "apigw-$(openssl rand -hex 24)"
 ensure GW_KEY_B "apigw-$(openssl rand -hex 24)"
 ensure BRAIN_TOKEN "$(openssl rand -hex 24)"
 ensure MANAGER_USERNAME "admin"
-# 尊重 install.sh/环境传入的口令；未提供才随机生成
+# Respect the password passed in by install.sh/the environment; generate randomly only when none was given
 ensure MANAGER_INITIAL_PASSWORD "${MANAGER_PASSWORD:-$(openssl rand -hex 8)}"
 ensure DSH_NODE_IMAGE "hellodac/dac-node:0.1.2-rc.1"
-# 债务 D5:版本号唯一真相源 = package.json(与 build 的 inject-version 同源)
+# Debt D5: the single source of truth for the version number = package.json (same source as inject-version in build)
 ensure MANAGER_VERSION "$(node -p "require('./package.json').version" 2>/dev/null || echo 0.0.0)"
-# 债务 H1：manager 容器经 group_add 加入宿主 docker 组才能访问 docker.sock。
-# 探测不到（本机未装 docker）落 0——compose 启动会因权限失败而显性报错。
+# Debt H1: the manager container can reach docker.sock only by joining the host docker group via group_add.
+# When it cannot be probed (no docker installed locally) it falls back to 0 -- compose start then fails
+# loudly on permissions.
 DOCKER_GID_DETECTED="$(getent group docker | cut -d: -f3 2>/dev/null || true)"
 ensure DOCKER_GID "${DOCKER_GID_DETECTED:-0}"
 if [ -n "${DEEPSEEK_API_KEY:-}" ]; then
@@ -42,8 +44,8 @@ fi
 chmod 600 "$ENV_FILE"
 mkdir -p workspaces/personal workspaces/brain data
 
-echo "[gen-env] $ENV_FILE 就绪（幂等）。"
-echo "[gen-env] 初始密码：$(grep '^MANAGER_INITIAL_PASSWORD=' "$ENV_FILE" | cut -d= -f2-)"
+echo "[gen-env] $ENV_FILE ready (idempotent)."
+echo "[gen-env] initial password: $(grep '^MANAGER_INITIAL_PASSWORD=' "$ENV_FILE" | cut -d= -f2-)"
 if ! grep -q '^DEEPSEEK_API_KEY=' "$ENV_FILE"; then
-  echo "[gen-env] ⚠ 尚未设置 DEEPSEEK_API_KEY —— 手动编辑 $ENV_FILE 填入后启动。"
+  echo "[gen-env] ⚠ DEEPSEEK_API_KEY is not set yet -- edit $ENV_FILE by hand, fill it in, then start."
 fi

@@ -1,23 +1,24 @@
 /**
- * 能力二（2026-09-20）：节点 DSH 版本升级脚本（幂等，--dry-run 可预演）。
- * upgrade-012-win.mjs 的参数化泛化——目标版本来自版本矩阵 src/dsh-matrix.ts；
- * 脚本独立运行不依赖 ts 源码/构建产物，钉版由 scripts/check-docs.mjs 常驻
- * 断言与矩阵一致（禁止多点手改）。
+ * Capability two (2026-09-20): node DSH version upgrade script (idempotent, --dry-run previews).
+ * The parameterized generalization of upgrade-012-win.mjs -- the target version comes from the version matrix
+ * src/dsh-matrix.ts; the script runs standalone without the ts sources/build output, and the pin is asserted
+ * against the matrix by scripts/check-docs.mjs at all times (no hand-editing in several places).
  *
- * 对 manager.config.yaml 里每个 process 托管节点：
- * 1. profile 依赖/bundles 钉目标版本 + GATEWAY_REF，清 node_modules 后
- *    npm install（矩阵标 needsLegacyPeerDeps 的配对追加 --legacy-peer-deps，
- *    事实卡 dsh-facts §12）；
- * 2. settings.yaml：'ohdsh-api-facade' 命名空间铸/复用 apiKeys（旧 dsh-api-gw
- *    段不动）；
- * 3. 全局 DSH：bin.js 所在 prefix 目录 npm install @deepseek-ai/dsh@<target>
- *    （版本已对则跳过；隔离安装的新节点无此项）；
- * 4. .env：DSH_NODE_IMAGE → hellodac/dac-node:<target>（容器部署换镜像 tag），
- *    GW_KEY_* 同步写回新钥匙（process 节点）。
+ * For every process-managed node in manager.config.yaml:
+ * 1. pin the profile dependencies/bundles to the target version + GATEWAY_REF, wipe node_modules and
+ *    npm install (for pairs the matrix marks needsLegacyPeerDeps append --legacy-peer-deps,
+ *    fact card dsh-facts section 12);
+ * 2. settings.yaml: mint/reuse apiKeys in the 'ohdsh-api-facade' namespace (the old dsh-api-gw
+ *    section is left alone);
+ * 3. global DSH: npm install @deepseek-ai/dsh@<target> in the prefix directory that holds bin.js
+ *    (skip when the version already matches; a new node installed in isolation has no such entry);
+ * 4. .env: DSH_NODE_IMAGE → hellodac/dac-node:<target> (container deployments swap the image tag),
+ *    and GW_KEY_* written back with the new keys (process nodes).
  *
- * 不碰 manager.config.yaml 的接线形态（归 upgrade-012.mjs）；节点 spawn 钉版
- * 改 manager.config.yaml 由用户在节点页/向导操作，本脚本只改派生面。
- * 用法：node scripts/upgrade-node-version.mjs <target-version> [config路径] [--dry-run] [--force]
+ * Does not touch the wiring shape of manager.config.yaml (that is upgrade-012.mjs); pinning a node's spawn
+ * version edits manager.config.yaml and is done by the user on the nodes page/in the wizard -- this script
+ * only changes the derived side.
+ * Usage: node scripts/upgrade-node-version.mjs <target-version> [config path] [--dry-run] [--force]
  */
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -28,7 +29,7 @@ import { createServer } from 'node:net'
 
 const require = createRequire(import.meta.url)
 const { parse: parseYaml, stringify: stringifyYaml } = require('yaml')
-// 与 src/dsh-matrix.ts 保持一致（check-docs.mjs 常驻断言，改矩阵后本表漏改 = CI 红）。
+// Kept in sync with src/dsh-matrix.ts (asserted by check-docs.mjs at all times; missing this table after a matrix change = CI red).
 const COMPAT_DSH_PACKAGE = '@deepseek-ai/dsh'
 const GATEWAY_PACKAGE = 'ohdsh-api-facade'
 const GATEWAY_REF = 'github:litestartup-com/dsh-api-gateway#b592b4f'
@@ -45,19 +46,20 @@ const target = positional[0]
 const configPath = positional[1] ?? 'manager.config.yaml'
 
 if (target === undefined) {
-  console.error(`upgrade-node-version: 缺少目标版本。支持：${SUPPORTED.map((p) => p.dsh).join(' / ')}`)
+  console.error(`upgrade-node-version: no target version given. Supported: ${SUPPORTED.map((p) => p.dsh).join(' / ')}`)
   process.exit(1)
 }
 const pair = SUPPORTED.find((p) => p.dsh === target.replace(/^v/, ''))
 if (pair === undefined) {
-  console.error(`upgrade-node-version: 目标版本 ${target} 不在版本矩阵里（支持：${SUPPORTED.map((p) => p.dsh).join(' / ')}）——先升级矩阵并重新验证再升级节点`)
+  console.error(`upgrade-node-version: the target version ${target} is not in the version matrix (supported: ${SUPPORTED.map((p) => p.dsh).join(' / ')}) -- upgrade the matrix and re-verify before upgrading nodes`)
   process.exit(1)
 }
 const TARGET = pair.dsh
 const bakSuffix = `.pre-${TARGET}.bak`
 
-// 预检：生产端口被占 = 栈还在跑，npm 清旧文件必 EPERM（2026-09-10 实测炸过
-// 一半留半毁树）。要求先停栈，--force 跳过。
+// Pre-check: a busy production port = the stack is still running, and npm wiping old files will hit EPERM
+// (measured on 2026-09-10: it blew up halfway and left a half-destroyed tree). The stack must be stopped
+// first; --force skips this.
 const BUSY_PORTS = [8080, 3081, 3082, 3090]
 const portBusy = (p) => new Promise((resolveBusy) => {
   const probe = createServer()
@@ -69,8 +71,8 @@ if (!force && !dryRun) {
   const busy = []
   for (const p of BUSY_PORTS) if (await portBusy(p)) busy.push(p)
   if (busy.length > 0) {
-    console.error(`upgrade-node-version: 端口 ${busy.join(', ')} 被占用——生产栈还在运行，升级会 EPERM 半途而废。`)
-    console.error('先停栈：schtasks /end /tn DacManager（或 systemctl stop 对应服务），等节点进程退出后重跑本脚本。')
+    console.error(`upgrade-node-version: port(s) ${busy.join(', ')} are busy -- the production stack is still running and the upgrade would die halfway with EPERM.`)
+    console.error('Stop the stack first: schtasks /end /tn DacManager (or systemctl stop the matching service), wait for the node processes to exit, then rerun this script.')
     process.exit(1)
   }
 }
@@ -87,7 +89,7 @@ const backup = (path) => {
   const bak = `${path}${bakSuffix}`
   if (!existsSync(bak)) {
     if (!dryRun) writeFileSync(bak, readFileSync(path, 'utf8'), 'utf8')
-    log(`备份 ${path} → ${bak}`)
+    log(`backup ${path} → ${bak}`)
   }
 }
 
@@ -99,11 +101,11 @@ const npm = (cwd, installArgs) => {
   execFileSync('npm', full, { cwd, stdio: 'inherit', shell: process.platform === 'win32' })
 }
 
-// ---- 1/2/3: 节点 profile + settings + 全局 DSH ----
+// ---- 1/2/3: node profile + settings + global DSH ----
 const dshPrefixes = new Set()
 const keyByVar = new Map()
 for (const [id, ep] of Object.entries(cfg.endpoints ?? {})) {
-  // schema 默认 runner='process'：原始 yaml 常省略该字段
+  // The schema defaults runner='process': a raw yaml usually omits the field
   const runner = ep?.spawn?.runner ?? 'process'
   if (runner !== 'process') continue
   const home = ep.spawn.env?.DSH_HOME
@@ -115,25 +117,25 @@ for (const [id, ep] of Object.entries(cfg.endpoints ?? {})) {
 
   const profileDir = join(home, 'profiles', profileName)
   if (!existsSync(join(profileDir, 'package.json'))) {
-    log(`⚠ 节点 ${id}: ${profileDir}/package.json 不存在，跳过（外管节点？）`)
+    log(`⚠ node ${id}: ${profileDir}/package.json does not exist, skipping (an externally managed node?)`)
     continue
   }
-  // 1) profile 钉目标版本 + facade
+  // 1) pin the profile to the target version + facade
   const pkgPath = join(profileDir, 'package.json')
   const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
   const deps = { '@deepseek-ai/dsh': TARGET, '@deepseek-ai/dsh-base': TARGET, '@deepseek-ai/dsh-web-app': TARGET, [GATEWAY_PACKAGE]: GATEWAY_REF }
   const next = { ...pkg, dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', GATEWAY_PACKAGE] } }, dependencies: deps }
   if (JSON.stringify(pkg) !== JSON.stringify(next)) {
-    actions.push(`节点 ${id}: profile 依赖/bundles 钉 ${TARGET}`)
+    actions.push(`node ${id}: profile dependencies/bundles pinned to ${TARGET}`)
     backup(pkgPath)
     if (!dryRun) writeFileSync(pkgPath, JSON.stringify(next, null, 2) + '\n', 'utf8')
     if (!dryRun) rmSync(join(profileDir, 'node_modules'), { recursive: true, force: true })
     npm(profileDir, [])
   } else {
-    log(`节点 ${id}: profile 已是 ${TARGET}，跳过`)
+    log(`node ${id}: the profile is already ${TARGET}, skipping`)
   }
 
-  // 2) settings.yaml 铸/复用 facade 钥匙
+  // 2) mint/reuse the facade key in settings.yaml
   const settingsPath = join(home, 'settings.yaml')
   const settings = existsSync(settingsPath) ? parseYaml(readFileSync(settingsPath, 'utf8')) ?? {} : {}
   const ns = settings[GATEWAY_PACKAGE] ?? {}
@@ -144,19 +146,19 @@ for (const [id, ep] of Object.entries(cfg.endpoints ?? {})) {
     settings[GATEWAY_PACKAGE] = { ...ns, apiKeys: [...(Array.isArray(ns.apiKeys) ? ns.apiKeys : []), key] }
     backup(settingsPath)
     if (!dryRun) writeFileSync(settingsPath, stringifyYaml(settings), 'utf8')
-    actions.push(`节点 ${id}: 铸新钥匙写入 ${GATEWAY_PACKAGE} 段`)
+    actions.push(`node ${id}: new key minted into the ${GATEWAY_PACKAGE} section`)
   } else {
-    log(`节点 ${id}: 复用现有钥匙（${GATEWAY_PACKAGE}）`)
+    log(`node ${id}: reusing the existing key (${GATEWAY_PACKAGE})`)
   }
   if (typeof ep.sandbox_key_ref === 'string' && ep.sandbox_key_ref !== '') keyByVar.set(ep.sandbox_key_ref, key)
 
-  // 3) 全局 DSH prefix（bin.js 所在安装目录；隔离安装节点不在此列）
+  // 3) global DSH prefix (the install directory holding bin.js; a node installed in isolation is not in this list)
   const marker = '/node_modules/@deepseek-ai/dsh/lib/bin.js'
   const normalizedBin = binPath.replace(/\\/g, '/')
   if (normalizedBin.endsWith(marker)) dshPrefixes.add(normalizedBin.slice(0, -marker.length))
 }
 
-// ---- 4) .env：DSH_NODE_IMAGE tag + GW_KEY_* 钥匙同步 ----
+// ---- 4) .env: DSH_NODE_IMAGE tag + GW_KEY_* key sync ----
 {
   const envPath = join(dirname(resolve(configPath)), '.env')
   if (existsSync(envPath)) {
@@ -188,28 +190,28 @@ for (const [id, ep] of Object.entries(cfg.endpoints ?? {})) {
       if (!dryRun) writeFileSync(envPath, envLines.join('\n') + '\n', 'utf8')
     }
   } else {
-    log('⚠ .env 不存在，跳过镜像 tag 与钥匙同步')
+    log('⚠ .env does not exist, skipping the image tag and key sync')
   }
 }
 
-// ---- 全局 DSH 升级 ----
+// ---- global DSH upgrade ----
 for (const prefix of dshPrefixes) {
   const manifestPath = join(prefix, 'node_modules', '@deepseek-ai', 'dsh', 'package.json')
-  const current = existsSync(manifestPath) ? JSON.parse(readFileSync(manifestPath, 'utf8')).version : '缺失'
+  const current = existsSync(manifestPath) ? JSON.parse(readFileSync(manifestPath, 'utf8')).version : 'missing'
   if (current === TARGET) {
-    log(`全局 DSH 已是 ${TARGET}，跳过`)
+    log(`the global DSH is already ${TARGET}, skipping`)
   } else {
-    actions.push(`全局 DSH: ${current} → ${TARGET}`)
+    actions.push(`global DSH: ${current} → ${TARGET}`)
     npm(prefix, [`${COMPAT_DSH_PACKAGE}@${TARGET}`])
   }
 }
 
 console.log('')
-console.log(dryRun ? '[dry-run] 预演完成，将执行以下动作：' : `执行完成（目标 ${TARGET}）：`)
-if (actions.length === 0) console.log(`  （无变化——已是 ${TARGET} 接线）`)
+console.log(dryRun ? '[dry-run] preview done, the following actions would run:' : `done (target ${TARGET}):`)
+if (actions.length === 0) console.log(`  (no change -- already on the ${TARGET} wiring)`)
 for (const a of actions) console.log('  - ' + a)
 if (!dryRun && actions.length > 0) {
   console.log('')
-  console.log('下一步：重启 manager 栈（schtasks /run /tn DacManager 或 systemctl start），等待节点探活；')
-  console.log('节点页「对齐版本」可对单个节点补对齐（重播种 + 重装 + 重启）。')
+  console.log('Next: restart the manager stack (schtasks /run /tn DacManager or systemctl start) and wait for the nodes to probe in;')
+  console.log('"Align version" on the nodes page re-aligns a single node (reseed + reinstall + restart).')
 }

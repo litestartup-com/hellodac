@@ -1,16 +1,16 @@
 /**
- * S2.5 真实冒烟：用 manager 自己的 upstream 模块直连本机 DSH 的 /api。
+ * S2.5 real smoke: use the manager's own upstream module to talk straight to the /api of the local DSH.
  *
- * 顺序：host.describe → session.list → session.create(临时目录 + agentPreset)
- * → [可选 sandbox-mode] → session.history → 订阅 mux + session.prompt(一条最小消息)
- * → 等 turn_end → session.cancel → 清理临时目录。
+ * Order: host.describe → session.list → session.create (temporary directory + agentPreset)
+ * → [optional sandbox-mode] → session.history → subscribe to the mux + session.prompt (one minimal message)
+ * → wait for turn_end → session.cancel → clean up the temporary directory.
  *
- * 用法：npx tsx scripts/smoke-apiproxy.ts [base-url] [preset]
- * 默认 base = http://127.0.0.1:3080/api，默认 preset = minimal（蜂群 P0：验证 agentPreset 生效）。
- * sandbox-mode 步骤需要部署了新版 dsh-api-gateway（40fa689 起）：
+ * Usage: npx tsx scripts/smoke-apiproxy.ts [base-url] [preset]
+ * Default base = http://127.0.0.1:3080/api, default preset = minimal (Hive P0: verify that agentPreset takes effect).
+ * The sandbox-mode step needs a deployed dsh-api-gateway (40fa689 and later):
  *   SMOKE_SANDBOX_BASE=http://127.0.0.1:3080/api-gw/v1 SMOKE_SANDBOX_KEY=<key> npx tsx scripts/smoke-apiproxy.ts
  *
- * 注意：第 6 步会在宿主机真实跑一轮 agent（一次 LLM 调用），消息已压到最小。
+ * Note: step 6 really runs one agent turn on the host (one LLM call); the message is already kept minimal.
  */
 
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -56,7 +56,7 @@ const step = async (name: string, fn: () => Promise<void>): Promise<void> => {
 const framesSeen: string[] = []
 const kinds = new Set<string>()
 
-await step('host.describe（版本探测）', async () => {
+await step('host.describe (version probe)', async () => {
   const version = await client.probeVersion()
   if (version === 'unknown' || version === '') fail('host.describe returned no version')
   log('DSH version: ' + version)
@@ -72,7 +72,7 @@ const tmpDir = mkdtempSync(join(tmpdir(), 'manager-smoke-'))
 
 let sessionId = ''
 try {
-  await step('session.create（临时 cwd + agentPreset）', async () => {
+  await step('session.create (temporary cwd + agentPreset)', async () => {
     const created = await client.createSession(tmpDir, presetArg)
     if (created.sessionId === '') fail('empty sessionId')
     sessionId = created.sessionId
@@ -81,7 +81,7 @@ try {
   })
 
   if (sandboxBase !== null) {
-    await step('sandbox-mode（workspace-write，经新版 gateway 路由）', async () => {
+    await step('sandbox-mode (workspace-write, routed through the new gateway)', async () => {
       await client.setSandboxMode(sessionId, 'workspace-write')
       log('sandbox-mode pinned: workspace-write')
     })
@@ -89,12 +89,12 @@ try {
     log('-- sandbox-mode skipped: SMOKE_SANDBOX_BASE not set (needs dsh-api-gateway >= 40fa689 deployed)')
   }
 
-  await step('session.history（新会话应为空）', async () => {
+  await step('session.history (a new session should be empty)', async () => {
     const history = await client.history(sessionId)
     log('events=' + history.events.length + ' state=' + history.sessionState + ' title=' + (history.title ?? '(none)'))
   })
 
-  await step('mux 订阅 + session.prompt（最小消息，等 turn_end）', async () => {
+  await step('mux subscribe + session.prompt (minimal message, wait for turn_end)', async () => {
     const unsub = client.subscribe(sessionId, (_sid: string, frame: GatewayFrame) => {
       framesSeen.push(frame.kind)
       kinds.add(frame.kind)
@@ -118,12 +118,12 @@ try {
     if (!kinds.has('message') && !kinds.has('chunk')) log('warning: no assistant message/chunk frames seen')
   })
 
-  await step('session.cancel（收尾）', async () => {
+  await step('session.cancel (wrap up)', async () => {
     await client.cancel(sessionId)
     log('cancel ok')
   })
 } finally {
-  try { rmSync(tmpDir, { recursive: true, force: true }) } catch { /* 临时目录清理失败不影响结果 */ }
+  try { rmSync(tmpDir, { recursive: true, force: true }) } catch { /* a failed temp-dir cleanup does not affect the result */ }
   log('cleaned ' + tmpDir)
 }
 

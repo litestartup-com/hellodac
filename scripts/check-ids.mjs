@@ -18,8 +18,9 @@ const read = (p) => readFileSync(join(root, p), 'utf8')
 // layout + every fragment, then splice, so the check runs against what
 // buildPages() actually serves.
 //
-// 公开版精简（DAC v1.0.0）：页面清单已同步（board/crons 页下线，runs 页新增）；
-// 本脚本仍不在 CI 里（`npm run lint` = eslint），是开发者手动跑的守卫。
+// Public-edition trim (DAC v1.0.0): the page list is back in sync (the board/crons pages are gone,
+// the runs page is new); this script is still not in CI (`npm run lint` = eslint), it is a guard
+// developers run by hand.
 const layout = read('public/layout.html')
 const fragments = {
   chat: read('public/pages/chat.html'),

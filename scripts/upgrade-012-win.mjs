@@ -1,8 +1,9 @@
 /**
- * 兼容壳（能力二，2026-09-20）：0.1.2 切主路的历史脚本保留原命令行面，
- * 实现 = upgrade-node-version.mjs 固定目标 0.1.2-rc.1（钉版随矩阵守卫同步）。
+ * Compatibility shell (Capability two, 2026-09-20): the historical 0.1.2 main-path switch script keeps its
+ * original command line; the implementation = upgrade-node-version.mjs pinned to the 0.1.2-rc.1 target
+ * (the pin is kept in sync by the matrix guard).
  *
- * 用法不变：node scripts/upgrade-012-win.mjs [config路径] [--dry-run] [--force]
+ * Usage unchanged: node scripts/upgrade-012-win.mjs [config path] [--dry-run] [--force]
  */
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
