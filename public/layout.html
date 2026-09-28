@@ -21,7 +21,8 @@
           <path d="M8 5.5v5M5.5 8h5" />
         </g>
         <!-- Distinct from i-plus on purpose: the circled one is the primary
-             "派活" action, this bare one sits inside ordinary buttons. -->
+        <!-- Distinct from i-plus on purpose: the circled one is the primary
+             "Dispatch" action, this bare one sits inside ordinary buttons. -->
         <g id="i-add" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
           <path d="M8 3.5v9M3.5 8h9" />
         </g>
@@ -42,7 +43,7 @@
         <g id="i-chat" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
           <path d="M13.25 9.5a1 1 0 0 1-1 1H6.5L3.5 13V4.5a1 1 0 0 1 1-1h7.75a1 1 0 0 1 1 1z" />
         </g>
-        <!-- 蜂群：主脑 = 蜂后。蜂巢格 + 中心点，是「总控」，不是又一个会话气泡。 -->
+        <!-- Hive: the brain = the queen. A honeycomb cell + a centre dot -- it is the "master control", not another chat bubble. -->
         <g id="i-hive" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
           <path d="M8 1.75 13.4 4.9v6.2L8 14.2 2.6 11.1V4.9z" />
           <circle cx="8" cy="8" r="2.2" fill="currentColor" stroke="none" />
@@ -64,13 +65,13 @@
           <circle cx="8" cy="8" r="1.5" />
           <circle cx="13.1" cy="8" r="1.5" />
         </g>
-        <!-- ⋮ 溢出菜单入口：竖排三点（与行菜单的横排 #i-more 区分语义）。 -->
+        <!-- The ⋮ overflow menu entry: three dots stacked vertically (distinct in meaning from the horizontal #i-more on row menus). -->
         <g id="i-more-v" fill="currentColor">
           <circle cx="8" cy="2.9" r="1.5" />
           <circle cx="8" cy="8" r="1.5" />
           <circle cx="8" cy="13.1" r="1.5" />
         </g>
-        <!-- GitHub 标记（侧栏入口用）：实心字形，与线框图标区分开。 -->
+        <!-- The GitHub mark (for the sidebar entry): a solid glyph, set apart from the line icons. -->
         <g id="i-github" fill="currentColor">
           <path d="M8 1.2a6.8 6.8 0 0 0-2.15 13.25c.34.06.46-.15.46-.33v-1.16c-1.89.41-2.29-.91-2.29-.91-.31-.79-.76-.99-.76-.99-.62-.42.05-.41.05-.41.68.05 1.04.7 1.04.7.61 1.04 1.6.74 1.99.57.06-.44.24-.74.43-.91-1.51-.17-3.1-.76-3.1-3.36 0-.74.26-1.35.7-1.83-.07-.17-.3-.86.07-1.79 0 0 .56-.18 1.85.7a6.4 6.4 0 0 1 3.37 0c1.28-.88 1.85-.7 1.85-.7.37.93.14 1.62.07 1.79.44.48.7 1.09.7 1.83 0 2.61-1.6 3.19-3.11 3.36.25.21.46.62.46 1.26v1.86c0 .18.12.4.47.33A6.8 6.8 0 0 0 8 1.2z" />
         </g>
@@ -85,8 +86,8 @@
           <circle cx="5.1" cy="5.2" r="0.75" fill="currentColor" stroke="none" />
           <circle cx="5.1" cy="10.8" r="0.75" fill="currentColor" stroke="none" />
         </g>
-        <!-- 节点（服务器）：带指示灯与卡槽的服务器正脸，侧栏「节点」入口用，
-             与 i-endpoint（端点健康）区分开。 -->
+        <!-- Node (server): a server face with indicator lights and bays, for the sidebar's "nodes" entry,
+             set apart from i-endpoint (endpoint health). -->
         <g id="i-server" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
           <rect x="2.5" y="2.75" width="11" height="10.5" rx="1.25" />
           <path d="M2.5 6.75h11" />
@@ -95,11 +96,11 @@
           <circle cx="11" cy="4.9" r="0.9" fill="currentColor" stroke="none" />
           <path d="M5 9.5h6" />
         </g>
-        <!-- 技能（招式包）：闪电。侧栏「技能」入口用。 -->
+        <!-- Skill (a move set): a lightning bolt. For the sidebar's "skills" entry. -->
         <g id="i-spark" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
           <path d="M8.6 1.9 4.9 9h2.1L6.4 14.1l4.7-7.1H9L10.6 1.9z" />
         </g>
-        <!-- 通知（铃铛）：站内信入口。 -->
+        <!-- Notification (bell): the inbox entry. -->
         <g id="i-bell" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M13 6.75a5 5 0 0 0-10 0c0 3.25 1.1 4.4 2 5.25h6c.9-.85 2-2 2-5.25z" />
           <path d="M6.4 13.25a1.75 1.75 0 0 0 3.2 0" />
@@ -117,7 +118,7 @@
           <circle cx="8" cy="8" r="6.25" />
           <path d="M9.75 5.75H7.4a1.4 1.4 0 0 0 0 2.8h1.2a1.4 1.4 0 0 1 0 2.8H6.25M8 4.6v.9M8 10.5v.9" stroke-linecap="round" />
         </g>
-        <!-- 任务史（时钟 + 逆时针回卷箭头）：侧栏「任务」入口用。 -->
+        <!-- Task history (a clock + a counter-clockwise rewind arrow): for the sidebar's "tasks" entry. -->
         <g id="i-history" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M2.5 3.5v3h3" />
           <path d="M2.75 6.5a6.25 6.25 0 1 1-.55 3.7" />
@@ -217,7 +218,7 @@
     <div class="shell">
       <aside id="sidebar" class="sidebar">
         <div class="side-top">
-          <!-- The brand is the way home. Every page used to carry its own 返回
+          <!-- The brand is the way home. Every page used to carry its own Back
                button, which is a worse version of a frame that never leaves. -->
           <a class="brand" href="/">
             <span class="brand-mark" aria-hidden="true">{{BRAND_MARK}}</span>
@@ -234,8 +235,8 @@
           </button>
         </div>
 
-        <!-- 蜂群 P3：主脑入口（钉顶、不折叠）。config 里有 brain agent 才
-             渲染——没有主脑就没有这个按钮，界面不撒谎。 -->
+        <!-- Hive P3: the brain entry (pinned to the top, never collapsed). Rendered only when the config has a
+             brain agent -- no brain means no button, and the UI never lies. -->
         <div id="side-brain" hidden></div>
 
         <div class="side-section">
@@ -248,14 +249,14 @@
           <div class="skeleton w40"></div>
         </nav>
 
-        <!-- 主导航（DAC v1.0.0）：节点 / 任务常驻侧栏，其余（技能/已归档/花费/
-             审计/改密）收进左下角 ⋮ 弹窗。shell.js 填充，与 ⋮ 菜单共用同一份
-             链接语言（data-nav 决定高亮）。 -->
+        <!-- The main navigation (DAC v1.0.0): nodes / tasks are permanent in the sidebar, and the rest (skills/archived/cost/
+             audit/password) move into the ⋮ popover at the bottom left. Filled by shell.js, sharing one link
+             language with the ⋮ menu (data-nav decides the highlight). -->
         <nav id="side-primary" class="side-links" aria-label="{{t:side.primary}}"></nav>
 
-        <!-- 底部菜单（节点/技能/定时/归档/花费/审计/改密/退出登录）已收进
-             左下角 ⋮ 弹窗（shell.js 动态构建，锚定 side-more 按钮向上打开）。
-             侧栏本体只留 agent 树 + 端点状态，任务区最大。 -->
+        <!-- The bottom menu (nodes/skills/schedules/archive/cost/audit/password/sign out) has moved into
+             the ⋮ popover at the bottom left (built dynamically by shell.js, anchored to the side-more button and opening upwards).
+             The sidebar itself keeps only the agent tree + endpoint status, with the task area as large as possible. -->
 
         <!-- Endpoint health and session counts: standing facts, one quiet line
              per endpoint. They used to live on the home page inside a collapsible
@@ -266,14 +267,14 @@
         <div class="side-foot">
           <span id="avatar" class="side-avatar" aria-hidden="true"></span>
           <span id="who" class="grow"></span>
-          <!-- 仓库入口只在 ⋮ → About 里给（用户反馈：三个点旁边的 GitHub 图标多余，
-               同一件事不该在侧栏出现两次）。 -->
+          <!-- The repository entry is offered only in ⋮ -> About (user feedback: the GitHub icon next to the three dots is
+               redundant, one thing should not appear twice in the sidebar). -->
           <button id="notify-bell" class="icon-btn" type="button" aria-label="{{t:side.notify}}" title="{{t:side.notify}}">
             <svg width="15" height="15" aria-hidden="true"><use href="#i-bell" /></svg>
             <span id="notify-badge" class="notify-badge" hidden></span>
           </button>
-          <!-- 溢出菜单入口：底部导航（节点→改密）与退出登录收在向上打开的弹窗里。
-               复用 #i-more（行级「更多」同一个字形）。 -->
+          <!-- The overflow menu entry: the bottom navigation (nodes -> password) and sign out live in a popover that opens upwards.
+               It reuses #i-more (the same glyph as the row-level "more"). -->
           <button id="side-more" class="icon-btn" type="button" aria-label="{{t:nav.more}}" title="{{t:nav.more}}"
             aria-haspopup="menu" aria-expanded="false" aria-controls="side-more-menu">
             <svg width="15" height="15" aria-hidden="true"><use href="#i-more-v" /></svg>
@@ -299,9 +300,9 @@
       </aside>
     </div>
 
-    <!-- 品牌与译文不内联注入：CSP 是 `script-src 'self'`（security.ts），
-         内联脚本不会执行。客户端由 shell.js 启动时取一次 /api/i18n/<lang>
-         （语言标签就在 <html lang> 上，服务端已渲染好）。 -->
+    <!-- The brand and the translations are not injected inline: the CSP is `script-src 'self'` (security.ts), so an
+         inline script would not execute. On the client, shell.js fetches /api/i18n/<lang> once at startup
+         (the language tag is right there on <html lang>, already rendered by the server). -->
     <script src="/assets/shell.js" type="module"></script>
     {{SCRIPT}}
   </body>

@@ -1,11 +1,12 @@
-/* DSH web 主题 token（对齐基准，2026-09-10 从 0.1.2-rc.1 的 @deepseek-ai/dsh-client-ui-theme
- * 编译产物整段提取：base.css / design-platform.css / scrollbar.css /
- * gradient-shadow-text.css / shiki.css）。只被 chat 页引用（pages.ts），
- * 其余页面不受影响。暗色键位已就位：body[data-ds-dark-theme] 覆写，开关后做。
+/* DSH web theme tokens (the alignment baseline, extracted whole on 2026-09-10 from the compiled output of
+ * @deepseek-ai/dsh-client-ui-theme 0.1.2-rc.1: base.css / design-platform.css / scrollbar.css /
+ * gradient-shadow-text.css / shiki.css). Referenced only by the chat page (pages.ts), so the
+ * other pages are unaffected. The dark keys are already in place: body[data-ds-dark-theme] overrides, wired up with the toggle later.
  *
- * 更新方式：重跑提取（见 hive-docs 对齐报告），整段替换本文件，禁止手改散点。 */
+ *
+ * How to update: re-run the extraction (see the hive-docs alignment report) and replace this file whole -- never hand-edit scattered spots. */
 
-/* DSH 聊天布局常量（0.1.2 实测值） */
+/* DSH chat layout constants (measured on 0.1.2) */
 :root {
   --dsh-chat-content-width: 748px;
   --dsh-composer-side-clearance: 16px;

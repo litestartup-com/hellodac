@@ -9,11 +9,12 @@ useTestDictionary('en')
 const DICT = testDictionary('en')
 
 /**
- * UI 精简（DAC v1.0.0）回归：节点行只留「哪个节点活着、跑的什么」，其余进 ⋮ 菜单。
+ * UI slimming (DAC v1.0.0) regression: a node row keeps only `which node is alive and what it runs`; the rest moves into the ⋮ menu.
  *
- * 改前实测：单行横向 4 个区块（标题+2 告警 pill / meta / detail+常驻版本下拉 /
- * 最多 5 个操作按钮），外加一张固定 330px 的原生 GUI 卡（含整条 SSH 隧道命令）。
- * 这些断言就是把「不该常显的东西」钉住——否则下次重构很容易又摊回行里。
+ * As measured before the change: one row had 4 horizontal blocks (title + 2 alert pills / meta / detail
+ * + an always-visible version dropdown / up to 5 action buttons), plus a fixed 330px native GUI card
+ * (including the whole SSH tunnel command). These assertions pin down `what must not be always visible` --
+ * otherwise the next refactor quietly spreads it back into the row.
  */
 
 const NODE = {
@@ -36,249 +37,249 @@ const VERSIONS = [
 
 const hostName = (h) => (h === 'agent-abc123' ? 'ubuntu-focal' : h)
 
-test('UI 精简: 节点行只常显状态/ID/归属/版本 + 一个 ⋮ 触发器', () => {
+test('UI slimming: a node row always shows only state/ID/ownership/version + one ⋮ trigger', () => {
   const html = nodeRow(NODE, hostName)
-  assert.ok(html.includes('ops33'), '节点 ID 在')
-  assert.ok(html.includes('live'), '状态在')
-  assert.ok(html.includes('personal / brain'), 'agent 归属在')
-  assert.ok(html.includes('ubuntu-focal'), '主机名在（跨机场景的关键信息）')
-  assert.ok(html.includes('DSH 0.1.5-rc.2'), '当前版本在')
-  assert.ok(html.includes('menu-trigger'), '有 ⋮ 触发器')
-  assert.ok(html.includes(`aria-controls="${nodeMenuId('ops33')}"`), '触发器声明它控制哪个浮层')
+  assert.ok(html.includes('ops33'), 'the node ID is there')
+  assert.ok(html.includes('live'), 'the state is there')
+  assert.ok(html.includes('personal / brain'), 'the agent ownership is there')
+  assert.ok(html.includes('ubuntu-focal'), 'the hostname is there (key information across machines)')
+  assert.ok(html.includes('DSH 0.1.5-rc.2'), 'the current version is there')
+  assert.ok(html.includes('menu-trigger'), 'there is a ⋮ trigger')
+  assert.ok(html.includes(`aria-controls="${nodeMenuId('ops33')}"`), 'the trigger declares which flyout it controls')
 })
 
-test('UI 精简: 操作按钮、版本下拉、GUI 卡一律不再常显在行里', () => {
+test('UI slimming: the action buttons, the version dropdown and the GUI card are no longer always visible in the row', () => {
   const html = nodeRow(NODE, hostName)
-  // 这些原来都是行内常显元素——现在必须在菜单里，不能回到行里。
-  assert.ok(!html.includes('data-node-down'), '停止按钮不在行里')
-  assert.ok(!html.includes('data-node-restart'), '重启按钮不在行里')
-  assert.ok(!html.includes('data-node-logs'), '日志按钮不在行里')
-  assert.ok(!html.includes('data-node-rm'), '删除按钮不在行里')
-  assert.ok(!html.includes('<select'), '版本下拉不在行里')
-  assert.ok(!html.includes('ssh -N'), '隧道命令不在行里')
-  assert.ok(!html.includes('node-gui'), 'GUI 卡不在行里')
-  assert.ok(!html.includes('node-actions'), '操作条不在行里')
+  // These all used to be always-visible inline elements -- now they must live in the menu and never come back.
+  assert.ok(!html.includes('data-node-down'), 'the stop button is not in the row')
+  assert.ok(!html.includes('data-node-restart'), 'the restart button is not in the row')
+  assert.ok(!html.includes('data-node-logs'), 'the logs button is not in the row')
+  assert.ok(!html.includes('data-node-rm'), 'the remove button is not in the row')
+  assert.ok(!html.includes('<select'), 'the version dropdown is not in the row')
+  assert.ok(!html.includes('ssh -N'), 'the tunnel command is not in the row')
+  assert.ok(!html.includes('node-gui'), 'the GUI card is not in the row')
+  assert.ok(!html.includes('node-actions'), 'the action bar is not in the row')
 })
 
-test('UI 精简: 告警仍常显（异常必须一眼看到，不能藏进菜单）', () => {
+test('UI slimming: alerts stay always visible (an anomaly must be seen at a glance, not hidden in a menu)', () => {
   const drift = nodeRow({ ...NODE, dshDrift: true }, hostName)
-  assert.ok(drift.includes('pill-mini warn'), '漂移告警常显')
+  assert.ok(drift.includes('pill-mini warn'), 'the drift alert stays always visible')
   const mismatch = nodeRow({ ...NODE, dshCompatible: false }, hostName)
-  assert.ok(mismatch.includes('pill-mini warn'), '版本不匹配告警常显')
+  assert.ok(mismatch.includes('pill-mini warn'), 'the version-mismatch alert stays always visible')
 })
 
-test('UI 精简: 错误压成一行并可悬停看全文（可见但不撑高整行）', () => {
+test('UI slimming: an error is squeezed onto one line and can be hovered for the full text (visible without stretching the row)', () => {
   const long = 'E'.repeat(400)
   const html = nodeRow({ ...NODE, lastError: long }, hostName)
-  assert.ok(html.includes('node-err'), '错误有独立样式')
-  assert.ok(html.includes(`title="${long}"`), '全文走 tooltip')
-  assert.ok(!html.includes('<select'), '不因错误又多出控件')
+  assert.ok(html.includes('node-err'), 'the error has its own style')
+  assert.ok(html.includes(`title="${long}"`), 'the full text goes into the tooltip')
+  assert.ok(!html.includes('<select'), 'an error does not add another control')
 })
 
-test('UI 精简: 生命周期项随状态切换——冷/离线给启动，运行中给停止+重启', () => {
+test('UI slimming: the lifecycle entries follow the state -- cold/offline offers start, running offers stop + restart', () => {
   const cold = nodeMenuHtml({ ...NODE, state: 'cold' }, VERSIONS)
-  assert.ok(cold.includes('data-node-up="ops33"'), '冷态给启动')
-  assert.ok(!cold.includes('data-node-down'), '冷态不给停止')
+  assert.ok(cold.includes('data-node-up="ops33"'), 'cold offers start')
+  assert.ok(!cold.includes('data-node-down'), 'cold does not offer stop')
 
   const live = nodeMenuHtml(NODE, VERSIONS)
-  assert.ok(live.includes('data-node-down="ops33"'), '运行中给停止')
-  assert.ok(live.includes('data-node-restart="ops33"'), '运行中给重启')
-  assert.ok(!live.includes('data-node-up'), '运行中不给启动')
+  assert.ok(live.includes('data-node-down="ops33"'), 'running offers stop')
+  assert.ok(live.includes('data-node-restart="ops33"'), 'running offers restart')
+  assert.ok(!live.includes('data-node-up'), 'running does not offer start')
 })
 
-test('UI 精简: 对齐只在真漂移时出现；删除恒带危险样式', () => {
+test('UI slimming: realign appears only on a real drift; remove always carries the danger style', () => {
   const noDrift = nodeMenuHtml(NODE, VERSIONS)
-  assert.ok(!noDrift.includes('data-node-align'), '不漂移就没有对齐项')
+  assert.ok(!noDrift.includes('data-node-align'), 'no drift means no align entry')
   const drift = nodeMenuHtml({ ...NODE, dshDrift: true }, VERSIONS)
-  assert.ok(drift.includes('data-node-align="ops33"'), '漂移时给对齐')
-  assert.ok(drift.includes('menu-item danger'), '删除是危险项（红字）')
+  assert.ok(drift.includes('data-node-align="ops33"'), 'a drift offers realign')
+  assert.ok(drift.includes('menu-item danger'), 'remove is a danger entry (red text)')
 })
 
-test('UI 精简: 版本子菜单与旧下拉同源，标出当前项并含「跟随默认」', () => {
+test('UI slimming: the version submenu shares its source with the old dropdown, marks the current entry and includes `follow the default`', () => {
   const html = nodeMenuHtml({ ...NODE, configuredDshVersion: '0.1.2-rc.1' }, VERSIONS)
-  assert.ok(html.includes(`id="${nodeVersionMenuId('ops33')}"`), '版本子菜单面板在')
-  assert.ok(html.includes('data-node-version-set=""'), '有「跟随默认」项')
-  assert.ok(html.includes('data-node-version-set="0.1.5-rc.2"'), '矩阵里的版本都在')
-  assert.ok(html.includes('(unverified)'), 'pending 版本带未验证标注（与下拉同文案）')
-  // 当前钉在 0.1.2-rc.1 → 那一项带 ✓
+  assert.ok(html.includes(`id="${nodeVersionMenuId('ops33')}"`), 'the version submenu panel is there')
+  assert.ok(html.includes('data-node-version-set=""'), 'there is a `follow the default` entry')
+  assert.ok(html.includes('data-node-version-set="0.1.5-rc.2"'), 'every version in the matrix is there')
+  assert.ok(html.includes('(unverified)'), 'a pending version carries the unverified marker (the same wording as the dropdown)')
+  // The current pin is 0.1.2-rc.1 -> that entry carries ✓
   const checked = html.split('data-node-version-set="0.1.2-rc.1"')[1] ?? ''
-  assert.ok(checked.includes('✓'), '当前版本带勾选标记')
+  assert.ok(checked.includes('✓'), 'the current version carries a check mark')
 })
 
-test('UI 精简: 未接线的 manager（无 agentCommand 等）也要给出 ⋮ 菜单不报错', () => {
+test('UI slimming: an unwired manager (no agentCommand and such) still gets a ⋮ menu, without an error', () => {
   const html = nodeMenuHtml({ ...NODE, state: 'starting' }, [])
-  assert.ok(html.includes('menu-panel'), '面板仍渲染')
-  assert.ok(html.includes('disabled'), 'starting 时生命周期项禁用')
+  assert.ok(html.includes('menu-panel'), 'the panel still renders')
+  assert.ok(html.includes('disabled'), 'the lifecycle entries are disabled while starting')
 })
 
-test('UI 精简: 外管节点不给生命周期操作，只给日志与原生访问', () => {
+test('UI slimming: an unmanaged node gets no lifecycle operations, only logs and native access', () => {
   const html = nodeMenuHtml({ ...NODE, managed: false }, VERSIONS)
-  assert.ok(!html.includes('data-node-down'), '外管不给停止')
-  assert.ok(!html.includes('data-node-version-menu'), '外管不给版本切换')
-  assert.ok(!html.includes('data-node-rm'), '外管不给删除')
-  assert.ok(html.includes('data-node-logs="ops33"'), '外管仍有日志')
-  assert.ok(html.includes('data-node-access="ops33"'), '外管仍有原生访问')
+  assert.ok(!html.includes('data-node-down'), 'unmanaged does not offer stop')
+  assert.ok(!html.includes('data-node-version-menu'), 'unmanaged does not offer a version switch')
+  assert.ok(!html.includes('data-node-rm'), 'unmanaged does not offer remove')
+  assert.ok(html.includes('data-node-logs="ops33"'), 'unmanaged still has logs')
+  assert.ok(html.includes('data-node-access="ops33"'), 'unmanaged still has native access')
 })
 
-test('UI 精简: 行里始终给「原生访问」入口（GUI 命令的落脚点）', () => {
+test('UI slimming: the row always offers a `native access` entry (the landing point of the GUI command)', () => {
   const html = nodeMenuHtml(NODE, VERSIONS)
-  assert.ok(html.includes('data-node-access="ops33"'), '菜单里有原生访问项')
+  assert.ok(html.includes('data-node-access="ops33"'), 'the menu has a native access entry')
 })
 
-test('UI 精简: 版本文案——容器优先镜像 tag，其次 DSH 版本，都没有则 null', () => {
+test('UI slimming: the version wording -- a container prefers the image tag, then the DSH version, and null when there is neither', () => {
   assert.equal(nodeVersionText({ image: 'hellodac/dac-node:0.1.5-rc.2', dshVersion: '0.1.5-rc.2' }), 'hellodac/dac-node:0.1.5-rc.2')
   assert.equal(nodeVersionText({ image: null, dshVersion: '0.1.5-rc.2' }), 'DSH 0.1.5-rc.2')
   assert.equal(nodeVersionText({ image: '', dshVersion: '' }), null)
 })
 
-test('UI 精简: 状态文案——live/offline 是协议裸词不翻译，其余走字典', () => {
+test('UI slimming: the state wording -- live/offline are raw protocol words and are not translated, the rest goes through the dictionary', () => {
   assert.equal(nodeStateLabel('live'), 'live')
   assert.equal(nodeStateLabel('offline'), 'offline')
   assert.equal(nodeStateLabel('cold'), DICT['nodes.state.cold'])
 })
 
-// ---- 浮层定位（纯函数）：越界钳制 ----
+// ---- Flyout placement (pure functions): out-of-bounds clamping ----
 
-test('浮层定位: 右对齐优先，左边放不下改左对齐，右边越界再贴边', () => {
+test('flyout placement: right alignment first, left alignment when there is no room on the left, and against the edge when the right overflows', () => {
   const viewport = { w: 1000, h: 800 }
   const wide = { top: 100, right: 900, bottom: 120, left: 876 }
   assert.deepEqual(placePanel({ rect: wide, width: 200, height: 300, viewport }), { left: 700, top: 126, side: 'left' })
 
-  // 靠近左边缘：右对齐会算出负数 → 改成左对齐
+  // Near the left edge: right alignment would compute a negative number -> switch to left alignment
   const leftish = { top: 100, right: 120, bottom: 120, left: 96 }
   const placed = placePanel({ rect: leftish, width: 200, height: 300, viewport })
   assert.equal(placed.side, 'right')
   assert.equal(placed.left, 96)
 })
 
-test('浮层定位: 下方放不下且上方更宽裕时翻到触发器上方', () => {
+test('flyout placement: flips above the trigger when there is no room below and more room above', () => {
   const viewport = { w: 1000, h: 400 }
   const nearBottom = { top: 300, right: 500, bottom: 320, left: 476 }
   const placed = placePanel({ rect: nearBottom, width: 200, height: 200, viewport })
-  assert.ok(placed.top + 200 <= viewport.h, '不溢出视口下沿')
-  assert.ok(placed.top < nearBottom.top, '翻到了上方')
+  assert.ok(placed.top + 200 <= viewport.h, 'it does not overflow the bottom of the viewport')
+  assert.ok(placed.top < nearBottom.top, 'it flipped above')
 })
 
-test('浮层定位: 子菜单贴主菜单右侧；右侧放不下翻到左侧', () => {
+test('flyout placement: a submenu hugs the right side of the main menu and flips to the left when there is no room', () => {
   const viewport = { w: 1000, h: 800 }
   const item = { top: 200, right: 400, bottom: 226, left: 100 }
   assert.equal(placeSubmenu({ rect: item, width: 200, height: 120, viewport }).left, 406)
 
   const nearRight = { top: 200, right: 980, bottom: 226, left: 700 }
   const flipped = placeSubmenu({ rect: nearRight, width: 200, height: 120, viewport })
-  assert.ok(flipped.left + 200 <= viewport.w, '翻到左侧后不越界')
-  assert.ok(flipped.left < nearRight.left, '确实在左侧')
+  assert.ok(flipped.left + 200 <= viewport.w, 'after flipping left it stays in bounds')
+  assert.ok(flipped.left < nearRight.left, 'it really is on the left')
 })
 
-test('浮层定位: 子菜单在视口底部时上移，不溢出', () => {
+test('flyout placement: a submenu near the bottom of the viewport moves up instead of overflowing', () => {
   const viewport = { w: 1000, h: 300 }
   const item = { top: 280, right: 400, bottom: 300, left: 100 }
   const placed = placeSubmenu({ rect: item, width: 200, height: 200, viewport })
-  assert.ok(placed.top + 200 <= viewport.h, '不溢出')
+  assert.ok(placed.top + 200 <= viewport.h, 'no overflow')
 })
 
-// ---- 菜单原语 ----
+// ---- Menu primitives ----
 
-test('菜单原语: 分隔线/分组标题/说明行各司其职', () => {
+test('menu primitives: separators, group headings and note rows each do their own job', () => {
   assert.ok(menuItemHtml({ kind: 'sep' }).includes('menu-sep'))
   assert.ok(menuItemHtml({ kind: 'group', label: 'G' }).includes('menu-group'))
   assert.ok(menuItemHtml({ kind: 'note', label: 'N' }).includes('menu-note'))
 })
 
-test('菜单原语: 子菜单项带 aria-haspopup 与 chevron，普通项没有', () => {
+test('menu primitives: a submenu entry carries aria-haspopup and a chevron, an ordinary entry does not', () => {
   const sub = menuItemHtml({ kind: 'submenu', label: 'Version' })
-  assert.ok(sub.includes('aria-haspopup="true"'), '标出可展开')
-  assert.ok(sub.includes('menu-chevron'), '有指向箭头')
+  assert.ok(sub.includes('aria-haspopup="true"'), 'it is marked expandable')
+  assert.ok(sub.includes('menu-chevron'), 'it has a pointing arrow')
   const plain = menuItemHtml({ label: 'Logs' })
-  assert.ok(!plain.includes('aria-haspopup'), '普通项不标可展开')
+  assert.ok(!plain.includes('aria-haspopup'), 'an ordinary entry is not marked expandable')
 })
 
-test('菜单原语: 危险项带 danger 类；标签一律转义', () => {
+test('menu primitives: a danger entry carries the danger class; labels are always escaped', () => {
   assert.ok(menuItemHtml({ kind: 'danger', label: 'Delete' }).includes('menu-item danger'))
-  assert.ok(menuItemHtml({ label: '<img src=x>' }).includes('&lt;img'), '标签转义')
+  assert.ok(menuItemHtml({ label: '<img src=x>' }).includes('&lt;img'), 'the label is escaped')
 })
 
-test('菜单原语: 触发器默认隐藏（hidden），不会先闪一下再定位', () => {
+test('menu primitives: the trigger is hidden by default, so it never flashes before it is positioned', () => {
   assert.ok(menuPanelHtml({ id: 'p', label: 'L', items: [] }).includes('hidden'))
   assert.ok(!menuPanelHtml({ id: 'p', label: 'L', items: [], hidden: false }).includes('hidden'))
   assert.ok(triggerButtonHtml({ id: 't', label: 'More', controls: 'p' }).includes('aria-expanded="false"'))
 })
 
-// ---- 图标（用户反馈：浮窗 item 该有 svg 图标，去掉不好看）----
+// ---- Icons (user feedback: a flyout item should have an svg icon, it looks worse without one) ----
 
-test('菜单原语: 给了 icon 才渲染图标——导航项有图标，节点操作项保持纯文字', () => {
+test('menu primitives: an icon is rendered only when one is given -- navigation entries have icons, node action entries stay plain text', () => {
   const withIcon = menuItemHtml({ label: 'Skills', icon: 'spark' })
-  assert.ok(withIcon.includes('<use href="#i-spark" />'), '导航项渲染图标')
-  assert.ok(withIcon.includes('Skills'), '文字照旧')
+  assert.ok(withIcon.includes('<use href="#i-spark" />'), 'a navigation entry renders its icon')
+  assert.ok(withIcon.includes('Skills'), 'the text is unchanged')
 
-  // 节点操作项没有对应语义图标（图标集里没有 stop/restart/tag），不给 icon
-  // 就不该凭空多一个 svg——否则会拿错图标表达错意思。
+  // A node action entry has no matching semantic icon (the icon set has no stop/restart/tag), and without
+  // an icon it must not gain a stray svg -- that would use the wrong icon to say the wrong thing.
   const plain = menuItemHtml({ label: 'Stop' })
-  assert.ok(!plain.includes('<svg'), '没给 icon 就不渲染 svg')
+  assert.ok(!plain.includes('<svg'), 'no icon given means no svg is rendered')
 })
 
-test('菜单原语: 图标名与文字都转义，不接受注入', () => {
+test('menu primitives: the icon name and the text are both escaped, injection is not accepted', () => {
   const evil = menuItemHtml({ label: 'x', icon: '"><script>' })
-  assert.ok(!evil.includes('<script>'), '图标名不能逃出属性')
-  assert.ok(evil.includes('&quot;'), '引号被转义')
+  assert.ok(!evil.includes('<script>'), 'the icon name cannot escape the attribute')
+  assert.ok(evil.includes('&quot;'), 'the quotes are escaped')
 })
 
-// ---- 链接项必须是真链接（2026-09-25 用户反复报「语言点了没反应」的真因）----
+// ---- A link entry must be a real link (the true cause of the 2026-09-25 report that `clicking the language does nothing`) ----
 
-test('事故回归: 带 href 的菜单项必须渲染成 <a>，不是 <button>', () => {
+test('Incident regression: a menu entry with an href must render as <a>, not <button>', () => {
   const link = menuItemHtml({ label: '中文', attrs: 'href="?lang=zh-CN"' })
-  assert.ok(link.startsWith('<a '), `带 href 的项必须是链接，实际开头：${link.slice(0, 40)}`)
-  assert.ok(link.includes('href="?lang=zh-CN"'), 'href 保留')
-  assert.ok(!link.includes('<button'), '不能是 button —— button 上的 href 是无效属性，点了什么都不发生')
+  assert.ok(link.startsWith('<a '), `an entry with an href must be a link, actual start: ${link.slice(0, 40)}`)
+  assert.ok(link.includes('href="?lang=zh-CN"'), 'the href is kept')
+  assert.ok(!link.includes('<button'), 'it must not be a button -- an href on a button is an invalid attribute and a click does nothing')
 })
 
-test('事故回归: 没有 href 的项仍是 <button>（操作项，不是导航）', () => {
+test('Incident regression: an entry without an href is still a <button> (an action, not navigation)', () => {
   const action = menuItemHtml({ label: 'Stop', attrs: 'data-node-down="x"' })
-  assert.ok(action.startsWith('<button '), '操作项保持按钮语义')
-  assert.ok(!action.includes('<a '), '不该变成链接')
+  assert.ok(action.startsWith('<button '), 'an action entry keeps button semantics')
+  assert.ok(!action.includes('<a '), 'it must not become a link')
 })
 
-test('菜单原语: 链接项同样支持图标与尾注，且不带 type=button', () => {
+test('menu primitives: a link entry also supports an icon and a trailing note, and carries no type=button', () => {
   const link = menuItemHtml({ label: 'Skills', icon: 'spark', trailing: '›', attrs: 'href="/skills"' })
-  assert.ok(link.includes('<use href="#i-spark" />'), '图标在')
-  assert.ok(link.includes('menu-trailing'), '尾注在')
-  assert.ok(!link.includes('type="button"'), 'a 元素不该带 type=button')
+  assert.ok(link.includes('<use href="#i-spark" />'), 'the icon is there')
+  assert.ok(link.includes('menu-trailing'), 'the trailing note is there')
+  assert.ok(!link.includes('type="button"'), 'an a element must not carry type=button')
 })
 
-test('事件委托前提: 链接项带 data 属性时仍可原样生成', () => {
+test('event delegation premise: a link entry with data attributes can still be generated as-is', () => {
   const link = menuItemHtml({ label: 'GitHub', icon: 'github', attrs: 'href="https://x" target="_blank" rel="noopener noreferrer"' })
-  assert.ok(link.startsWith('<a '), '外链也是 a')
-  assert.ok(link.includes('target="_blank"') && link.includes('rel="noopener noreferrer"'), '外链属性保留')
+  assert.ok(link.startsWith('<a '), 'an external link is an a too')
+  assert.ok(link.includes('target="_blank"') && link.includes('rel="noopener noreferrer"'), 'the external-link attributes are kept')
 })
 
-// ---- 内联 SVG 图标（精灵里没有的字形，如信封；加进精灵需要改 layout 并重启）----
+// ---- Inline SVG icons (glyphs the sprite lacks, such as the envelope; adding one to the sprite means a layout change and a restart) ----
 
-test('菜单原语: icon 传对象时按内联 SVG 渲染，不走精灵', () => {
+test('menu primitives: an object passed as the icon renders as inline SVG instead of going through the sprite', () => {
   const raw = '<svg viewBox="0 0 16 16"><rect x="1" y="3" width="14" height="10"/></svg>'
   const item = menuItemHtml({ label: 'support@x.com', icon: { raw } })
-  assert.ok(item.includes(raw), '内联 SVG 原样嵌入')
-  assert.ok(!item.includes('<use href="#i-'), '不生成精灵引用')
+  assert.ok(item.includes(raw), 'the inline SVG is embedded as-is')
+  assert.ok(!item.includes('<use href="#i-'), 'no sprite reference is generated')
 })
 
-test('事故回归: 邮箱项渲染为 <button>（点击复制动作）且带内联信封图标', () => {
+test('Incident regression: the email entry renders as <button> (click to copy) and carries an inline envelope icon', () => {
   const raw = '<svg width="14" height="14" viewBox="0 0 16 16"><rect x="1.75" y="3.5" width="12.5" height="9"/></svg>'
   const item = menuItemHtml({ label: 'support@hellodac.com', icon: { raw }, attrs: 'data-about-email="support@hellodac.com"' })
-  assert.ok(item.startsWith('<button '), '邮箱是按钮（复制动作），不是链接')
-  assert.ok(item.includes(raw), '信封图标在')
-  assert.ok(!item.includes('<use'), '信封不走精灵（精灵没有这个字形）')
+  assert.ok(item.startsWith('<button '), 'the email is a button (a copy action), not a link')
+  assert.ok(item.includes(raw), 'the envelope icon is there')
+  assert.ok(!item.includes('<use'), 'the envelope does not go through the sprite (the sprite has no such glyph)')
 })
 
-// ---- note 必须透传 attrs（2026-09-26 用户报「版本号没显示」的真因）----
+// ---- A note must pass attrs through (the true cause of the 2026-09-26 report that `the version number is not shown`) ----
 
-test('事故回归: note 项必须渲染 attrs——版本行的回填标记依赖它', () => {
+test('Incident regression: a note entry must render attrs -- the version row backfill marker depends on it', () => {
   const note = menuItemHtml({ kind: 'note', label: 'DAC', attrs: 'data-about-version' })
   assert.ok(
     note.includes('data-about-version'),
-    'note 的 data 属性必须进 DOM，否则 querySelector([data-about-version]) 永远命中不了 → 版本号永远不显示',
+    'the note data attribute must reach the DOM, otherwise querySelector([data-about-version]) never matches -> the version number is never shown',
   )
 })
 
-test('菜单原语: group 项同样透传 attrs（与 note 同一条渲染路径的约定）', () => {
+test('menu primitives: a group entry passes attrs through as well (the same render path as a note, by convention)', () => {
   const group = menuItemHtml({ kind: 'group', label: 'Section', attrs: 'data-g="1"' })
-  assert.ok(group.includes('data-g="1"'), 'group 的属性也不该被丢')
+  assert.ok(group.includes('data-g="1"'), 'a group attribute must not be dropped either')
 })

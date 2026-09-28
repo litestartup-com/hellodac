@@ -8,25 +8,25 @@ useTestDictionary('en')
 const DICT = testDictionary('en')
 
 /**
- * UI 精简（DAC v1.0.0）：审计页从「每行一张阴影卡」改成站内 hairline 列表语言。
+ * UI slimming (DAC v1.0.0): the audit page moved from a shadowed card per row to the in-site hairline list language.
  *
- * 断言的是渲染契约，而不是具体像素：
- *   - 每行是 .row（hairline 分隔），不再是 .node-row（独立卡片）
- *   - 语义色点覆盖全部已知事件类型，未知类型灰兜底（新增事件不会渲染成无点行）
- *   - 时间在行右侧（row-main 的 justify-between 一侧）
- *   - detail 转义、为空时不渲染
+ * What is asserted is the render contract, not specific pixels:
+ *   - every row is .row (hairline separated), no longer .node-row (a standalone card)
+ *   - the semantic dot covers every known event type, unknown types fall back to grey (a new event never renders as a dotless row)
+ *   - the time sits on the right of the row (the justify-between side of row-main)
+ *   - detail is escaped, and an empty detail is not rendered
  */
 const EVENT = { kind: 'login_success', actor: 'admin', at: Date.now() - 60_000, detail: 'from 192.168.0.1' }
 
-test('审计行: hairline 列表语言，不是每行一张卡片', () => {
+test('audit row: the hairline list language, not one card per row', () => {
   const html = auditRow(EVENT)
-  assert.ok(html.startsWith('<div class="row">'), `行应是 .row（实际开头：${html.slice(0, 50)}）`)
-  assert.ok(!html.includes('node-row'), '不再复用节点行的卡片形态')
-  assert.ok(html.includes('row-main'), '主行在（标题+时间一行）')
-  assert.ok(html.includes('row-title'), '标题在')
+  assert.ok(html.startsWith('<div class="row">'), `a row should be .row (actual start: ${html.slice(0, 50)})`)
+  assert.ok(!html.includes('node-row'), 'the node-row card shape is no longer reused')
+  assert.ok(html.includes('row-main'), 'the main row is there (title + time on one line)')
+  assert.ok(html.includes('row-title'), 'the title is there')
 })
 
-test('审计行: 语义色点——失败红、破坏性橙、健康绿、中性灰', () => {
+test('audit row: semantic dots -- failure red, destructive orange, health green, neutral grey', () => {
   assert.equal(KIND_META.login_failed, 'bad')
   assert.equal(KIND_META.node_delete, 'warn')
   assert.equal(KIND_META.node_down, 'warn')
@@ -37,36 +37,36 @@ test('审计行: 语义色点——失败红、破坏性橙、健康绿、中性
   assert.equal(KIND_META.node_create, 'muted')
 })
 
-test('审计行: 已知事件渲染对应色点，文案走字典', () => {
+test('audit row: a known event renders its dot, the text comes from the dictionary', () => {
   const html = auditRow({ ...EVENT, kind: 'login_failed' })
-  assert.ok(html.includes('dot bad'), '失败事件是红点')
-  assert.ok(html.includes(DICT['audit.kind.login_failed']), '文案是译文不是键名')
+  assert.ok(html.includes('dot bad'), 'a failed event is a red dot')
+  assert.ok(html.includes(DICT['audit.kind.login_failed']), 'the text is the translation, not the key name')
 })
 
-test('审计行: 未知事件类型灰点兜底，显示原始 kind（不炸、不空）', () => {
+test('audit row: an unknown event type falls back to a grey dot and shows the raw kind (no crash, not empty)', () => {
   const html = auditRow({ ...EVENT, kind: 'some_future_kind' })
-  assert.ok(html.includes('dot muted'), '未知类型灰兜底')
-  assert.ok(html.includes('some_future_kind'), 'kind 原文可见')
-  assert.equal(kindLabel('some_future_kind'), 'some_future_kind', '缺键回退 kind 本身')
+  assert.ok(html.includes('dot muted'), 'an unknown type falls back to grey')
+  assert.ok(html.includes('some_future_kind'), 'the raw kind is visible')
+  assert.equal(kindLabel('some_future_kind'), 'some_future_kind', 'a missing key falls back to the kind itself')
 })
 
-test('审计行: 时间在右侧、actor 在标题内、detail 在第二行', () => {
+test('audit row: the time on the right, the actor inside the title, detail on the second line', () => {
   const html = auditRow(EVENT)
   const mainIdx = html.indexOf('row-main')
   const titleIdx = html.indexOf('row-title')
   const timeIdx = html.indexOf('muted small')
   const detailIdx = html.indexOf('detail')
-  // 结构顺序：row-main 包着 row-title（含色点+事件+actor）与右侧时间；
-  // detail 在 row-main 之后单独一行。
-  assert.ok(mainIdx < titleIdx && titleIdx < timeIdx, `标题先于时间（main=${mainIdx} title=${titleIdx} time=${timeIdx}）`)
-  assert.ok(html.includes('· admin'), 'actor 跟事件名同一行')
-  assert.ok(mainIdx < detailIdx, 'detail 在 main 之后成行')
+  // Structural order: row-main wraps row-title (dot + event + actor) and the time on the right;
+  // detail is its own line after row-main.
+  assert.ok(mainIdx < titleIdx && titleIdx < timeIdx, `the title precedes the time (main=${mainIdx} title=${titleIdx} time=${timeIdx})`)
+  assert.ok(html.includes('· admin'), 'the actor is on the same line as the event name')
+  assert.ok(mainIdx < detailIdx, 'detail becomes a line after main')
 })
 
-test('审计行: detail 转义；为空时不渲染 detail 行', () => {
+test('audit row: detail is escaped; an empty detail renders no detail line', () => {
   const evil = auditRow({ ...EVENT, detail: '<img src=x onerror=alert(1)>' })
-  assert.ok(!evil.includes('<img'), 'HTML 被转义')
-  assert.ok(evil.includes('&lt;img'), '转义后可读')
+  assert.ok(!evil.includes('<img'), 'the HTML is escaped')
+  assert.ok(evil.includes('&lt;img'), 'readable once escaped')
   const none = auditRow({ ...EVENT, detail: null })
-  assert.ok(!none.includes('detail'), '空 detail 不给空行')
+  assert.ok(!none.includes('detail'), 'an empty detail gets no empty line')
 })

@@ -1,39 +1,39 @@
-// 债务 F1:chat-state asks 状态机测试——question/approval 卡片的开合语义。
+// Debt F1: chat-state asks state-machine tests -- the open/close semantics of the question/approval cards.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { makeAsks } from './chat-state.js'
 
 const setup = () => makeAsks()
 
-test('债务 F1: question_asked 建卡,question_resolved 按 questionId 关卡', () => {
+test('debt F1: question_asked opens a card, question_resolved closes it by questionId', () => {
   const { track, size } = setup()
-  track({ kind: 'question_asked', questionId: 'q1', questions: [{ id: 'a', question: '哪个?' }] })
+  track({ kind: 'question_asked', questionId: 'q1', questions: [{ id: 'a', question: 'which one?' }] })
   assert.equal(size(), 1)
   track({ kind: 'question_resolved', questionId: 'q1' })
   assert.equal(size(), 0)
 })
 
-test('债务 F1: approval_pending 建卡并记 approvalId', () => {
+test('debt F1: approval_pending opens a card and records the approvalId', () => {
   const { track, get } = setup()
-  track({ kind: 'approval_pending', decisionId: 'd1', approvalId: 'ap-1', toolName: 'write', reason: '危险' })
-  assert.deepEqual(get('d1'), { kind: 'approval', id: 'd1', approvalId: 'ap-1', toolName: 'write', reason: '危险' })
+  track({ kind: 'approval_pending', decisionId: 'd1', approvalId: 'ap-1', toolName: 'write', reason: 'dangerous' })
+  assert.deepEqual(get('d1'), { kind: 'approval', id: 'd1', approvalId: 'ap-1', toolName: 'write', reason: 'dangerous' })
 })
 
-test('债务 F1: approval_resolved 无 decisionId 时按 approvalId 扫描关卡(重连未见请求帧)', () => {
+test('debt F1: approval_resolved without a decisionId closes the card by scanning approvalId (no request frame after a reconnect)', () => {
   const { track, size } = setup()
   track({ kind: 'approval_pending', decisionId: 'd1', approvalId: 'ap-9', toolName: 'write', reason: null })
   track({ kind: 'approval_resolved', approvalId: 'ap-9' })
   assert.equal(size(), 0)
 })
 
-test('债务 F1: approval_resolved 带 decisionId 直接关卡', () => {
+test('debt F1: approval_resolved with a decisionId closes the card directly', () => {
   const { track, size } = setup()
   track({ kind: 'approval_pending', decisionId: 'd1', approvalId: 'ap-1', toolName: 'write', reason: null })
   track({ kind: 'approval_resolved', decisionId: 'd1', approvalId: 'ap-1' })
   assert.equal(size(), 0)
 })
 
-test('债务 F1: turn_end/turn_done 清空全部卡片(回合结束无人等答案)', () => {
+test('debt F1: turn_end/turn_done clears every card (the turn is over, nobody waits for an answer)', () => {
   const { track, size } = setup()
   track({ kind: 'question_asked', questionId: 'q1', questions: [] })
   track({ kind: 'approval_pending', decisionId: 'd1', approvalId: 'ap-1', toolName: 'x', reason: null })
@@ -41,7 +41,7 @@ test('债务 F1: turn_end/turn_done 清空全部卡片(回合结束无人等答�
   assert.equal(size(), 0)
 })
 
-test('债务 F1: 畸形帧不建卡(缺 questionId/decisionId 或 questions 非数组)', () => {
+test('debt F1: a malformed frame opens no card (missing questionId/decisionId, or questions not an array)', () => {
   const { track, size } = setup()
   track({ kind: 'question_asked', questions: [] })
   track({ kind: 'question_asked', questionId: 'q2', questions: 'not-array' })
@@ -49,10 +49,10 @@ test('债务 F1: 畸形帧不建卡(缺 questionId/decisionId 或 questions 非�
   assert.equal(size(), 0)
 })
 
-test('债务 F1: 同一 questionId 重复到达覆盖旧卡(id 幂等)', () => {
+test('debt F1: the same questionId arriving twice overwrites the old card (idempotent by id)', () => {
   const { track, size, get } = setup()
-  track({ kind: 'question_asked', questionId: 'q1', questions: [{ id: 'a', question: '旧' }] })
-  track({ kind: 'question_asked', questionId: 'q1', questions: [{ id: 'b', question: '新' }] })
+  track({ kind: 'question_asked', questionId: 'q1', questions: [{ id: 'a', question: 'old' }] })
+  track({ kind: 'question_asked', questionId: 'q1', questions: [{ id: 'b', question: 'new' }] })
   assert.equal(size(), 1)
-  assert.equal(get('q1').questions[0].question, '新')
+  assert.equal(get('q1').questions[0].question, 'new')
 })

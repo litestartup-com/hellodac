@@ -20,9 +20,9 @@
  */
 
 .content-flush:has(.chat-log) {
-  /* DSH web 主题 token 接线（dsw-theme.css，0.1.2-rc.1 编译产物整段提取）：
-     视觉与 DSH 完全同源，不再硬编码近似值。--chat-* 别名保留给下方规则
-     零散引用，值一律取自 token。 */
+  /* DSH web theme token wiring (dsw-theme.css, extracted whole from the 0.1.2-rc.1 compiled output):
+     the visuals share one source with DSH, with no more hardcoded approximations. The --chat-* aliases stay
+     for the scattered references in the rules below, and every value comes from a token. */
   --chat-bg: var(--dsw-alias-bg-base);
   --chat-text: var(--dsw-alias-label-primary);
   --chat-text-2: var(--dsw-alias-label-secondary);
@@ -38,11 +38,11 @@
   --chat-col: var(--dsh-chat-content-width);
   --chat-composer-w: var(--dsh-composer-card-max-width);
   --chat-input-max-h: 336px;
-  /* DSH 决策卡的琥珀三件套，直接取自 state-warn token。 */
+  /* DSH's amber trio for decision cards, taken straight from the state-warn token. */
   --chat-ask-strip: var(--dsw-static-amber-100);
   --chat-ask-ink: var(--dsw-static-amber-500);
   --chat-ask-border: var(--dsw-static-amber-400);
-  /* 代码字体栈（DSH 的 --ds-font-family-code），只作用于本页。 */
+  /* The code font stack (DSH's --ds-font-family-code), scoped to this page only. */
   --mono: var(--ds-font-family-code);
   font-family: var(--dsw-font-family);
 
@@ -74,7 +74,7 @@
 /* A state strip, not a banner: `lost` and busy are the two states that stop
    work, so they get the full-width treatment. Dormancy lives in the composer
    hint instead -- it is a note about the next send, not a problem. */
-/* 排队任务 dock（composer 上方）：一行一条，超出省略 */
+/* Queued-task dock (above the composer): one line per task, overflowing ones are truncated */
 .queue-dock {
   display: flex;
   flex-direction: column;
@@ -89,7 +89,7 @@
   background: var(--chat-bg);
 }
 
-/* Ongoing Goal 条（DSH web 同款）：一行 = 图标 + 阶段标签 + 目标文字省略 */
+/* The Ongoing Goal strip (same as DSH web): one line = icon + phase label + the goal text, truncated */
 .goal-bar {
   display: flex;
   align-items: center;
@@ -233,7 +233,7 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
-  /* DSH 的细滚动条（--dsh-scrollbar-* token），不再隐藏。 */
+  /* DSH's thin scrollbar (the --dsh-scrollbar-* tokens), no longer hidden. */
   scrollbar-width: thin;
   scrollbar-color: var(--dsh-scrollbar-thumb) transparent;
 }
@@ -525,8 +525,8 @@
   }
 }
 
-/* DSH 的 running 态流光条（turnStatus shimmer：@keyframes 1.8s linear，
-   --dsw-state-ongoing 语义），挂在等待行下方。 */
+/* DSH's running-state shimmer bar (turnStatus shimmer: @keyframes 1.8s linear,
+   --dsw-state-ongoing semantics), attached below the waiting row. */
 .wait-shimmer {
   height: 2px;
   border-radius: 1px;
@@ -761,7 +761,7 @@
 }
 
 /* DSH's reject treatment: quiet until hovered, then the danger colours. Skip
-   ("不答") stays neutral -- it is a dismissal, not a refusal. */
+   ("Skip") stays neutral -- it is a dismissal, not a refusal. */
 .ask-reject:hover:not(:disabled) {
   background: var(--bad-bg);
   border-color: transparent;
@@ -800,7 +800,7 @@
    and double every gap. */
 .prose {
   white-space: normal;
-  /* DSH 排版 token：正文 16/28（AssistantMarkdown 同款）。 */
+  /* DSH typography tokens: body 16/28 (same as AssistantMarkdown). */
   font: var(--dsw-font-markdown-base);
 }
 
@@ -818,7 +818,7 @@
   margin: 0 0 0.75em;
 }
 
-/* DSH 标题阶梯：h1 24/34、h2 22/32、h3 20/30、h4 16/28（--dsw-font-markdown-*）。 */
+/* DSH's heading ladder: h1 24/34, h2 22/32, h3 20/30, h4 16/28 (--dsw-font-markdown-*). */
 .prose h1,
 .prose h2,
 .prose h3,
@@ -885,8 +885,8 @@
 
 /* ---- code blocks: DSH's md-code-block grammar (stable class) ---- */
 
-/* DSH 的 CodeBlock：外层 md-code-block（稳定类名），顶部 banner（语言名 + 复制按钮），
-   下面是代码本体。banner 底色与代码区同源 token。 */
+/* DSH's CodeBlock: the outer md-code-block (a stable class name) with a banner on top (language name + copy
+   button) and the code itself below. The banner background comes from the same token as the code area. */
 .md-code-block {
   margin: 0 0 0.75em;
   background: var(--dsw-alias-markdown-code-block);
@@ -949,7 +949,7 @@
   background: none;
   border: 0;
   padding: 0;
-  /* DSH 代码块排版 token：13/22。 */
+  /* DSH code-block typography tokens: 13/22. */
   font: var(--dsw-font-markdown-code-block);
   white-space: pre;
   overflow-wrap: normal;
@@ -963,7 +963,7 @@
   border-spacing: 0;
   border: 1px solid var(--chat-line);
   border-radius: 10px;
-  /* DSH 表格排版 token：15/25（md-table-wide 同款）。 */
+  /* DSH table typography tokens: 15/25 (same as md-table-wide). */
   font: var(--dsw-font-markdown-table);
   display: block;
   overflow: auto;
@@ -1091,8 +1091,8 @@
   transform: rotate(90deg);
 }
 
-/* DSH 工具卡（GenericToolCard 语法移植）：variant 徽标 + 单行摘要 +
-   可折叠的参数/代码正文与结果。工具名→variant 分类在 tool-cards.js。 */
+/* DSH's tool card (a port of the GenericToolCard syntax): variant badge + one-line summary +
+   a collapsible argument/code body and result. The tool name -> variant classification lives in tool-cards.js. */
 .tool-call {
   margin: 0 0 6px 19px;
   border: 1px solid var(--chat-line);
@@ -1386,7 +1386,8 @@
 
 .composer-tools {
   gap: 10px;
-  /* 身份区主动占满可用宽度：路径才有空间收缩省略，尾部按钮永不换行错位 */
+  /* The identity area deliberately fills the available width: only then does the path have room to shrink and
+     truncate, and the trailing buttons never wrap out of place */
   flex: 1 1 auto;
 }
 
@@ -1403,8 +1404,8 @@
   max-width: min(220px, 36cqw);
   height: 28px;
   padding: 0 22px 0 8px;
-  /* 可见药丸：细边 + 浅底，与 composer 其它控件同源 token；透明无边框会被
-     读成「原生控件」。 */
+  /* A visible pill: hairline border + pale background, the same tokens as the composer's other controls; a
+     transparent borderless one reads as a "native control". */
   border: 1px solid var(--chat-line);
   border-radius: 999px;
   outline: none;
@@ -1439,7 +1440,7 @@
   opacity: 0.7;
 }
 
-/* 按钮化的 composer 下拉：label 排版与 select 一致（文字左对齐）。 */
+/* The button-ified composer dropdown: label typography matches select (text left-aligned). */
 .composer-select .composer-select-label {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1447,8 +1448,8 @@
   display: block;
 }
 
-/* 自绘选项面板（原生 <option> 列表不可样式化，DSH web 同款 token 风格）：
-   surface 卡片 + 圆角 + lv3 阴影 + 悬停行 + 选中勾。挂在 body，向上展开。 */
+/* The hand-drawn option panel (a native <option> list cannot be styled, same token style as DSH web):
+   a surface card + rounded corners + lv3 shadow + hover rows + a selected check. Attached to body, opens upwards. */
 .composer-options-panel {
   position: fixed;
   z-index: 70;
@@ -1500,7 +1501,7 @@
   font-weight: 600;
 }
 
-/* 全量访问档：红色示警；节点未开锁时锁定置灰（不可点，靠文案说明）。 */
+/* The full-access tier: red warning; greyed out and locked while the node is not unlocked (not clickable, the copy explains it). */
 .composer-option.danger {
   color: var(--dsw-alias-state-error-primary);
 }
@@ -1723,7 +1724,7 @@
   transition: background-color 0.1s;
 }
 
-/* 方案 C（2026-09-11）：发送/停止同一槽位叠放，busy 时只显示其一，位置不跳。 */
+/* Option C (2026-09-11): send/stop share one slot stacked on top of each other, busy shows only one of them, and the position never jumps. */
 .composer-slot {
   position: relative;
   flex: 0 0 auto;
@@ -1736,7 +1737,7 @@
   inset: 0;
 }
 
-/* 排队发送：回合运行中浮现的 ghost 小按钮，与主槽同尺寸（箭头）。 */
+/* Queued send: a ghost mini button that appears while a turn is running, the same size as the main slot (an arrow). */
 .composer-queue {
   flex: 0 0 auto;
   display: inline-flex;
@@ -1899,7 +1900,7 @@
   }
 }
 
-/* ── 蜂群 P2/P3：delegation 帧（主脑派工记录） ──────────── */
+/* ── Hive P2/P3: the delegation frame (the brain's dispatch record) ──────────── */
 
 .chat-delegations {
   display: flex;

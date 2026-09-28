@@ -736,7 +736,7 @@ const load = async () => {
       for (const m of online) {
         const opt = document.createElement('option')
         opt.value = m.id
-        opt.textContent = `${m.hostname}（${m.os}/${m.arch}）`
+        opt.textContent = `${m.hostname} (${m.os}/${m.arch})`
         hostSel.appendChild(opt)
       }
       // UI wrap-up C-P1: the cluster topology data frame (the frontend aggregates /api/nodes + /api/agents

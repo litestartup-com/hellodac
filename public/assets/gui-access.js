@@ -1,6 +1,5 @@
 // @ts-check
-// Capability three v1 (2026-09-20): the tunnel command for a node's native GUI -- pure function layer, unit-tested
-// （gui-access.test.mjs）。
+// Capability three v1 (2026-09-20): the tunnel command for a node's native GUI -- pure function layer, unit-tested in gui-access.test.mjs.
 // Red line: an SSH private key never enters the manager -- only the "how to connect" command is generated,
 // and the key stays on the user's machine (ssh_key is only the *path* of a local private key, never its content).
 //

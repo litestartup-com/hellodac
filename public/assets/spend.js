@@ -48,7 +48,7 @@ const renderTotals = (data) => {
   $('peak-share').textContent = totals.costMicroUsd > 0 ? `${share}%` : '—'
   const windows = (data.peakWindowsUtc ?? [])
     .map((w) => `${utcToLocal(w.start)}–${utcToLocal(w.end)}`)
-    .join('、')
+    .join(', ')
   $('peak-note').textContent =
     windows === ''
       ? t('spend.noWindows')

@@ -1,8 +1,8 @@
 <div class="wrap">
   <div class="page-head">
     <h1 class="grow">{{t:nodes.title}}</h1>
-    <!-- 三视图（DAC v1.0.0）：拓扑看全局、节点管个体、机器管接入。
-         以前一页堆两个列表 + 向导 + 访问编辑器 + 日志抽屉，读起来像文档。 -->
+    <!-- Three views (DAC v1.0.0): topology for the whole picture, nodes for individuals, machines for onboarding.
+         The page used to pile up two lists + a wizard + an access editor + a log drawer, and read like a document. -->
     <div class="view-switch" role="group" aria-label="{{t:nodes.view.label}}">
       <button id="view-topo" class="btn-quiet btn-sm" type="button">{{t:nodes.view.topology}}</button>
       <button id="view-nodes" class="btn-quiet btn-sm" type="button">{{t:nodes.view.nodes}}</button>
@@ -17,14 +17,14 @@
 
   <div id="banners" role="alert"></div>
 
-  <!-- ── 拓扑视图：manager → 机器 → 节点，点卡片跳对应视图 ───────────── -->
+  <!-- ── Topology view: manager -> machine -> node; clicking a card jumps to the matching view ───────────── -->
   <section id="topology-section" class="section">
     <div class="card topo-card">
       <div id="topology"><p class="muted small">{{t:common.loading}}</p></div>
     </div>
   </section>
 
-  <!-- ── 节点视图：全部节点 + 日志抽屉 ─────────────────────────────── -->
+  <!-- ── Node view: all nodes + the log drawer ─────────────────────────────── -->
   <section id="nodes-view" class="section" hidden>
     <div class="section-head">
       <h2>{{t:nodes.all}}</h2>
@@ -43,7 +43,7 @@
     </div>
   </section>
 
-  <!-- ── 机器视图：node-agent 接入目录 ─────────────────────────────── -->
+  <!-- ── Machine view: the node-agent onboarding directory ─────────────────────────────── -->
   <section id="machines-view" class="section" hidden>
     <div class="section-head">
       <h2>{{t:nodes.view.machines}}</h2>
@@ -63,7 +63,7 @@
     </div>
   </section>
 
-  <!-- ── 抽屉：新增节点向导 ────────────────────────────────────────── -->
+  <!-- ── Drawer: the add-node wizard ────────────────────────────────────────── -->
   <div id="node-editor" class="panel" hidden>
     <div class="panel-backdrop" data-close="1"></div>
     <aside class="panel-body panel-wide" role="dialog" aria-modal="true" aria-labelledby="node-editor-title">
@@ -163,7 +163,7 @@
     </aside>
   </div>
 
-  <!-- ── 抽屉：节点原生访问配置（SSH 隧道元数据；私钥永不进 manager） ── -->
+  <!-- ── Drawer: node native access configuration (SSH tunnel metadata; the private key never enters the manager) ── -->
   <div id="node-access-editor" class="panel" hidden>
     <div class="panel-backdrop" data-close="1"></div>
     <aside class="panel-body panel-wide" role="dialog" aria-modal="true" aria-labelledby="f-acc-title">
@@ -205,9 +205,9 @@
           </label>
           <p class="muted small">{{t:nodes.access.hint}}</p>
 
-          <!-- 连接区（UI 精简）：原来节点行常显一张 330px 的卡放隧道命令，
-               现在行里只留一个「原生访问」入口，命令与打开按钮搬到这儿——
-               配一次、用一次，本来就该在一起。 -->
+          <!-- The connection section (UI trim): the node row used to show a permanent 330px card holding the tunnel command,
+               and now it keeps only a "native access" entry while the command and the open button moved here --
+               configured once and used once, they belong together anyway. -->
           <div class="access-conn" id="f-acc-conn" hidden>
             <div class="access-conn-head">
               <span class="field-label grow">{{t:nodes.access.connect}}</span>

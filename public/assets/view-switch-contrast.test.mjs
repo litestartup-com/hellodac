@@ -1,27 +1,27 @@
 import { readFileSync } from 'node:fs'
 
 /**
- * 视图切换器选中态对比度守卫（WCAG 2.x）。
+ * Contrast guard for the view switcher's active state (WCAG 2.x).
  *
- * 事故背景（2026-09-25 用户上报）：选中项悬停时「背景和字都变白」。
- * 根因是 .view-switch .on 排在 .btn-quiet:hover 之后、又写死了 color，于是盖掉
- * hover 规则；而 hover 规则只换背景不管前景 → 白字压浅灰，实测 1.14:1，字没了。
+ * Incident background (2026-09-25 user report): hovering the selected item turned "background and text
+ * both white". Root cause: .view-switch .on came after .btn-quiet:hover with a hard-coded color, so it
+ * beat the hover rule, which only swaps the background -> white text on light grey, measured 1.14:1, text gone.
  *
- * 这里不复述结果数字，而是**现场从 style.css 解析并计算**：色值读变量，背景读
- * 真实级联（.on → .btn-quiet → button 基类）。样式一改守卫跟着变，不会像写死
- * 数字那样过期还报绿。
+ * Rather than restating the resulting numbers, this **parses and computes them live from style.css**:
+ * colour values come from variables, backgrounds from the real cascade (.on -> .btn-quiet -> the button
+ * base class), so a stylesheet change moves the guard with it instead of going stale-but-green.
  *
- * 解析刻意做成「真规则表」而不是正则拼选择器：基础规则是逗号列表
- * （`button,\n.btn {`），一维正则碰这种形状就漏。
+ * The parser is deliberately a "real rule table" rather than a regex glued to selectors: base rules are
+ * comma lists (`button,\n.btn {`), and a one-dimensional regex misses exactly that shape.
  */
 const css = readFileSync('public/assets/style.css', 'utf8')
 
-/** 去掉注释，避免正则把注释里的花括号当规则。 */
+/** Strip comments so the regex does not treat braces inside a comment as a rule. */
 const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '')
 
 /**
- * 把样式表解析成 Map<选择器, Map<属性, 值>>。
- * 只认顶层平铺规则；@media 等块内的规则会让花括号计数错位，所以按嵌套深度跳过。
+ * Parse a stylesheet into a Map<selector, Map<property, value>>.
+ * Only flat top-level rules count; rules inside @media would throw off brace counting, so depth skips them.
  */
 const parseRules = (cssText) => {
   const text = stripComments(cssText)
@@ -34,7 +34,7 @@ const parseRules = (cssText) => {
     if (ch === '{') {
       if (depth === 0) {
         bodyStart = i
-        // 记录选择器列表（此时还不知道是不是 @media）
+        // Record the selector list (whether this is @media is not known yet)
         const selText = text.slice(selStart, i).trim()
         void selText
       }
@@ -44,7 +44,7 @@ const parseRules = (cssText) => {
       if (depth === 0) {
         const selectorList = text.slice(selStart, bodyStart).trim()
         const body = text.slice(bodyStart + 1, i)
-        // @media / @supports 这类不落规则表（它们的内部规则已在 depth>0 被跳过）
+        // @media / @supports do not enter the rule table (their inner rules were already skipped at depth>0)
         if (!selectorList.startsWith('@')) {
           const decls = new Map()
           for (const part of body.split(';')) {
@@ -68,18 +68,18 @@ const RULES = parseRules(css)
 const varOf = (name) => {
   const root = RULES.get(':root')
   const raw = root?.get(`--${name}`)
-  if (raw === undefined) throw new Error(`找不到 CSS 变量 --${name}`)
+  if (raw === undefined) throw new Error(`CSS variable --${name} not found`)
   return raw
 }
 
-/** 解析单条声明里的 var(...)（只支持一层，够用）。 */
+/** Resolve var(...) inside a single declaration (one level is enough). */
 const resolve = (value) => {
   if (value === undefined) return undefined
   const m = /^var\(\s*--([\w-]+)\s*\)$/.exec(value.trim())
   return m === null ? value.trim() : varOf(m[1])
 }
 
-/** 沿级联顺序取第一个"是颜色"的值（none/transparent 不算）。 */
+/** Walk the cascade in order and take the first value that "is a colour" (none/transparent do not count). */
 const through = (selectors, prop) => {
   for (const sel of selectors) {
     for (const p of [prop, `${prop}-color`]) {
@@ -87,7 +87,7 @@ const through = (selectors, prop) => {
       if (v !== undefined && v !== 'none' && v !== 'transparent') return v
     }
   }
-  throw new Error(`级联里找不到 ${prop}：${selectors.join(' → ')}`)
+  throw new Error(`no ${prop} in the cascade: ${selectors.join(' -> ')}`)
 }
 
 const lum = (hex) => {
@@ -104,31 +104,31 @@ const ratio = (fg, bg) => {
 
 const AA = 4.5
 
-// 前景：.on 自己写的 color（没写才落到 .btn-quiet）
+// Foreground: the color .on writes itself (it only falls through to .btn-quiet when unset)
 const onColor = resolve(RULES.get('.view-switch .on')?.get('color')) ?? resolve(RULES.get('.btn-quiet')?.get('color'))
-// 常态背景：.on 未写背景 → .btn-quiet 是 none → button 基类 --surface
+// Normal-state background: .on writes none -> .btn-quiet is none -> the button base class's --surface
 const bgNormal = through(['.view-switch .on', '.btn-quiet', 'button'], 'background')
-// 悬停背景：.btn-quiet:hover 在级联里赢（这才是事故点）
+// Hover background: .btn-quiet:hover wins in the cascade (this is the incident spot)
 const bgHover = through(['.btn-quiet:hover'], 'background')
 
 const normal = ratio(onColor, bgNormal)
 const hover = ratio(onColor, bgHover)
 
-console.log('视图切换器选中态对比度（WCAG AA = 4.5:1）\n')
-console.log(`  解析：前景 ${onColor} / 常态底 ${bgNormal} / 悬停底 ${bgHover}\n`)
+console.log('View switcher active-state contrast (WCAG AA = 4.5:1)\n')
+console.log(`  parsed: foreground ${onColor} / normal bg ${bgNormal} / hover bg ${bgHover}\n`)
 
 const report = (label, fg, bg, r) => {
   console.log(`${r >= AA ? '✓' : '✗'} ${label.padEnd(16)} ${fg} on ${bg}  ${r.toFixed(2)}:1`)
   return r >= AA
 }
-const okNormal = report('常态', onColor, bgNormal, normal)
-const okHover = report('悬停', onColor, bgHover, hover)
+const okNormal = report('normal', onColor, bgNormal, normal)
+const okHover = report('hover', onColor, bgHover, hover)
 
-console.log('\n这两个数任何一个跌破 4.5，就说明选中态又出现了「字和底撞色」——')
-console.log('正是用户 2026-09-25 报的那个 bug。')
+console.log('\nIf either of these two numbers drops below 4.5, the active state is clashing text and')
+console.log('background again -- exactly the bug the user reported on 2026-09-25.')
 
 if (!okNormal || !okHover) {
-  console.log('\n✗ 对比度不达标')
+  console.log('\n✗ contrast below the threshold')
   process.exit(1)
 }
-console.log('\n✓ 常态与悬停均达标')
+console.log('\n✓ both normal and hover pass')

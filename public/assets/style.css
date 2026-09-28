@@ -175,7 +175,7 @@ code {
 }
 
 /* An anchor, not a heading: it is how you get home from anywhere, which is why
-   no page needs its own 返回 button. DSH's logo row: 60px tall, brand on the
+   no page needs its own Back button. DSH's logo row: 60px tall, brand on the
    left, the rail toggle on the right. */
 .side-top {
   display: flex;
@@ -265,7 +265,7 @@ code {
   font: 500 14px/22px var(--font);
   padding: 8px 16px;
   cursor: pointer;
-  /* An anchor now, so it keeps working as 派活 from pages that have no composer. */
+  /* An anchor now, so it keeps working as the Dispatch action from pages that have no composer. */
   text-decoration: none;
   box-sizing: border-box;
   margin: 0 0 8px;
@@ -600,7 +600,7 @@ code {
   max-width: 920px;
 }
 
-/* Every page's title row. Replaces the per-page 返回 button, which was a worse
+/* Every page's title row. Replaces the per-page Back button, which was a worse
    version of a frame that never leaves. */
 .page-head {
   display: flex;
@@ -629,7 +629,7 @@ code {
   transition: background-color var(--motion);
 }
 
-/* 主导航容器（DAC v1.0.0）：agent 树之下、端点状态之上，常驻两项。 */
+/* The main navigation container (DAC v1.0.0): below the agent tree, above the endpoint status, two permanent items. */
 .side-links {
   display: flex;
   flex-direction: column;
@@ -1117,7 +1117,7 @@ code {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  /* 说明文字长短不定（钥匙页那句很长）：不换行的话窄窗口会被直接裁掉（2026-09-27 实测）。 */
+  /* The explanatory text varies in length (the key page's sentence is very long): without wrapping, a narrow window simply clips it (measured 2026-09-27). */
   flex-wrap: wrap;
   row-gap: 4px;
   margin-bottom: 12px;
@@ -1432,8 +1432,8 @@ button:disabled {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
-/* 与 .narrow input 同款的下拉（对外 API 钥匙页选服务用）：同一表单体系内
-   不应该有第二个输入外观，select 跟着 input 走。 */
+/* The same dropdown as .narrow input (used to pick a service on the public API key page): one form system
+   should not have a second input look, so select follows input. */
 .narrow select {
   width: 100%;
   background: var(--surface);
@@ -1452,8 +1452,8 @@ button:disabled {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
-/* 表单内的勾选项：.checkbox-line 是仓库既有约定（inline-flex + gap + 手型），
-   但 .narrow label 的字号/颜色会覆盖它——这里把既有约定重新声明进表单体系。 */
+/* A checkbox inside a form: .checkbox-line is a pre-existing repo convention (inline-flex + gap + pointer),
+   but .narrow label overrides its font size and colour -- so the convention is redeclared into the form system here. */
 .narrow .checkbox-line {
   display: inline-flex;
   align-items: center;
@@ -1464,9 +1464,9 @@ button:disabled {
   margin-bottom: 6px;
 }
 
-/* 关键：`.narrow input { width: 100% }` 是给文本框的，勾选框也命中它——复选框会被拉成
-   整行宽（实测 216px），字形留在最左、文字被挤到最右，看起来像排版坏了。
-   这里把勾选框还原成原生尺寸（实测修法，2026-09-27）。 */
+/* Note: `.narrow input { width: 100% }` is meant for text boxes, but a checkbox matches it too -- the box gets
+   stretched to the full row (216px measured) while the glyph stays far left and the text is pushed far right, which
+   looks like broken layout. This restores the checkbox to its native size (the measured fix, 2026-09-27). */
 .narrow .checkbox-line input[type='checkbox'] {
   width: auto;
   padding: 0;
@@ -1474,7 +1474,7 @@ button:disabled {
   flex: none;
 }
 
-/* 提交按钮基础形态（登录页与改密页共用）：蓝底白字。 */
+/* The base submit-button shape (shared by the login and password pages): blue background, white text. */
 .narrow button[type='submit'] {
   width: 100%;
   justify-content: center;
@@ -1489,9 +1489,9 @@ button:disabled {
   border-color: var(--accent-hover);
 }
 
-/* 改密按钮改深墨（2026-09-26 用户反馈「password 按钮还是蓝色的」）。
-   只作用于改密表单——登录页共用 .narrow，登录按钮保持蓝色是既定惯例，
-   共用选择器会把登录页一起改掉。 */
+/* The password button goes dark ink (user feedback 2026-09-26: "the password button is still blue").
+   It applies to the password form only -- the login page shares .narrow, and keeping the login button blue
+   is an established convention, so a shared selector would change the login page too. */
 #password-form button[type='submit'] {
   background: var(--text);
   border-color: var(--text);
@@ -1798,7 +1798,7 @@ button:disabled {
   border-bottom: 1px solid var(--border);
 }
 
-/* 宽抽屉（DAC v1.0.0）：节点向导与访问配置表单字段多，420px 太挤。 */
+/* A wide drawer (DAC v1.0.0): the node wizard and the access configuration form have many fields, and 420px is too cramped. */
 .panel-body.panel-wide {
   width: min(640px, 96vw);
 }
@@ -1915,7 +1915,7 @@ button:disabled {
   font-size: 11.5px;
 }
 
-/* ---- 节点页（/nodes）：节点列表 + 全局任务流 ---- */
+/* ---- Nodes page (/nodes): node list + global task stream ---- */
 
 .nodes-list {
   display: flex;
@@ -1923,23 +1923,23 @@ button:disabled {
   gap: 8px;
 }
 
-/* ---- 集群拓扑（UI 收尾 C）：三列 manager→机器→节点 + SVG 边线 ---- */
+/* ---- Cluster topology (UI wrap-up C): three columns manager->machine->node plus SVG edge lines ---- */
 
-/* 三视图切换（DAC v1.0.0）：与 ⋮ 菜单同语言的分段控件。 */
+/* The three-view switcher (DAC v1.0.0): a segmented control speaking the same language as the ⋮ menu. */
 .view-switch {
   display: inline-flex;
   gap: 4px;
 }
 
-/* 选中态用**蓝色描边**表达「哪个视图开着」，不填蓝底、也不设 color。
+/* The selected state expresses "which view is open" with a **blue outline**, without a blue fill and without setting color.
  *
- * 为什么不是「蓝底 + 白字」（原来那样）：
- *   本条排在 .btn-quiet:hover 之后，它写的 color 会盖掉 hover 规则；而
- *   .btn-quiet:hover 只换背景（--surface-hover 浅灰）、不管前景 —— 于是悬停
- *   瞬间变成白字压浅灰，实测对比度 1.14:1，字直接糊没了。
- *   只删 color 也不行：蓝底还在，继承来的 --text-2 压蓝底是 1.58:1，更糟。
- * 让背景回归 surface、文字回归 --text 后：常态 17.8:1、悬停 15.6:1，两态都稳。
- * （数值用 WCAG 相对亮度公式实测，色值取自本文件变量。） */
+ * Why not "blue fill + white text" (the way it was):
+ *   this rule comes after .btn-quiet:hover, so the color it sets would override the hover rule; and
+ *   .btn-quiet:hover only swaps the background (--surface-hover, a pale grey) and does not touch the foreground -- so at
+ *   the moment of hover it became white text on pale grey, a measured contrast of 1.14:1, the glyphs simply smeared away.
+ *   Dropping only color does not work either: the blue fill is still there, and the inherited --text-2 on blue is 1.58:1, worse.
+ * With the background back to surface and the text back to --text: 17.8:1 at rest and 15.6:1 on hover, both states solid.
+ * (The numbers are measured with the WCAG relative-luminance formula and the colours come from this file's variables.) */
 .view-switch .on {
   border-color: var(--accent);
   color: var(--text);
@@ -2062,7 +2062,7 @@ button:disabled {
   box-shadow: var(--sh-1);
 }
 
-/* 本机行（UI 收尾 C-P1.5）：整行可点（跳「全部节点」）。 */
+/* The local row (UI wrap-up C-P1.5): the whole row is clickable (jumps to "all nodes"). */
 .node-row[data-local-machine-row] {
   cursor: pointer;
 }
@@ -2106,8 +2106,8 @@ button:disabled {
   flex: 0 0 auto;
 }
 
-/* 隧道命令代码块（能力三 v1 起就在用；UI 精简后从节点行的常显卡搬进
-   原生访问抽屉的「连接」区，样式不变——它现在只在抽屉里出现）。 */
+/* The tunnel command code block (in use since capability three v1; after the UI trim it moved out of the
+   node row's always-visible card into the "connection" section of the native access drawer, same styling -- it only appears in the drawer now). */
 .node-gui-cmd {
   display: block;
   font-size: 11px;
@@ -2119,7 +2119,7 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
-/* 原生访问抽屉的「连接」区：命令 + 打开/复制 + 提示。 */
+/* The "connection" section of the native access drawer: command + open/copy + a hint. */
 .access-conn {
   display: flex;
   flex-direction: column;
@@ -2137,14 +2137,14 @@ button:disabled {
   gap: 6px;
 }
 
-/* 窄容器：节点行允许折行（状态/归属占满一行，版本与触发器跟到下一行）。 */
+/* A narrow container: node rows may wrap (status/ownership take a full row, version and trigger follow on the next). */
 @media (max-width: 1100px) {
   .node-row {
     flex-wrap: wrap;
   }
 }
 
-/* 蜂群 P5.1：节点管控按钮 + 日志抽屉 */
+/* Hive P5.1: node control buttons + log drawer */
 .node-actions {
   display: flex;
   align-items: center;
@@ -2153,15 +2153,15 @@ button:disabled {
 }
 
 /* ==========================================================================
-   UI 精简（DAC v1.0.0）：节点行 + ⋮ 浮层菜单
+   UI trim (DAC v1.0.0): node row + ⋮ overlay menu
    --------------------------------------------------------------------------
-   改前单行横向 4 个区块（标题+告警 / meta / detail+版本下拉 / 最多 5 个按钮），
-   外加一张固定 330px 的原生 GUI 卡（含整条 SSH 命令）——行内绝大多数像素给了
-   偶尔才用的操作。现在主行只回答「哪个节点活着、跑的什么」，其余进浮层。
+   Before the change the single row carried four blocks horizontally (title+alert / meta / detail+version dropdown / up to 5 buttons),
+   plus a fixed 330px native GUI card (containing the whole SSH command) -- most of the row's pixels went to
+   operations used only occasionally. Now the main row answers just "which node is alive and what is it running", everything else moves into the overlay.
    ========================================================================== */
 
-/* 浮层一律 fixed + 挂 body：节点行在 .card 的圆角裁剪里，absolute 子菜单会被裁掉。
-   坐标由 menu.js 的 placePanel/placeSubmenu 现算（可单测）。 */
+/* Overlays are always fixed and attached to body: the node row sits inside .card's rounded clipping, where an
+   absolute submenu would be cut off. The coordinates are computed live by placePanel/placeSubmenu in menu.js (unit-testable). */
 .menu-panel {
   position: fixed;
   z-index: 75;
@@ -2198,8 +2198,8 @@ button:disabled {
   text-align: left;
   cursor: pointer;
   transition: background-color var(--motion);
-  /* 菜单项有 <a> 形态（带 href 的是真链接）：全局 a 只染 accent 色，下划线是
-     浏览器默认的——菜单里不该出现下划线（它看起来像正文里的链接，而不是菜单项）。 */
+  /* A menu item can be an <a> (those with an href are real links): the global a only tints the accent colour, and the
+     underline is the browser default -- a menu should have no underline (it looks like a link in body text rather than a menu item). */
   text-decoration: none;
 }
 
@@ -2213,7 +2213,7 @@ button:disabled {
   cursor: not-allowed;
 }
 
-/* 危险项（删除节点）：与普通项视觉分离，同仓库 danger 惯例。 */
+/* A danger item (delete node): visually separated from ordinary items, following the repo's danger convention. */
 .menu-item.danger {
   color: var(--bad);
 }
@@ -2223,9 +2223,9 @@ button:disabled {
   color: var(--bad);
 }
 
-/* 图标 + 文字：gap 必须落在**这一层**。
-   .menu-item 的 gap 只作用于它的直接子元素，而图标和文字同在这个 span 里，
-   靠父级 gap 拿不到间距——实测就是「图标和名字零边距怼在一起」。 */
+/* Icon + text: the gap must live on **this layer**.
+   The gap on .menu-item only applies to its direct children, while the icon and the text are both inside this span,
+   so the parent's gap gives them no spacing -- measured as "the icon and the name jammed together with zero margin". */
 .menu-grow {
   display: flex;
   align-items: center;
@@ -2247,15 +2247,15 @@ button:disabled {
   font-size: 12px;
 }
 
-/* 空的尾注不留空隙：About 那一项的版本要等 /api/status，填充前不能挤出一个
-   看不见却占位的空白（否则图标/文字看着偏左）。 */
+/* An empty trailing note leaves no gap: the About item's version waits on /api/status, and before it is filled it must not
+   squeeze out an invisible but space-taking blank (otherwise the icon/text look shifted left). */
 .menu-trailing:empty {
   display: none;
 }
 
-/* 邮箱复制反馈：浮在邮箱项上的小气泡，不用 alert 打断操作（用户明确要求）。
-   气泡是 .menu-item 的子元素，absolute 右对齐，在菜单项内不挡其它行；
-   淡入后 1.6s 自行淡出。 */
+/* Email-copy feedback: a small bubble floating over the email item instead of an alert interrupting the action (an explicit user request).
+   The bubble is a child of .menu-item, absolute and right-aligned, so it blocks no other row inside the menu item;
+   it fades in and fades itself out 1.6s later. */
 .menu-item {
   position: relative;
 }
@@ -2281,7 +2281,7 @@ button:disabled {
   background: var(--bad-bg);
   color: var(--bad);
   border: 1px solid var(--bad-border);
-  /* 失败提示带完整邮箱地址：允许换行，别把气泡顶穿面板 */
+  /* A failure hint carries the full email address: allow wrapping, do not let the bubble punch through the panel */
   white-space: normal;
   overflow-wrap: anywhere;
 }
@@ -2316,12 +2316,12 @@ button:disabled {
   line-height: 1.4;
 }
 
-/* ⋮ 触发器：与图标按钮同语言，悬停才明显（不抢主行注意力）。 */
+/* The ⋮ trigger: the same language as the icon buttons, obvious only on hover (it does not steal attention from the main row). */
 .menu-trigger {
   flex: 0 0 auto;
 }
 
-/* 节点主行：状态 / ID / 归属 / 当前版本 + 触发器。 */
+/* The node main row: status / ID / ownership / current version + the trigger. */
 .node-title .node-state {
   color: var(--text-2);
   font-weight: 500;
@@ -2334,7 +2334,7 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
-/* 错误必须可见（排障第一眼），但不许撑高整行：压成一行，全文走 tooltip。 */
+/* The error must be visible (the first thing you look at when troubleshooting), but it may not make the row taller: squeeze it onto one line and put the full text in a tooltip. */
 .node-err {
   margin-top: 2px;
   color: var(--bad);
@@ -2344,7 +2344,7 @@ button:disabled {
   white-space: nowrap;
 }
 
-/* 当前版本：右侧弱化一列，等宽字体便于比对。 */
+/* The current version: a de-emphasized column on the right, in a monospace font for easy comparison. */
 .node-ver {
   flex: 0 0 auto;
   max-width: 200px;
@@ -2357,14 +2357,14 @@ button:disabled {
 }
 
 @media (max-width: 720px) {
-  /* 窄屏：版本让位（它在菜单里也有），主行只留状态与归属。 */
+  /* Narrow screens: the version gives way (it is in the menu too), and the main row keeps only status and ownership. */
   .node-ver {
     display: none;
   }
 }
 
-/* 任务行正文折叠（UI 精简）：默认 2 行，点开展开全文。
-   65% 的任务正文含换行，所以保留原换行（pre-line），不要挤成一行。 */
+/* Collapsing the task row body (UI trim): 2 lines by default, click to expand the full text.
+   65% of task bodies contain line breaks, so the original breaks are kept (pre-line) rather than squeezed onto one line. */
 .run-body {
   margin-top: 2px;
   color: var(--text-2);
@@ -2446,7 +2446,7 @@ button:disabled {
   text-decoration: underline;
 }
 
-/* 共享表单（crons 编辑器与节点向导共用）——原在 crons.css，2026-09-05 迁移 */
+/* The shared form (used by both the crons editor and the node wizard) -- originally in crons.css, migrated 2026-09-05 */
 .field-row {
   display: flex;
   gap: 12px;
@@ -2513,7 +2513,7 @@ select.text-input {
   margin-right: auto;
 }
 
-/* 通用迷你 pill（run 行的「冲突」徽标等），与主脑卡的「忙」徽章同语言。 */
+/* The generic mini pill (the "conflict" badge on a run row and so on), the same language as the brain card's "busy" badge. */
 .pill-mini {
   display: inline-flex;
   align-items: center;
@@ -2534,7 +2534,7 @@ select.text-input {
   color: var(--muted);
 }
 
-/* 技能页（P5.2）：agent 分组 + 版本徽章 */
+/* Skills page (P5.2): agent groups + version badges */
 .skills-agent {
   margin-bottom: 16px;
 }
@@ -2553,7 +2553,7 @@ select.text-input {
   font-size: 13px;
 }
 
-/* 站内通知（P5.3）：铃铛角标 + 上弹面板 */
+/* Inbox notifications (P5.3): bell badge + panel popping up from below */
 .icon-btn {
   position: relative;
 }
@@ -2585,10 +2585,10 @@ select.text-input {
   overflow: hidden;
 }
 
-/* ⋮ 溢出菜单（UI 精简后）：外壳沿用「与通知面板同一浮层语言」的定位方式，
-   内部只保留两种元素——菜单项与分组标题（都来自 menu.js 的同一套语言）。
-   改前这里混了导航项/分隔线/语言列表/品牌页脚/独立登出按钮五种样式，
-   正是用户说的「password 到 sign out 太乱」。 */
+/* The ⋮ overflow menu (after the UI trim): the shell follows the same positioning language as "the notification panel overlay",
+   and inside only two kinds of element remain -- menu items and group headings (both from the same language in menu.js).
+   Before the change this mixed five styles: navigation items / dividers / the language list / the brand footer / a separate logout button --
+   exactly what the user called "password through sign out, far too messy". */
 .side-more-menu {
   position: fixed;
   width: 224px;
@@ -2609,22 +2609,22 @@ select.text-input {
   display: none;
 }
 
-/* 菜单项：图标位 + 文字 + 可选尾注（语言项右侧显示当前语言）。 */
+/* A menu item: icon slot + text + an optional trailing note (the language item shows the current language on the right). */
 .side-more-menu .menu-item {
   min-height: 36px;
   padding: 6px 10px;
   font-size: 14px;
 }
 
-/* 第二层浮窗（语言 / 设置）：与节点菜单的子菜单同一套（menu-panel + menu-sub）。
-   挂 body、fixed 定位——抽屉在 <1024px 是 translateX 的 off-canvas，子元素若用
-   absolute 会跟着它一起被推出屏幕。定位走 menu.js 的 placeSubmenu（越界翻边）。 */
+/* The second-level overlay (language / settings): the same set as the node menu's submenu (menu-panel + menu-sub).
+   Attached to body and fixed -- below 1024px the drawer is an off-canvas translateX, and a child using
+   absolute would be pushed off screen along with it. Positioning goes through placeSubmenu in menu.js (flipping at the edges). */
 .side-more-menu .more-flyout {
   width: 196px;
   max-width: 240px;
 }
 
-/* 关于项里的说明行：不占菜单项高度，纯文字。 */
+/* The description line inside the About item: takes no menu-item height, plain text only. */
 .side-more-menu .menu-note {
   padding: 5px 10px;
   font-size: 12px;
@@ -2674,7 +2674,7 @@ select.text-input {
   padding: 14px;
 }
 
-/* 节点向导（P5.5）的勾选项行 */
+/* The checkbox row of the node wizard (P5.5) */
 .field-check {
   display: block;
   margin: 4px 0 12px;
@@ -2687,7 +2687,7 @@ select.text-input {
   cursor: pointer;
 }
 
-/* 向导的高级设置（折叠，默认收起） */
+/* The wizard's advanced settings (collapsed, closed by default) */
 .node-advanced {
   margin: 8px 0 14px;
 }
@@ -2788,7 +2788,7 @@ select.text-input {
     padding-right: 0;
   }
 
-  /* rail 态用户名栏只留铃铛与 ⋮ 两个图标（竖排居中）；底部菜单全靠 ⋮ 弹窗。 */
+  /* In the rail state the user bar keeps only the bell and the ⋮ (two icons, centred vertically); the bottom menu lives entirely in the ⋮ popover. */
   body.nav-rail .side-foot {
     flex-direction: column;
     gap: 6px;
@@ -2804,8 +2804,8 @@ select.text-input {
     margin-left: 0;
   }
 
-  /* 主脑钉顶不折叠，但 rail 里只剩卡内一个居中的图标；ghost 钮、分隔线、
-     会话列表一并收起，卡本身去阴影融入窄栏。 */
+  /* The brain stays pinned and never collapses, but in the rail only one centred icon inside the card remains; the ghost
+     buttons, dividers and chat list all collapse and the card itself drops its shadow to blend into the narrow rail. */
   body.nav-rail .side-brain-card {
     box-shadow: none;
   }
@@ -2970,18 +2970,18 @@ select.text-input {
   }
 }
 
-/* ── 蜂群 P3：主脑入口 + 节点区 ─────────────────────────── */
+/* ── Hive P3: the brain entry + the node section ─────────────────────────── */
 
-/* 主脑块是一张卡，不是三块并排的按钮：边框只属于卡本身，内部控件
-   全部无边框（ghost），靠悬停底色表态。会话列表长在卡内部，与头部
-   用一条分隔线相接——一个整体，而不是拼起来的三个盒子。 */
+/* The brain block is one card, not three buttons side by side: the border belongs to the card alone, and every internal
+   control is borderless (ghost), expressing itself through the hover background. The chat list grows inside the card and
+   meets the header at a divider -- one whole, not three boxes assembled together. */
 .side-brain-card {
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--surface);
   box-shadow: var(--sh-1);
   overflow: hidden;
-  /* 与下方 AGENTS 区头隔开，卡自己就是一个完整的视觉单元。 */
+  /* Separated from the AGENTS section header below; the card is a complete visual unit of its own. */
   margin-bottom: 10px;
 }
 
@@ -2992,7 +2992,7 @@ select.text-input {
   padding: 7px 6px 7px 10px;
 }
 
-/* 主按钮 = 头部左侧整块（图标 + 名称/副标）。 */
+/* The main button = the whole left block of the header (icon + name/subtitle). */
 .side-brain-btn {
   display: flex;
   align-items: center;
@@ -3014,7 +3014,7 @@ select.text-input {
   background: var(--surface-hover, #f1f3f5);
 }
 
-/* 图标底座：一小块 accent 软底，给主脑一个与树不同的视觉锚点。 */
+/* The icon base: a small soft accent patch, giving the brain a visual anchor different from the tree. */
 .side-brain-icon {
   display: inline-flex;
   align-items: center;
@@ -3038,7 +3038,7 @@ select.text-input {
 }
 .side-brain-sub { font-size: 11.5px; color: var(--muted); }
 
-/* 「忙」徽章：与 hero 的 warn pill 同一语言，自成一体不依赖 .hero 作用域。 */
+/* The "busy" badge: the same language as the hero's warn pill, self-contained and not depending on the .hero scope. */
 .brain-busy {
   display: inline-flex;
   align-items: center;
@@ -3053,9 +3053,9 @@ select.text-input {
   font-weight: 500;
 }
 
-/* 右侧两个 ghost 钮（chevron / ＋）与两者之间的细分隔线。
-   图标用墨色 --text-2 而不是 --muted：12px 细线图标配浅灰在纯白卡上
-   等于隐形（⋯ 按钮的同一教训，见 .row-more）。 */
+/* The two ghost buttons on the right (chevron / +) and the thin divider between them.
+   The icons use ink --text-2 rather than --muted: a 12px hairline icon in pale grey on a pure white card
+   amounts to invisible (the same lesson as the ⋯ button, see .row-more). */
 .side-brain-ghost {
   display: inline-flex;
   align-items: center;
@@ -3066,8 +3066,8 @@ select.text-input {
   border: 0;
   border-radius: 8px;
   background: none;
-  /* 全局 button 重置带 9px 14px 的内边距，ghost 必须显式清掉，
-     否则 28px 的盒子里内容区会被 padding 吃光，svg 随之被压成 0。 */
+  /* The global button reset carries 9px 14px of padding and ghost must clear it explicitly,
+     otherwise the content area is eaten by the padding inside a 28px box and the svg is squeezed to 0 along with it. */
   padding: 0;
   color: var(--text-2);
   cursor: pointer;
@@ -3092,7 +3092,7 @@ select.text-input {
   background: var(--border);
 }
 
-/* 会话列表：分隔线 + 收紧内边距，行圆角跟着卡的圆角走。 */
+/* The chat list: a divider + tightened padding, with row radii following the card's radius. */
 .brain-chats {
   display: flex;
   flex-direction: column;
@@ -3107,14 +3107,14 @@ select.text-input {
   padding: 8px 12px 4px;
 }
 
-/* 节点区：异常行是去 /nodes 的链接；「节点 N/N」入口的异常计数用警示色。 */
+/* The node section: an exceptional row is a link to /nodes; the exception count on the "nodes N/N" entry uses the warning colour. */
 .endpoint-line { text-decoration: none; }
 .endpoint-line:hover { color: var(--text); }
 .side-link .warn { color: var(--warn); font-weight: 600; }
 
 .dot.muted { background: var(--muted); }
 
-/* 对外 API 钥匙页：一次性明文展示区——创建后只出现这一次，必须醒目、可整段复制。 */
+/* The public API key page: the one-time plaintext display area -- it appears only once after creation, so it must be prominent and copyable in one go. */
 .token-reveal {
   margin-top: 12px;
   padding: 12px;
@@ -3132,7 +3132,7 @@ select.text-input {
   border-radius: 6px;
 }
 
-/* 对外 API 钥匙页：scope 勾选组（纵向排布；每项间距由 .checkbox-line 自带）。 */
+/* The public API key page: the scope checkbox group (stacked vertically; each item's spacing comes from .checkbox-line itself). */
 .checks {
   display: flex;
   flex-direction: column;

@@ -8,8 +8,8 @@
      readable without scrolling to the bottom. -->
 <div id="chat-notices" class="chat-notices" aria-live="polite"></div>
 
-<!-- 蜂群 P2/P3：主脑派工记录（delegation 帧）。只有主脑会话有数据，
-     其余会话保持隐藏。 -->
+<!-- Hive P2/P3: the brain's dispatch record (the delegation frame). Only the brain chat has data;
+     the other chats stay hidden. -->
 <div id="chat-delegations" class="chat-delegations" hidden></div>
 
 <div id="chat-log" class="chat-log" aria-live="polite" aria-busy="false">
@@ -20,9 +20,9 @@
   </div>
 </div>
 
-<!-- 排队任务（DSH 式：composer 上方、一行一条、超出省略） -->
+<!-- Queued tasks (DSH style: above the composer, one line each, overflowing ones truncated) -->
 <div id="queue-dock" class="queue-dock" hidden></div>
-<!-- Ongoing Goal（DSH web 同款目标条：agent 长任务的 create_goal 投影，仅显示） -->
+<!-- Ongoing Goal (the same goal strip as DSH web: a projection of an agent's long-running create_goal, display only) -->
 <div id="goal-bar" class="goal-bar" hidden></div>
 <form id="chat-composer" class="composer" autocomplete="off">
   <div class="composer-row">

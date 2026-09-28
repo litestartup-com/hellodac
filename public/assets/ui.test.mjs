@@ -3,15 +3,15 @@ import test from 'node:test'
 import { brandInfo, csrfToken, money, moneyAdaptive, uniqueFrames, useBrand } from './ui.js'
 
 test('a live snapshot and its buffered copy produce one user frame', () => {
-  const user = { kind: 'user', text: '你好', at: 1 }
+  const user = { kind: 'user', text: 'hello', at: 1 }
   assert.deepEqual(uniqueFrames([user, { ...user }]), [user])
 })
 
-// 事故回归（2026-09-26 用户报「Star on GitHub 项不见了」）：
-// 服务端 BRAND 字段是 repoUrl/fullName/homepage，客户端调用方用 repo/full/site。
-// brandInfo() 必须做归一化——不映射的话 brand.repo 恒为空，
-// shell.js 里 `brand.repo === ''` 直接跳过整项（整个条目消失，不是链接坏了）。
-test('事故回归: brandInfo 把服务端字段名映射到客户端旧字段名', () => {
+// Incident regression (2026-09-26 user report: "the Star on GitHub item is gone"):
+// The server's BRAND fields are repoUrl/fullName/homepage, while client call sites use repo/full/site.
+// brandInfo() has to normalize them -- without the mapping brand.repo stays empty,
+// and shell.js skips the whole item on `brand.repo === ''` (the entry vanishes, not just the link).
+test('incident regression: brandInfo maps the server field names onto the old client field names', () => {
   useBrand({
     name: 'DAC',
     fullName: 'Dispatched Agent Cluster',
@@ -21,13 +21,13 @@ test('事故回归: brandInfo 把服务端字段名映射到客户端旧字段�
     supportEmail: 'support@hellodac.com',
   })
   const b = brandInfo()
-  assert.equal(b.repo, 'https://github.com/litestartup-com/hellodac', 'repoUrl → repo（否则 Star on GitHub 不渲染）')
+  assert.equal(b.repo, 'https://github.com/litestartup-com/hellodac', 'repoUrl -> repo (otherwise Star on GitHub never renders)')
   assert.equal(b.full, 'Dispatched Agent Cluster', 'fullName → full')
   assert.equal(b.site, 'https://hellodac.com', 'homepage → site')
   assert.equal(b.supportEmail, 'support@hellodac.com')
 })
 
-test('品牌注入未就绪时 brandInfo 给安全缺省（repo 为空 → About 不含 GitHub 行）', () => {
+test('brandInfo gives safe defaults before the brand is injected (empty repo -> no GitHub row in About)', () => {
   useBrand(null)
   const b = brandInfo()
   assert.equal(b.name, 'DAC')
@@ -35,14 +35,15 @@ test('品牌注入未就绪时 brandInfo 给安全缺省（repo 为空 → About
   assert.equal(b.supportEmail, '')
 })
 
-// 债务 F8:前端测试补课——money 全站单一实现(债务 F2)的精度行为直测。
-test('债务 F2 回归: money 默认 4 位小数,digits 参数给紧凑卡片', () => {
+// Debt F8: backfilling the frontend tests -- money is the site-wide single implementation (Debt F2),
+// so its precision behaviour is asserted directly here.
+test('debt F2 regression: money defaults to 4 decimals, the digits argument is for compact cards', () => {
   assert.equal(money(12_340_000), '$12.3400')
   assert.equal(money(12_340_000, 2), '$12.34')
   assert.equal(money(null), '—')
 })
 
-test('债务 F2 回归: moneyAdaptive 按量级自适应精度(几分钱不显示成 $0.00)', () => {
+test('debt F2 regression: moneyAdaptive scales precision by magnitude (a few cents never render as $0.00)', () => {
   assert.equal(moneyAdaptive(0), '$0')
   assert.equal(moneyAdaptive(5_000), '$0.0050')
   assert.equal(moneyAdaptive(500_000), '$0.500')
@@ -50,22 +51,23 @@ test('债务 F2 回归: moneyAdaptive 按量级自适应精度(几分钱不显�
   assert.equal(moneyAdaptive(null), '—')
 })
 
-// B2 更名后 cookie 名统一为 `dac_csrf`：过渡期的双读回退已随生产 cutover（2026-09-24）
-// 删除。这里守的是「只认这一个名字」——用一个无关名字验证其余一律不认。
-// 注意：**故意不在测试里写更名前那个名字**——仓库里不允许再出现旧品牌串
-// （release:check 的「旧品牌名已清零」是硬门禁），而实现只做单名匹配，不需要旧名样本。
-test('csrfToken 只认 dac_csrf；其余 cookie 名一律不认', () => {
+// After the B2 rename the cookie name is uniformly `dac_csrf`: the transitional dual-read fallback went
+// away with the production cutover (2026-09-24). What this guards is "exactly one name is accepted" --
+// an unrelated name proves every other name is rejected. Note: the pre-rename name is deliberately
+// **not** written here (the repo forbids the old brand string, and release:check's "old brand name is at
+// zero" is a hard gate); matching a single name needs no old-name sample.
+test('csrfToken accepts only dac_csrf; every other cookie name is rejected', () => {
   const withCookie = (cookie) => {
     globalThis.document = { cookie }
     return csrfToken()
   }
-  assert.equal(withCookie('dac_csrf=new-token'), 'new-token', '新名必须命中')
+  assert.equal(withCookie('dac_csrf=new-token'), 'new-token', 'the new name must match')
   assert.equal(
     withCookie('mgr_sid=abc; dac_csrf=new-token; theme=dark'),
     'new-token',
-    'cookie 串中间也要能取到',
+    'must also be picked up from the middle of the cookie string',
   )
-  assert.equal(withCookie('other_csrf=stale-token'), '', '别的名字不认（无双读回退）')
-  assert.equal(withCookie('mgr_sid=abc'), '', '都没有则空串（服务端 403 自愈补发）')
+  assert.equal(withCookie('other_csrf=stale-token'), '', 'any other name is rejected (no dual-read fallback)')
+  assert.equal(withCookie('mgr_sid=abc'), '', 'empty string when none is present (the server self-heals by reissuing on a 403)')
   delete globalThis.document
 })

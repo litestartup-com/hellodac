@@ -6,75 +6,75 @@ import { useTestDictionary } from './test-i18n.mjs'
 
 useTestDictionary('en')
 
-test('能力一回归: runner=auto 时省略字段（后端按部署自动判定），显式选择才下发', () => {
+test('Capability one regression: runner=auto omits the field (the backend decides from the deployment), only an explicit choice is sent', () => {
   const base = { name: 'worker', port: '3083', dshVersion: '', agent: { preset: 'standard', sandboxMode: 'workspace-write' } }
   assert.deepEqual(nodeCreatePayload({ ...base, runner: 'auto' }), {
     name: 'worker', port: 3083, agent: { preset: 'standard', sandboxMode: 'workspace-write' },
-  }, 'auto = 不下发 runner；版本空串 = 跟随默认不下发')
+  }, 'auto = runner is not sent; an empty version = follow the default, not sent')
   assert.deepEqual(nodeCreatePayload({ ...base, runner: 'process' }), {
     name: 'worker', port: 3083, runner: 'process', agent: { preset: 'standard', sandboxMode: 'workspace-write' },
-  }, '显式 process 下发')
+  }, 'an explicit process is sent')
   assert.deepEqual(nodeCreatePayload({ ...base, runner: 'docker' }), {
     name: 'worker', port: 3083, runner: 'docker', agent: { preset: 'standard', sandboxMode: 'workspace-write' },
-  }, '显式 docker 下发')
+  }, 'an explicit docker is sent')
 })
 
-test('能力四 M1-7 回归: 选了主机 = host+url 一起下发；未选则缺省不出现', () => {
+test('Capability four M1-7 regression: a chosen host = host+url sent together; without one they stay absent', () => {
   const base = { name: 'ops01', port: '', runner: 'auto', dshVersion: '', agent: { preset: 'standard', sandboxMode: 'workspace-write' } }
   assert.deepEqual(nodeCreatePayload({ ...base, host: 'agent-abc123', url: 'http://10.0.0.7:3081' }), {
     name: 'ops01', host: 'agent-abc123', url: 'http://10.0.0.7:3081', agent: { preset: 'standard', sandboxMode: 'workspace-write' },
-  }, 'agent 远端节点 = host + url 下发')
+  }, 'an agent remote node = host + url are sent')
   assert.deepEqual(nodeCreatePayload({ ...base, host: '', url: '' }), {
     name: 'ops01', agent: { preset: 'standard', sandboxMode: 'workspace-write' },
-  }, '未选主机不下发')
+  }, 'no host chosen -> nothing is sent')
 })
 
-test('能力二回归: 向导选版本 → dsh_version 进载荷；缺省字段不出现', () => {
+test('Capability two regression: picking a version in the wizard -> dsh_version enters the payload; the default field stays absent', () => {
   const base = { name: 'v15', port: '', runner: 'auto', agent: { preset: 'standard', sandboxMode: 'workspace-write' } }
   assert.deepEqual(nodeCreatePayload({ ...base, dshVersion: '0.1.5-rc.2' }), {
     name: 'v15', dsh_version: '0.1.5-rc.2', agent: { preset: 'standard', sandboxMode: 'workspace-write' },
-  }, '选中版本下发 dsh_version；空端口省略')
+  }, 'a selected version sends dsh_version; an empty port is omitted')
   assert.deepEqual(nodeCreatePayload({ ...base, dshVersion: '' }), {
     name: 'v15', agent: { preset: 'standard', sandboxMode: 'workspace-write' },
-  }, '空串 = 跟随矩阵首行')
+  }, 'an empty string = follow the first matrix row')
   assert.deepEqual(nodeCreatePayload(base), {
     name: 'v15', agent: { preset: 'standard', sandboxMode: 'workspace-write' },
-  }, '缺省字段不出现 dsh_version')
+  }, 'the default field does not appear as dsh_version')
 })
 
-test('能力一回归: 宿主机进程形态的确认文案含整机风险警告', () => {
+test('Capability one regression: the host-process confirmation text carries the whole-machine risk warning', () => {
   const text = hostRunnerConfirmText('ops-agent')
   assert.match(text, /host process/)
   assert.match(text, /whole machine/)
   assert.match(text, /ops-agent/)
 })
 
-test('舰队 M3-1 回归: ops 第三档沙箱进载荷 + 独立黄字确认文案（审批卡片/凭据口径）', () => {
+test('Fleet M3-1 regression: the third ops sandbox tier enters the payload + its own yellow-text confirmation (approval card / credential wording)', () => {
   const payload = nodeCreatePayload({
     name: 'ops01', port: '', runner: 'auto', dshVersion: '',
     host: 'agent-abc123', url: 'http://10.0.0.7:3081',
     agent: { preset: 'standard', sandboxMode: 'danger-full-access' },
   })
-  assert.equal(payload.agent.sandboxMode, 'danger-full-access', '第三档沙箱原样下发（后端 schema 已放行）')
+  assert.equal(payload.agent.sandboxMode, 'danger-full-access', 'the third sandbox tier is sent as-is (the backend schema already allows it)')
   const text = dangerSandboxConfirmText('ops01')
   assert.match(text, /full-access/)
   assert.match(text, /approval card/)
   assert.match(text, /never receives them/)
 })
 
-test('P2 回归: versionOptionsHtml——跟随默认/当前钉版选中态/pending 标注', () => {
+test('P2 regression: versionOptionsHtml -- follow-the-default / current pinned selection / pending label', () => {
   const list = [
     { dsh: '0.1.2-rc.1', status: 'verified' },
     { dsh: '0.1.5-rc.2', status: 'pending' },
   ]
   const dflt = versionOptionsHtml(list, null)
-  assert.ok(dflt.includes('<option value="" selected>Follow the default</option>'), '未钉版 = 跟随默认选中')
-  assert.ok(dflt.includes('0.1.2-rc.1') && dflt.includes('0.1.5-rc.2'), '矩阵行全列出')
-  assert.ok(dflt.includes('(unverified)'), 'pending 配对带标注')
+  assert.ok(dflt.includes('<option value="" selected>Follow the default</option>'), 'not pinned = follow the default is selected')
+  assert.ok(dflt.includes('0.1.2-rc.1') && dflt.includes('0.1.5-rc.2'), 'every matrix row is listed')
+  assert.ok(dflt.includes('(unverified)'), 'a pending pair carries the label')
 
   const pinned = versionOptionsHtml(list, '0.1.5-rc.2')
-  assert.ok(pinned.includes('value="0.1.5-rc.2" selected'), '当前钉版选中')
-  assert.ok(!pinned.includes('<option value="" selected>'), '钉版后不选跟随默认')
+  assert.ok(pinned.includes('value="0.1.5-rc.2" selected'), 'the currently pinned version is selected')
+  assert.ok(!pinned.includes('<option value="" selected>'), 'once pinned, follow-the-default is not selected')
 
-  assert.equal(versionOptionsHtml(undefined, null), '<option value="" selected>Follow the default</option>', '数据源缺失不炸')
+  assert.equal(versionOptionsHtml(undefined, null), '<option value="" selected>Follow the default</option>', 'a missing data source does not blow up')
 })

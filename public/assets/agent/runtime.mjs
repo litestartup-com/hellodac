@@ -1,14 +1,14 @@
 // @ts-check
 /**
- * 能力四（舰队 M1-5）：node-agent 运行时——零原生依赖（Node ≥20），
- * 出站拨号 manager（长轮询指令 + 事件回报），管理本机 DSH 节点进程。
+ * Capability four (Fleet M1-5): the node-agent runtime -- zero native dependencies (Node >=20),
+ * dials out to the manager (long-poll commands + event reporting) and manages the local DSH node processes.
  *
- * 纪律：
- * - 固定指令集，绝不提供通用 shell；
- * - 身份与状态只落 <agentDir>/agent.json（0600，token 明文只在首次注册出现）；
- * - manager 失联：节点照跑，指数退避重连；指令执行与回报都在本地闭环。
+ * Discipline:
+ * - a fixed command set, never a general-purpose shell;
+ * - identity and state live only in <agentDir>/agent.json (0600, the plaintext token appears only on the first registration);
+ * - when the manager is unreachable the nodes keep running and it reconnects with exponential backoff; command execution and reporting both close the loop locally.
  *
- * 注入面（测试用）：transport / proc / fs / install / backoff。
+ * Injection surface (for tests): transport / proc / fs / install / backoff.
  */
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -18,7 +18,7 @@ import { dirname } from 'node:path'
 import { hostname, totalmem, freemem, cpus, uptime } from 'node:os'
 import { currentAgentVersion } from './update.mjs'
 
-/** 与 src/dsh-matrix.ts 的 needsLegacyPeerDeps 保持一致（check-docs.mjs 常驻断言）。 */
+/** Kept in sync with needsLegacyPeerDeps in src/dsh-matrix.ts (a standing assertion in check-docs.mjs). */
 export const LEGACY_PEER_DEPS_VERSIONS = ['0.1.5-rc.2']
 
 const RING_BYTES = 64 * 1024
@@ -55,10 +55,10 @@ const defaultTransport = {
 }
 
 /**
- * npm 调用契约（M1 试点 Windows 实证回归）：npm 是 .cmd 垫片，node ≥20
- * 无 shell 直接 execFile 会 ENOENT/EINVAL（CVE-2024-27980，manager 侧
- * setup.ts L543 同款坑）——恒 shell:true 交给系统 shell 解析；安装目录只走
- * cwd，绝不进参数（路径带空格会被 shell 连接时拆断）。
+ * The npm invocation contract (an M1 pilot regression proven on Windows): npm is a .cmd shim, so on node >=20
+ * execFile without a shell gives ENOENT/EINVAL (CVE-2024-27980, the same trap as setup.ts L543 on the manager
+ * side) -- always shell:true and let the system shell resolve it; the install directory only ever goes through
+ * cwd, never into the arguments (a path with spaces is split apart when the shell joins it).
  */
 export const npmInvocation = (args, cwd) => ({
   cmd: 'npm',
@@ -67,21 +67,21 @@ export const npmInvocation = (args, cwd) => ({
 })
 
 /**
- * spawn 调用契约（M1 试点 Windows 实证回归）：bin.js 在 Windows 上没有可执行
- * 语义（CreateProcess 无 shebang → EFTYPE）——win32 必须以 node 为命令、bin
- * 转第一个参数（manager 侧 supervisor 同款「command: node」接线）；posix 直接
- * spawn（shebang）。
+ * The spawn invocation contract (an M1 pilot regression proven on Windows): bin.js has no executable
+ * meaning on Windows (CreateProcess has no shebang -> EFTYPE) -- on win32 the command must be node and bin
+ * becomes the first argument (the same "command: node" wiring as the supervisor on the manager side); posix
+ * spawns it directly (shebang).
  */
 export const spawnInvocation = (platform, bin, args) =>
   platform === 'win32'
     ? { cmd: process.execPath, args: [bin, ...args] }
     : { cmd: bin, args }
 
-/** 能力四（M4-2）：node.log 单代上限——spawn 前超限即轮转（保留一代）。 */
+/** Capability four (M4-2): the per-generation cap on node.log -- rotate before spawning once it is exceeded (one generation kept). */
 export const NODE_LOG_MAX_BYTES = 50 * 1024 * 1024
 
 const defaultProc = {
-  /** 安装 DSH 到 agent 自有 prefix（不碰用户全局 npm）。 */
+  /** Install DSH into the agent's own prefix (never touching the user's global npm). */
   install: async (agentDir, version, legacyPeerDeps) => {
     const { execFileSync } = await import('node:child_process')
     const prefix = `${agentDir}/dsh/${version}`
@@ -91,7 +91,7 @@ const defaultProc = {
     execFileSync(inv.cmd, inv.args, inv.options)
     return `${prefix}/node_modules/${DSH_PACKAGE}/lib/bin.js`
   },
-  /** 派生下发（M1-6）：profile 依赖安装（cwd = profile 目录，钉版全在文件里）。 */
+  /** Derived delivery (M1-6): install the profile dependencies (cwd = the profile directory, every pinned version lives in the files). */
   installProfile: async (profileDir, legacyPeerDeps) => {
     const { execFileSync } = await import('node:child_process')
     const args = ['install', '--no-audit', '--no-fund']
@@ -99,7 +99,7 @@ const defaultProc = {
     const inv = npmInvocation(args, profileDir)
     execFileSync(inv.cmd, inv.args, inv.options)
   },
-  /** 拉起节点进程（detached + 文件流），返回 pid。 */
+  /** Launch a node process (detached + file streams) and return its pid. */
   spawn: async (bin, args, env, outPath) => {
     const { spawn } = await import('node:child_process')
     const { openSync } = await import('node:fs')
@@ -114,7 +114,7 @@ const defaultProc = {
     child.unref()
     return { pid: child.pid }
   },
-  /** 停节点：先 TERM 等 5s 再 KILL（Windows 走 taskkill /T /F）。 */
+  /** Stop a node: TERM first, wait 5s, then KILL (on Windows it goes through taskkill /T /F). */
   kill: async (pid) => {
     const { execFileSync } = await import('node:child_process')
     if (process.platform === 'win32') {
@@ -168,17 +168,17 @@ export class AgentRuntime {
     /** @type {Map<string, { pid:number|null, startedAt:number|null, logOffset:number }>} */
     this.nodes = new Map()
     this.retryAttempt = 0
-    // M4-3：自更新版本协商 + 换装后退出交给服务管理器重启
+    // M4-3: self-update version negotiation, plus exiting after the swap so the service manager restarts it
     this.agentVersion = currentAgentVersion(this.agentDir)
     this.pendingExit = false
     this.versionReportedAt = null
-    // M4-4：主机指标采样（CPU 用两次采样间忙占比；60s 节流）
+    // M4-4: host metric sampling (CPU = the busy share between two samples; throttled to 60s)
     this.lastMetricsAt = null
     this.lastCpuTotal = null
     this.lastCpuIdle = null
   }
 
-  /** M4-4：主机指标快照（CPU/内存/磁盘/运行时长）。失败字段为 null，绝不抛。 */
+  /** M4-4: a host metrics snapshot (CPU/memory/disk/uptime). A failed field is null, and it never throws. */
   collectMetrics() {
     try {
       const cpuInfo = cpus()
@@ -213,7 +213,7 @@ export class AgentRuntime {
     }
   }
 
-  /** 读/恢复身份（agent.json 0600）。 */
+  /** Read/restore the identity (agent.json 0600). */
   loadIdentity() {
     const raw = this.fs.readFile(`${this.agentDir}/agent.json`)
     if (raw === null) return
@@ -255,15 +255,16 @@ export class AgentRuntime {
   }
 
   /**
-   * 事故回归（2026-09-25）：nodeId 恒来自 manager，但它落盘后会被 resumeNodes
-   * 当路径拼回去——带上分隔符或 `..` 就能在 agent 进程权限下写到 nodes/ 之外。
-   * 路径字符集收紧到 /^[A-Za-z0-9._-]+$/ 且拒绝纯点，杜绝穿越。
+   * Incident regression (2026-09-25): nodeId always comes from the manager, but once persisted it is
+   * reassembled into a path by resumeNodes -- a separator or `..` in it would write outside nodes/ with the
+   * agent process's permissions. The path character set is tightened to /^[A-Za-z0-9._-]+$/ and pure dots are
+   * rejected, which closes the traversal.
    */
   static isSafeNodeId(nodeId) {
     return typeof nodeId === 'string' && /^[A-Za-z0-9._-]+$/.test(nodeId) && !/^\.+$/.test(nodeId)
   }
 
-  /** 读 node.pid（无文件/非法值 → null）。 */
+  /** Read node.pid (no file / an illegal value -> null). */
   readNodePid(nodeId) {
     if (!AgentRuntime.isSafeNodeId(nodeId)) return null
     const raw = this.fs.readFile(`${this.nodeHome(nodeId)}/node.pid`)
@@ -273,9 +274,10 @@ export class AgentRuntime {
   }
 
   /**
-   * 事故回归（2026-09-25）：把 spawn 载荷落盘，作为「本机应有哪些节点」的
-   * 真相源。主机重启后内存全丢，只有磁盘还知道该拉什么；没有这份载荷，
-   * agent 就只能干等 manager 重新下发（默认对账 10 分钟）。
+   * Incident regression (2026-09-25): persist the spawn payload as the source of truth for "which nodes this
+   * machine should have". After a host reboot memory is all gone and only the disk still knows what to launch;
+   * without this payload the agent could only wait for the manager to deliver the commands again (reconciliation
+   * defaults to 10 minutes).
    */
   persistSpawnPayload(nodeId, payload) {
     if (!AgentRuntime.isSafeNodeId(nodeId)) {
@@ -291,28 +293,29 @@ export class AgentRuntime {
   }
 
   /**
-   * 事故回归（2026-09-25）：开机自恢复。
+   * Incident regression (2026-09-25): self-recovery at startup.
    *
-   * 节点是 agent 的子进程——主机重启后全灭。旧行为是「等 manager 发现节点死了
-   * 再重新下发」，于是恢复时间 = 整个对账周期（默认 10 分钟）。这里让 agent
-   * 自己按落盘的 spawn.json 把节点拉回来：进程一启动节点就回来了，manager 那边
-   * 只是随后探活确认，不参与恢复路径。
+   * Nodes are child processes of the agent -- a host reboot wipes them all. The old behavior was "wait for the
+   * manager to notice a node died and deliver it again", so recovery time = a whole reconciliation cycle (10
+   * minutes by default). Here the agent brings the nodes back itself from the persisted spawn.json: the nodes
+   * are back the moment the process starts, and the manager merely confirms liveness afterwards, playing no part
+   * in the recovery path.
    *
-   * 与 manager 失联时同样有效——恢复不依赖任何网络往返。
-   * `node.stop` 会删掉 spawn.json，所以人手动停掉的节点不会被复活。
+   * It works just as well while the manager is unreachable -- recovery depends on no network round-trip.
+   * `node.stop` deletes spawn.json, so a node stopped by hand is never resurrected.
    */
   async resumeNodes() {
     const resumed = []
-    // 直接列举，不先 exists(nodes/)：目录存在与否由 listDir 一并回答，
-    // 少一个「目录语义」依赖（readdir 拿不到就是没有）。
+    // List directly instead of checking exists(nodes/) first: whether the directory exists is answered by
+    // listDir along with everything else, one less "directory semantics" dependency (no readdir means there is none).
     for (const nodeId of this.listNodeIds()) {
       let payload = null
       try {
         const raw = this.fs.readFile(`${this.nodeHome(nodeId)}/spawn.json`)
         if (raw === null || raw === '') continue
         const parsed = JSON.parse(raw)
-        // 载荷里的 nodeId 必须与所在目录一致：否则坏文件/被改文件能把恢复
-        // 变成「往任意 home 里拉进程」。
+        // The nodeId in the payload must match the directory it lives in: otherwise a corrupt or tampered
+        // file would turn recovery into "launch a process into an arbitrary home".
         if (parsed === null || typeof parsed !== 'object' || parsed.nodeId !== nodeId) {
           this.log(`node ${nodeId}: spawn.json does not match the directory, skipping self-recovery`)
           continue
@@ -331,26 +334,26 @@ export class AgentRuntime {
           this.log(`node ${nodeId}: self-recovery failed -- ${String(outcome.result?.message ?? 'unknown')}`)
         }
       } catch (error) {
-        // 单个节点炸掉不得拖垮其余节点的恢复
+        // One node blowing up must not drag down the recovery of the others
         this.log(`node ${nodeId}: self-recovery threw -- ${error instanceof Error ? error.message : String(error)}`)
       }
     }
     return resumed
   }
 
-  /** nodes/ 下的节点目录名（读不到目录 = 空）。 */
+  /** The node directory names under nodes/ (an unreadable directory = empty). */
   listNodeIds() {
     const dir = `${this.agentDir}/nodes`
     const entries = this.fs.listDir?.(dir)
     if (!Array.isArray(entries)) {
-      // 降级：fs 桩没提供 listDir 时，只能看到本进程已知的节点
-      // （真实 defaultFs 恒有 listDir，自恢复不受影响）
+      // Degraded: when the fs stub provides no listDir, only the nodes this process already knows are visible
+      // (the real defaultFs always has listDir, so self-recovery is unaffected)
       return [...this.nodes.keys()].filter((name) => AgentRuntime.isSafeNodeId(name)).sort()
     }
     return entries.filter((name) => AgentRuntime.isSafeNodeId(name)).sort()
   }
 
-  /** 确保 DSH 钉版装在 agent 自有 prefix，返回 bin.js 绝对路径。 */
+  /** Make sure the pinned DSH version is installed in the agent's own prefix and return the absolute bin.js path. */
   async ensureDsh(dshVersion) {
     const version = typeof dshVersion === 'string' && dshVersion !== '' ? dshVersion : '0.1.2-rc.1'
     const bin = `${this.agentDir}/dsh/${version}/node_modules/${DSH_PACKAGE}/lib/bin.js`
@@ -369,12 +372,12 @@ export class AgentRuntime {
   }
 
   /**
-   * 事故回归（2026-09-25 EADDRINUSE）：一次 spawn 的完整落地。
+   * Incident regression (2026-09-25 EADDRINUSE): one spawn carried all the way through.
    *
-   * 开头就是幂等闸门——manager 每轮对账都会重新入队 node.spawn，而「本机这个
-   * 节点是不是已经在跑」只有 agent 自己知道。没有这道闸门时，每轮对账都会再拉
-   * 一个 DSH 进程，两个进程抢同一个端口 = `EADDRINUSE 0.0.0.0:3197`。
-   * 闸门放在最前面：已经活着就连 profile 安装都不必重走。
+   * The idempotency gate comes first -- the manager re-queues node.spawn on every reconciliation round, and only
+   * the agent itself knows whether this node is already running locally. Without that gate every reconciliation
+   * round launched another DSH process, and the two fought over the same port = `EADDRINUSE 0.0.0.0:3197`.
+   * The gate sits at the very front: when it is already alive, not even the profile install has to be redone.
    */
   async dispatchSpawn(payload) {
     const nodeId = payload.nodeId
@@ -393,10 +396,10 @@ export class AgentRuntime {
       this.log(`node ${nodeId} is already running (pid ${runningPid}) -- skipping a duplicate spawn`)
       return { ok: true, result: { pid: runningPid, alreadyRunning: true } }
     }
-    // 钥匙：spawn 载荷 env 里的 GW_KEY → DSH_HOME/settings.yaml（facade 只读
-    // settings；容器 entrypoint 同款派生，单向下发）。
-    // 舰队 M3：ALLOW_FULL_ACCESS=true（ops 节点）→ facade allowFullAccess 开锁
-    // （危险操作仍需 approval 卡片放行，facade 侧风险告警日志）。
+    // The key: GW_KEY in the spawn payload's env -> DSH_HOME/settings.yaml (the facade only reads
+    // settings; the container entrypoint derives it the same way, delivered one way only).
+    // Fleet M3: ALLOW_FULL_ACCESS=true (an ops node) -> the facade's allowFullAccess is unlocked
+    // (dangerous operations still need an approval card, and the facade logs a risk warning).
     if (typeof payload.env?.GW_KEY === 'string' && payload.env.GW_KEY !== '') {
       const fullAccess = payload.env.ALLOW_FULL_ACCESS === 'true' ? '\n  allowFullAccess: true' : ''
       this.fs.writeFile(`${dshHome}/settings.yaml`, `ohdsh-api-facade:\n  apiKeys: ['${payload.env.GW_KEY}']${fullAccess}\n`)
@@ -404,10 +407,10 @@ export class AgentRuntime {
     try {
       const version = typeof payload.dshVersion === 'string' && payload.dshVersion !== '' ? payload.dshVersion : '0.1.2-rc.1'
       const legacy = LEGACY_PEER_DEPS_VERSIONS.includes(version)
-      // 派生下发（M1-6）：profile 文件落盘（幂等，内容不变不重写）+ 依赖安装。
-      // M2 回归：慢盘上 warm npm install 仍以分钟计——文件未变 + 上次安装
-      // 完成标记存在 = 跳过重装（.installed-ok 由安装成功后写入，中断的
-      // 半装态无标记 → 重装兜底）。
+      // Derived delivery (M1-6): write the profile files (idempotent, rewritten only when the content changed) + install the dependencies.
+      // M2 regression: a warm npm install still takes minutes on a slow disk -- unchanged files + the completion
+      // marker from the last install = skip the reinstall (.installed-ok is written after a successful install, so an
+      // interrupted half-install has no marker and falls back to reinstalling).
       let profileDir = null
       if (payload.profile !== null && payload.profile !== undefined) {
         profileDir = `${dshHome}/${payload.profile.dir}`
@@ -426,19 +429,19 @@ export class AgentRuntime {
           this.fs.writeFile(installedMarker, String(Date.now()))
         }
       }
-      // fleet.md 派生下发（A 清单：节点只读 manager 下发的 fleet.md）
+      // fleet.md derived delivery (checklist A: a node only reads the fleet.md delivered by the manager)
       if (typeof payload.fleetMd === 'string' && payload.fleetMd !== '') {
         if (this.fs.readFile(`${dshHome}/fleet.md`) !== payload.fleetMd) {
           this.fs.writeFile(`${dshHome}/fleet.md`, payload.fleetMd)
         }
       }
-      // M1 试点实证：profile-local bin 优先——profile 依赖安装带锁文件与显式
-      // peer（manager 侧 profileFiles 生成），而 prefix 独立装树缺 legacy 跳过的
-      // peer，启动即崩（ERR_MODULE_NOT_FOUND）。有 profile-local bin 绝不用 prefix。
+      // Proven in the M1 pilot: a profile-local bin wins -- a profile dependency install carries a lock file and
+      // explicit peers (profileFiles generates them on the manager side), whereas the standalone prefix tree is
+      // missing the peers that legacy skipped and crashes on startup (ERR_MODULE_NOT_FOUND). With a profile-local bin, never use the prefix.
       const profileBin = profileDir === null ? null : `${profileDir}/node_modules/${DSH_PACKAGE}/lib/bin.js`
       const bin = profileBin !== null && this.fs.exists(profileBin) ? profileBin : await this.ensureDsh(payload.dshVersion)
-      // M4-2：旧日志超限在 spawn 前轮转（此刻旧 fd 已关闭，Windows 也能 rename）；
-      // 保留一代 .1 供崩溃排障，新日志从零开始。
+      // M4-2: an oversized old log is rotated before the spawn (the old fd is closed by now, so the rename works on Windows too);
+      // one generation is kept as .1 for crash triage, and the new log starts from zero.
       const logPath = `${home}/node.log`
       const logSize = this.fs.stat(logPath)
       if (logSize !== null && logSize > NODE_LOG_MAX_BYTES) {
@@ -475,9 +478,9 @@ export class AgentRuntime {
       }
     }
     this.nodes.set(nodeId, { pid: null, startedAt: null, logOffset: node?.logOffset ?? 0 })
-    // 事故回归（2026-09-25）：停 = 意图，不只是当下动作。删掉落盘载荷，
-    // 否则 agent 一重启就会把「人明确停掉的节点」按 spawn.json 又拉回来。
-    // （node.restart 走 stop→spawn，紧随其后的 spawn 会重新落盘，不受影响。）
+    // Incident regression (2026-09-25): stop = intent, not just the action of the moment. Delete the persisted payload,
+    // otherwise the agent would pull back the node the human explicitly stopped from spawn.json as soon as it restarts.
+    // (node.restart goes stop->spawn, and the spawn right after it persists the payload again, so it is unaffected.)
     if (AgentRuntime.isSafeNodeId(nodeId)) {
       try {
         this.fs.remove(`${home}/spawn.json`)
@@ -510,7 +513,7 @@ export class AgentRuntime {
     return { ok: true, result: { nodes: status } }
   }
 
-  /** M4-1：config.deliver——身份轮换（新 token 落盘并立即生效）。 */
+  /** M4-1: config.deliver -- identity rotation (the new token is persisted and takes effect immediately). */
   async execDeliver(command) {
     const payload = command.payload ?? {}
     if (payload.kind !== 'identity' || typeof payload.agentToken !== 'string' || payload.agentToken === '') {
@@ -522,7 +525,7 @@ export class AgentRuntime {
     return { ok: true, result: { rotated: true } }
   }
 
-  /** M4-3：agent.update——校验 → staging 到 .next → 回报后退出交给服务管理器重启。 */
+  /** M4-3: agent.update -- verify -> stage into .next -> report, then exit so the service manager restarts it. */
   async execUpdate(command) {
     const payload = command.payload ?? {}
     const files = payload.files ?? {}
@@ -532,7 +535,7 @@ export class AgentRuntime {
       return { ok: false, result: { message: 'agent.update payload missing files (agent.mjs/runtime.mjs)' } }
     }
     const { createHash } = await import('node:crypto')
-    // 摘要 = 按文件名排序的「文件名 + 内容」拼接（与 manager 侧同构）
+    // The digest = "file name + content" joined in file-name order (isomorphic to the manager side)
     const digest = createHash('sha256')
       .update(Object.keys(files).sort().map((name) => `${name}:${files[name]}`).join('\n'))
       .digest('hex')
@@ -563,7 +566,7 @@ export class AgentRuntime {
     return { ok: false, result: { message: `command type ${command.type} not implemented in this agent version` } }
   }
 
-  /** 每个轮询周期的日志增量（分块回传，manager 侧环形缓冲）。 */
+  /** The log growth per polling cycle (sent back in chunks, into the manager's ring buffer). */
   collectLogChunks() {
     const events = []
     for (const [nodeId, node] of this.nodes) {
@@ -576,7 +579,7 @@ export class AgentRuntime {
     return events
   }
 
-  /** 一轮：领指令 → 执行 → 回报结果 + 日志增量。返回本轮是否有过失败。 */
+  /** One round: take commands -> execute -> report the results plus the log growth. Returns whether anything failed this round. */
   async loopOnce() {
     if (this.agentId === null || this.agentToken === null) throw new Error('not registered')
     const commands = await this.transport.commands(this.managerUrl, this.agentId, this.agentToken, this.maxWaitMs)
@@ -586,7 +589,7 @@ export class AgentRuntime {
       events.push({ type: 'command_result', commandId: command.id, ok: outcome.ok, result: outcome.result })
     }
     events.push(...this.collectLogChunks())
-    // M4-3/M4-4：版本协商（首循环 + 每 10 分钟）与主机指标（60s 采样）合并进心跳
+    // M4-3/M4-4: version negotiation (first loop + every 10 minutes) and host metrics (sampled every 60s) merged into the heartbeat
     const now = Date.now()
     const versionDue = this.versionReportedAt === null || now - this.versionReportedAt > 10 * 60_000
     const metricsDue = this.lastMetricsAt === null || now - this.lastMetricsAt > 60_000
@@ -609,18 +612,19 @@ export class AgentRuntime {
   }
 
   /**
-   * 常驻循环：注册 → 轮询；网络失败指数退避（1s→30s），永不退出。
-   * 可传 AbortSignal 干净退出（测试/停机用）。
-   * 每轮迭代后 `sleep(0)` 让出事件循环——瞬时 resolve 的传输在测试/故障
-   * 场景下会微任务饥饿，定时器（信号/心跳）永远得不到执行。
-   * M4-3：换装 staging 完成后本轮回报即退出（服务管理器重启加载新代码）。
-   * 注意：以非零码退出——Windows 计划任务按失败重启（RestartOnFailure），
-   * systemd Restart=always 不受影响；换装后的重启是设计内行为。
+   * The resident loop: register -> poll; network failures back off exponentially (1s->30s) and it never exits.
+   * An AbortSignal can be passed for a clean exit (for tests and shutdown).
+   * Every iteration ends with `sleep(0)` to yield the event loop -- an instantly resolving transport starves
+   * microtasks in tests and failure scenarios, so the timers (signal/heartbeat) would never run.
+   * M4-3: once the swap is staged, the report in this round is followed by an exit (the service manager restarts
+   * it to load the new code).
+   * Note: it exits with a non-zero code -- the Windows scheduled task restarts on failure (RestartOnFailure),
+   * while systemd Restart=always is unaffected; restarting after a swap is designed behavior.
    */
   async run(opts = {}) {
-    // 事故回归（2026-09-25）：自恢复刻意排在注册之前——主机重启后节点应当
-    // 立刻回来，而不是等 manager 可达。恢复纯本地（读 spawn.json + spawn 进程），
-    // 不依赖任何网络往返；manager 稍后探活确认即可。
+    // Incident regression (2026-09-25): self-recovery deliberately runs before registration -- after a host reboot
+    // the nodes should come back at once instead of waiting for the manager to be reachable. Recovery is purely local
+    // (read spawn.json + spawn the processes), it depends on no network round-trip; the manager confirms liveness later.
     try {
       const resumed = await this.resumeNodes()
       if (resumed.length > 0) this.log(`startup recovery: resumed ${resumed.join(', ')}`)
@@ -686,7 +690,7 @@ function defaultFs() {
     },
     rename: (from, to) => renameSync(from, to),
     remove: (p) => rmSync(p, { force: true }),
-    /** 事故回归（2026-09-25）：nodes/ 目录列举——重启后自恢复的发现入口。 */
+    /** Incident regression (2026-09-25): listing the nodes/ directory -- the discovery entry point for self-recovery after a restart. */
     listDir: (p) => {
       try {
         return readdirSync(p)

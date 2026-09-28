@@ -95,7 +95,7 @@ const fillAgentSelect = () => {
     if (sel.querySelector(`option[value="${CSS.escape(id)}"]`) === null) {
       const opt = document.createElement('option')
       opt.value = id
-      opt.textContent = name === id ? id : `${name}（${id}）`
+      opt.textContent = name === id ? id : `${name} (${id})`
       sel.appendChild(opt)
     }
   }

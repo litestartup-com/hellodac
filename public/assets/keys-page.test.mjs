@@ -2,12 +2,12 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 /**
- * 页面脚本运行时冒烟：把 keys.js 当作真模块跑一遍，断言它没有抛错、且把数据
- * 渲染进了对应节点。这是给 2026-09-27 事故补的后悔药——页面所有部件都在、API 也
- * 正常，唯独脚本里 `apiJson` 的返回被当成 `Response` 用了 `.json()`，页面永远停在
- * "Loading…"，而 `node --check` 与"资源 200"都查不出这一类错。
+ * Page-script runtime smoke: run keys.js as a real module and assert it does not throw and that it
+ * rendered the data into the matching nodes. This is the hindsight guard added for the 2026-09-27 incident --
+ * every widget on the page was there and the API was fine, but the script called `.json()` on the `apiJson`
+ * return as if it were a `Response`, so the page sat at "Loading…"; `node --check` and "asset 200" miss it.
  *
- * 约束：本测试依赖模块顶层副作用，node --test 每文件独立进程 ✓。
+ * Constraint: this test relies on module top-level side effects, and node --test gives each file its own process ✓.
  */
 const nodes = new Map()
 
@@ -32,17 +32,17 @@ globalThis.document = {
 }
 globalThis.window = globalThis
 globalThis.HTMLElement = class {}
-// poll() 会挂 15s 定时器：测试里不给它真正计时（轮询行为不是本测试目标）。
+// poll() arms a 15s timer: the test does not let it actually tick (polling behaviour is not what this test is about).
 const realSetTimeout = globalThis.setTimeout
 globalThis.setTimeout = () => 0
 globalThis.clearTimeout = () => undefined
 
-// 预置页面节点（keys.html 里的 id 全集）
+// Pre-create the page nodes (the full set of ids in keys.html)
 for (const id of ['keys-listener', 'key-services', 'key-scopes', 'key-create', 'key-create-msg', 'keys-list', 'keys-refresh', 'key-name', 'key-quota', 'key-token', 'key-form']) el(id)
 
 const keyFixture = {
   id: 'b4c36b603b1e',
-  name: '计费服务',
+  name: 'Billing service',
   scopes: ['services:read', 'tasks:write'],
   scopeServices: ['support'],
   quotaRunsDay: 200,
@@ -68,7 +68,7 @@ globalThis.fetch = async (url, options) => {
       json: async () => ({
         keys: [keyFixture],
         publicApi: { status: 'listening', host: '127.0.0.1', port: 8081, detail: null },
-        services: [{ id: 'support', label: '客服' }],
+        services: [{ id: 'support', label: 'Support' }],
       }),
     }
   }
@@ -76,49 +76,49 @@ globalThis.fetch = async (url, options) => {
 }
 const postBodies = []
 
-test('keys 页面脚本：加载不抛错，且把数据渲染进对应节点（防 "Loading…" 事故）', async () => {
+test('keys page script: loading does not throw, and the data lands in the matching nodes (guards the "Loading…" incident)', async () => {
   await import('./keys.js')
 
-  // load() 是顶层 await 之后的同步链；给它一个微任务窗口让渲染完成。
+  // load() is a synchronous chain after the top-level await; give it a microtask window to finish rendering.
   await new Promise((resolve) => realSetTimeout(resolve, 20))
 
   const listener = nodes.get('keys-listener')
-  assert.ok(listener !== undefined && listener.innerHTML.includes('127.0.0.1:8081'), `门面状态渲染失败：${listener?.innerHTML}`)
+  assert.ok(listener !== undefined && listener.innerHTML.includes('127.0.0.1:8081'), `the facade state did not render: ${listener?.innerHTML}`)
 
   const list = nodes.get('keys-list')
-  assert.ok(list !== undefined && list.innerHTML.includes('计费服务'), `钥匙列表渲染失败：${list?.innerHTML}`)
-  assert.ok(list !== undefined && list.innerHTML.includes('b4c36b603b1e'), '列表应显示 keyId')
+  assert.ok(list !== undefined && list.innerHTML.includes('Billing service'), `the key list did not render: ${list?.innerHTML}`)
+  assert.ok(list !== undefined && list.innerHTML.includes('b4c36b603b1e'), 'the list must show the keyId')
 
   const services = nodes.get('key-services')
-  assert.ok(services !== undefined && services.innerHTML.includes('support'), '服务下拉应填充')
+  assert.ok(services !== undefined && services.innerHTML.includes('support'), 'the service dropdown must be filled')
 
   const msg = nodes.get('key-create-msg')
-  assert.ok(msg !== undefined && msg.textContent === '', '配置里有服务时不应显示"无服务"提示')
+  assert.ok(msg !== undefined && msg.textContent === '', 'with a service configured the "no services" notice must not show')
 })
 
-test('keys 表单：提交 → 签发 → 明文只展示一次（驱动真实表单处理器）', async () => {
+test('keys form: submit -> issue -> the plaintext is shown once (drives the real form handler)', async () => {
   await import('./keys.js')
   await new Promise((resolve) => realSetTimeout(resolve, 20))
 
   const form = nodes.get('key-form')
-  assert.ok(form !== undefined && typeof form.listeners?.submit === 'function', '表单应注册 submit 处理器')
+  assert.ok(form !== undefined && typeof form.listeners?.submit === 'function', 'the form must register a submit handler')
 
   const nameEl = nodes.get('key-name')
   const serviceEl = nodes.get('key-services')
-  nameEl.value = '验收钥匙'
+  nameEl.value = 'acceptance key'
   serviceEl.value = 'support'
 
   await form.listeners.submit({ preventDefault: () => undefined })
   await new Promise((resolve) => realSetTimeout(resolve, 20))
 
   const body = postBodies[0]
-  assert.ok(body !== undefined, '提交应发出 POST /api/keys')
+  assert.ok(body !== undefined, 'a submit must send POST /api/keys')
   const parsed = JSON.parse(body)
-  assert.equal(parsed.name, '验收钥匙')
+  assert.equal(parsed.name, 'acceptance key')
   assert.deepEqual(parsed.services, ['support'])
-  assert.deepEqual(parsed.scopes, ['services:read', 'usage:read'], '默认只读 scope（勾选项）')
+  assert.deepEqual(parsed.scopes, ['services:read', 'usage:read'], 'default read-only scopes (the checked boxes)')
 
   const reveal = nodes.get('key-token')
-  assert.ok(reveal !== undefined && reveal.hidden === false, '签发成功后应展示明文区')
-  assert.ok(reveal !== undefined && reveal.innerHTML.includes('TESTTOKEN'), '明文区应包含 token')
+  assert.ok(reveal !== undefined && reveal.hidden === false, 'after a successful issue the plaintext area must be shown')
+  assert.ok(reveal !== undefined && reveal.innerHTML.includes('TESTTOKEN'), 'the plaintext area must contain the token')
 })

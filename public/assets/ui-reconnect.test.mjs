@@ -1,9 +1,9 @@
-// 债务 F3:autoReconnect(ui.js)行为测试——node:test + mock 时钟,CI test:web 常驻。
+// Debt F3: behaviour tests for autoReconnect (ui.js) -- node:test + mock timers, part of CI test:web.
 import { test, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { autoReconnect } from './ui.js'
 
-/** 手写假 EventSource:只实现 autoReconnect 用到的面(addEventListener/close)。 */
+/** A hand-written fake EventSource: only the surface autoReconnect uses (addEventListener/close). */
 class FakeEventSource {
   static instances = []
 
@@ -37,26 +37,26 @@ const setup = () => {
   }
 }
 
-test('债务 F3: open 把退避重置回 3s(连上即清零)', async () => {
+test('debt F3: open resets the backoff to 3s (connected means back to zero)', async () => {
   const { rec, last, count } = setup()
   try {
     rec.connect()
     assert.equal(count(), 1)
-    last().emit('error') // 断线 → 3s 后重连
+    last().emit('error') // drop -> reconnect after 3s
     await mock.timers.tick(3_000)
     assert.equal(count(), 2)
-    last().emit('open') // 重连成功 → 退避重置
-    last().emit('error') // 再断 → 仍应 3s 后重连(而不是 6s)
+    last().emit('open') // reconnected -> the backoff resets
+    last().emit('error') // drops again -> it must still reconnect after 3s (not 6s)
     await mock.timers.tick(2_999)
-    assert.equal(count(), 2, '3s 未到不得重连')
+    assert.equal(count(), 2, 'no reconnect before 3s')
     await mock.timers.tick(1)
-    assert.equal(count(), 3, 'open 后必须按 3s 重连')
+    assert.equal(count(), 3, 'after open it must reconnect on the 3s delay')
   } finally {
     mock.timers.reset()
   }
 })
 
-test('债务 F3: 退避递增 3s→6s→12s→…→30s 封顶(不成功不重置)', async () => {
+test('debt F3: the backoff grows 3s -> 6s -> 12s -> ... -> capped at 30s (no success, no reset)', async () => {
   const { rec, last, count } = setup()
   try {
     rec.connect()
@@ -71,45 +71,45 @@ test('债务 F3: 退避递增 3s→6s→12s→…→30s 封顶(不成功不重�
     assert.equal(count(), 4)
     last().emit('error')
     await mock.timers.tick(23_999)
-    assert.equal(count(), 4, '24s 未到不得重连')
+    assert.equal(count(), 4, 'no reconnect before 24s')
     await mock.timers.tick(1)
     assert.equal(count(), 5)
     last().emit('error')
     await mock.timers.tick(30_000)
-    assert.equal(count(), 6, '封顶后每次 30s')
+    assert.equal(count(), 6, '30s per retry once capped')
   } finally {
     mock.timers.reset()
   }
 })
 
-test('债务 F3: 旧实例迟到的 error 不得关闭当前实例(连接泄漏回归)', async () => {
+test('debt F3: a late error from an old instance must not close the current one (connection-leak regression)', async () => {
   const { rec, last, count } = setup()
   try {
     rec.connect()
     const stale = last()
-    stale.emit('error') // 调度重连
+    stale.emit('error') // schedules a reconnect
     await mock.timers.tick(3_000)
     assert.equal(count(), 2)
     const current = last()
-    stale.emit('error') // 旧 handler 迟到触发
-    assert.equal(current.closed, false, '当前实例绝不能被旧 error 关掉')
+    stale.emit('error') // the old handler fires late
+    assert.equal(current.closed, false, 'the current instance must never be closed by an old error')
     await mock.timers.tick(30_000)
-    assert.equal(count(), 2, '旧 error 不得额外调度重连')
+    assert.equal(count(), 2, 'an old error must not schedule an extra reconnect')
   } finally {
     mock.timers.reset()
   }
 })
 
-test('债务 F3: disconnect 取消在途重连并关闭当前实例', async () => {
+test('debt F3: disconnect cancels a pending reconnect and closes the current instance', async () => {
   const { rec, last, count } = setup()
   try {
     rec.connect()
     const current = last()
-    current.emit('error') // 调度了 3s 重连
+    current.emit('error') // a 3s reconnect is scheduled
     rec.disconnect()
     assert.equal(current.closed, true)
     await mock.timers.tick(60_000)
-    assert.equal(count(), 1, 'disconnect 后不得再重连')
+    assert.equal(count(), 1, 'no reconnect after disconnect')
   } finally {
     mock.timers.reset()
   }
