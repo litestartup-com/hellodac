@@ -41,7 +41,7 @@ const renameBack = (prevDir, agentDir, log) => {
     renameSync(`${prevDir}/${name}`, `${agentDir}/${name}`)
   }
   rmSync(prevDir, { recursive: true, force: true })
-  log('[node-agent] 已回滚到上一代（新代码秒崩判定）')
+  log('[node-agent] rolled back to the previous generation (the new code crashed immediately)')
 }
 
 /**
@@ -82,9 +82,9 @@ export const applyPendingUpdate = (agentDir, log = () => {}) => {
       rmSync(nextDir, { recursive: true, force: true })
       if (version !== '') writeFileSync(`${agentDir}/${UPDATE_VERSION_FILE}`, version, 'utf8')
       writeFileSync(updateAtPath, String(Date.now()), 'utf8')
-      log(`[node-agent] 自更新已应用${version !== '' ? `（→ ${version}）` : ''}，请由服务管理器重启加载新代码`)
+      log(`[node-agent] self-update applied${version !== '' ? ` (-> ${version})` : ''}; restart through the service manager to load the new code`)
     } catch (error) {
-      log(`[node-agent] 自更新换装失败：${error instanceof Error ? error.message : String(error)}`)
+      log(`[node-agent] self-update failed: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
   return { updated: existsSync(updateAtPath) && Date.now() - (readTs(updateAtPath) ?? 0) < 60_000 }

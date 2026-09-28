@@ -127,8 +127,8 @@ const defaultProc = {
       try {
         process.kill(pid, 0)
         process.kill(pid, 'SIGKILL')
-      } catch { /* 已退出 */ }
-    } catch { /* 已不在 */ }
+      } catch { /* already exited */ }
+    } catch { /* no longer there */ }
   },
   alive: async (pid) => {
     try {
@@ -198,7 +198,7 @@ export class AgentRuntime {
         const s = statfsSync(this.agentDir)
         diskTotal = Number(s.blocks) * Number(s.bsize)
         diskFree = Number(s.bavail) * Number(s.bsize)
-      } catch { /* 磁盘信息拿不到不强求 */ }
+      } catch { /* disk info is best-effort, not required */ }
       return {
         cpuPercentTenths,
         memTotal: totalmem(),
@@ -223,7 +223,7 @@ export class AgentRuntime {
         this.agentId = parsed.agentId
         this.agentToken = parsed.agentToken
       }
-    } catch { /* 坏文件 = 重新注册 */ }
+    } catch { /* bad file means register again */ }
   }
 
   saveIdentity() {
@@ -279,14 +279,14 @@ export class AgentRuntime {
    */
   persistSpawnPayload(nodeId, payload) {
     if (!AgentRuntime.isSafeNodeId(nodeId)) {
-      this.log(`拒绝落盘非法 nodeId：${String(nodeId)}`)
+      this.log(`refusing to persist an illegal nodeId: ${String(nodeId)}`)
       return
     }
     try {
       this.fs.mkdir(this.nodeHome(nodeId))
       this.fs.writeFile(`${this.nodeHome(nodeId)}/spawn.json`, JSON.stringify(payload))
     } catch (error) {
-      this.log(`node ${nodeId}: spawn 载荷落盘失败（自恢复将不可用）：${error instanceof Error ? error.message : String(error)}`)
+      this.log(`node ${nodeId}: could not persist the spawn payload (self-recovery will be unavailable): ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
@@ -314,25 +314,25 @@ export class AgentRuntime {
         // 载荷里的 nodeId 必须与所在目录一致：否则坏文件/被改文件能把恢复
         // 变成「往任意 home 里拉进程」。
         if (parsed === null || typeof parsed !== 'object' || parsed.nodeId !== nodeId) {
-          this.log(`node ${nodeId}: spawn.json 与目录不符，跳过自恢复`)
+          this.log(`node ${nodeId}: spawn.json does not match the directory, skipping self-recovery`)
           continue
         }
         payload = parsed
       } catch (error) {
-        this.log(`node ${nodeId}: spawn.json 不可解析，跳过自恢复（${error instanceof Error ? error.message : String(error)}）`)
+        this.log(`node ${nodeId}: spawn.json is not parseable, skipping self-recovery (${error instanceof Error ? error.message : String(error)})`)
         continue
       }
       try {
         const outcome = await this.dispatchSpawn(payload)
         if (outcome.ok) {
           resumed.push(nodeId)
-          this.log(`node ${nodeId}: 已按落盘载荷自恢复（pid ${String(outcome.result?.pid ?? '?')}）`)
+          this.log(`node ${nodeId}: recovered from the persisted payload (pid ${String(outcome.result?.pid ?? '?')})`)
         } else {
-          this.log(`node ${nodeId}: 自恢复失败——${String(outcome.result?.message ?? 'unknown')}`)
+          this.log(`node ${nodeId}: self-recovery failed -- ${String(outcome.result?.message ?? 'unknown')}`)
         }
       } catch (error) {
         // 单个节点炸掉不得拖垮其余节点的恢复
-        this.log(`node ${nodeId}: 自恢复异常——${error instanceof Error ? error.message : String(error)}`)
+        this.log(`node ${nodeId}: self-recovery threw -- ${error instanceof Error ? error.message : String(error)}`)
       }
     }
     return resumed
@@ -390,7 +390,7 @@ export class AgentRuntime {
         startedAt: this.nodes.get(nodeId)?.startedAt ?? Date.now(),
         logOffset: this.nodes.get(nodeId)?.logOffset ?? 0,
       })
-      this.log(`node ${nodeId} 已在运行（pid ${runningPid}）——跳过重复 spawn`)
+      this.log(`node ${nodeId} is already running (pid ${runningPid}) -- skipping a duplicate spawn`)
       return { ok: true, result: { pid: runningPid, alreadyRunning: true } }
     }
     // 钥匙：spawn 载荷 env 里的 GW_KEY → DSH_HOME/settings.yaml（facade 只读
@@ -444,9 +444,9 @@ export class AgentRuntime {
       if (logSize !== null && logSize > NODE_LOG_MAX_BYTES) {
         try {
           this.fs.remove(`${logPath}.1`)
-        } catch { /* .1 不存在或不可删——不阻断 */ }
+        } catch { /* .1 is missing or cannot be removed -- not fatal */ }
         this.fs.rename(logPath, `${logPath}.1`)
-        this.log(`node ${nodeId}: node.log 超限（${logSize} 字节）已轮转到 .1`)
+        this.log(`node ${nodeId}: node.log exceeded its limit (${logSize} bytes) and was rotated to .1`)
       }
       const env = { ...(payload.env ?? {}), DSH_HOME: dshHome }
       const { pid } = await this.proc.spawn(bin, payload.args ?? [], env, logPath)
@@ -481,7 +481,7 @@ export class AgentRuntime {
     if (AgentRuntime.isSafeNodeId(nodeId)) {
       try {
         this.fs.remove(`${home}/spawn.json`)
-      } catch { /* 本来就没有 —— 无妨 */ }
+      } catch { /* nothing there to begin with -- fine */ }
     }
     return { ok: true, result: { pid: pid ?? null } }
   }
@@ -518,7 +518,7 @@ export class AgentRuntime {
     }
     this.agentToken = payload.agentToken
     this.saveIdentity()
-    this.log('身份已轮换（新 agentToken 已落盘）')
+    this.log('identity rotated (the new agentToken is on disk)')
     return { ok: true, result: { rotated: true } }
   }
 
@@ -537,7 +537,7 @@ export class AgentRuntime {
       .update(Object.keys(files).sort().map((name) => `${name}:${files[name]}`).join('\n'))
       .digest('hex')
     if (payload.sha256 !== digest) {
-      return { ok: false, result: { message: 'sha256 mismatch — 更新包校验失败，拒绝换装' } }
+      return { ok: false, result: { message: 'sha256 mismatch -- the update package failed verification and was rejected' } }
     }
     const nextDir = `${this.agentDir}/.next`
     this.fs.mkdir(nextDir)
@@ -548,7 +548,7 @@ export class AgentRuntime {
       this.fs.writeFile(`${nextDir}/.version`, payload.managerVersion)
     }
     this.pendingExit = true
-    this.log(`agent.update 校验通过（→ ${String(payload.managerVersion ?? '?')}），回报后将退出交给服务管理器重启`)
+    this.log(`agent.update verified (-> ${String(payload.managerVersion ?? '?')}); after reporting, exiting so the service manager reloads the new code`)
     return { ok: true, result: { staged: true } }
   }
 
@@ -623,9 +623,9 @@ export class AgentRuntime {
     // 不依赖任何网络往返；manager 稍后探活确认即可。
     try {
       const resumed = await this.resumeNodes()
-      if (resumed.length > 0) this.log(`开机自恢复：已拉起 ${resumed.join(', ')}`)
+      if (resumed.length > 0) this.log(`startup recovery: resumed ${resumed.join(', ')}`)
     } catch (error) {
-      this.log(`开机自恢复失败（不阻断 agent 启动）：${error instanceof Error ? error.message : String(error)}`)
+      this.log(`startup recovery failed (agent startup continues): ${error instanceof Error ? error.message : String(error)}`)
     }
     await this.registerOnce()
     for (;;) {
@@ -634,12 +634,12 @@ export class AgentRuntime {
         await this.loopOnce()
         this.retryAttempt = 0
         if (this.pendingExit === true) {
-          this.log('agent.update 已回报——以非零码退出，交给服务管理器重启加载新代码')
+          this.log('agent.update reported -- exiting non-zero so the service manager reloads the new code')
           process.exit(1)
         }
       } catch (error) {
         if (error instanceof Error && error.message === 'unauthorized') {
-          this.log('身份被拒（吊销/失效）——清身份后重新注册')
+          this.log('identity rejected (revoked or invalid) -- clearing it and registering again')
           this.agentId = null
           this.agentToken = null
           this.fs.writeFile(`${this.agentDir}/agent.json`, '')
@@ -647,7 +647,7 @@ export class AgentRuntime {
         } else {
           this.retryAttempt += 1
           const delay = Math.min(1_000 * 2 ** Math.max(0, this.retryAttempt - 1), 30_000)
-          this.log(`manager 不可达（第 ${this.retryAttempt} 次），${delay}ms 后重试`)
+          this.log(`manager unreachable (attempt ${this.retryAttempt}), retrying in ${delay}ms`)
           await this.backoff(delay)
           if (opts?.signal?.aborted === true) return
         }
@@ -672,7 +672,7 @@ function defaultFs() {
       if (p.endsWith('agent.json') || p.endsWith('settings.yaml')) {
         try {
           chmodSync(p, 0o600)
-        } catch { /* Windows 空操作 */ }
+        } catch { /* no-op on Windows */ }
       }
     },
     mkdir: (p) => mkdirSync(p, { recursive: true }),

@@ -398,7 +398,7 @@ const agentNav = (status) => {
         ${busy !== null ? `<span class="dot busy" title="${esc(t('side.brain.busyTitle', { count: activeByAgent.get(agent.id) ?? 1 }))}"></span>` : ''}
         ${agent.public ? `<span class="meta" title="${esc(t('side.agentPublic'))}">${icon('alert', 12)}</span>` : ''}
         <!-- The row's action area: endpoint health first, then new chat last --
-             the "+" owns the far end of the row. (DAC v1.0.0：大盘入口已下线。) -->
+             the "+" owns the far end of the row. (DAC v1.0.0: the dashboard entry point was removed.) -->
         <!-- The dot is a button, because what it reports is not self-explanatory:
              it is the *endpoint's* health, so agents sharing one DSH process all
              go red together. Clicking says which endpoint and who else is on
@@ -653,7 +653,7 @@ const toggleNav = () => {
 const bind = (id, event, handler) => {
   const node = $(id)
   if (node === null) {
-    console.warn(`[shell] 找不到 #${id}，${event} 监听未挂载 -- 页面模板可能过期，请重启服务后强刷`)
+    console.warn(`[shell] no #${id} found, so the ${event} listener was not attached -- the page template may be stale; restart the service and hard-reload`)
     return
   }
   node.addEventListener(event, handler)
@@ -1303,7 +1303,7 @@ const openMoreMenu = () => {
     moreMenu.style.bottom = `${window.innerHeight - rect.top + 8}px`
     moreMenu.style.left = `${Math.min(Math.max(rect.right - 224, 8), window.innerWidth - 232)}px`
   }
-  closeMoreFlyouts() // 每次打开从收起态开始，避免上次展开的语言/设置留在那儿
+  closeMoreFlyouts() // always start collapsed so the language/settings flyout from last time is not left open
   moreMenu.hidden = false
   moreBtn?.setAttribute('aria-expanded', 'true')
   // 菜单打开焦点进首项（标准菜单行为）；Esc 关闭时归还按钮。

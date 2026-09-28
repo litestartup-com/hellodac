@@ -165,7 +165,7 @@ export const topologyHtml = (data) => {
     managerVersion,
     origin,
     containerForm,
-    machineCount: machines.length + (localCard === '' ? 0 : 1), // 本机卡也算一台
+    machineCount: machines.length + (localCard === '' ? 0 : 1), // the local card counts as a machine too
     nodeCount: nodes.length,
   })
   return `<div class="topo">

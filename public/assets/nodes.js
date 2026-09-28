@@ -200,7 +200,7 @@ document.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape' || openMenuNode === null) return
   const trigger = document.getElementById(`node-more-${openMenuNode}`)
   closeNodeMenu()
-  trigger?.focus() // 键盘用户关掉菜单后应回到触发器，而不是被丢回文档开头
+  trigger?.focus() // a keyboard user closing the menu belongs back on the trigger, not at the top of the document
 })
 
 // 能力二/P1：版本切换——确认后 POST /api/nodes/:id/version（202 = 受理，异步重建/重装）。

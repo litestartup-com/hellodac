@@ -17,7 +17,7 @@ const joinToken = process.env.AGENT_JOIN_TOKEN ?? ''
 const agentDir = process.env.AGENT_DIR ?? join(homedir(), '.dac-agent')
 
 if (managerUrl === '' || joinToken === '') {
-  console.error('[node-agent] MANAGER_URL 与 AGENT_JOIN_TOKEN 必填（join.sh 生成时注入）')
+  console.error('[node-agent] MANAGER_URL and AGENT_JOIN_TOKEN are required (injected by join.sh)')
   process.exit(1)
 }
 

@@ -7,8 +7,8 @@ import { $, esc, setHtml, apiJson, poll, t, loadI18n } from './ui.js'
 await loadI18n()
 import { runRow, runsQuery } from './run-row.js'
 
-let nextCursor = null // 上一页末条 startedAt；null = 没有下一页
-let pagesLoaded = 1 // 翻页后停自动刷新
+let nextCursor = null // startedAt of the last row on the previous page; null = no next page
+let pagesLoaded = 1 // auto-refresh stops once the user pages
 let loading = false
 
 const fAgent = () => $('f-run-agent').value
@@ -85,7 +85,7 @@ const firstPage = () => {
 
 // 工作区下拉：config agents 真相（/api/status）；任务流里出现的未知
 // agentId（已从 config 移除的历史任务）也补进下拉，保证仍可筛选。
-const agentSeen = new Map() // id -> 名称
+const agentSeen = new Map() // id -> name
 const fillAgentSelect = () => {
   const sel = $('f-run-agent')
   const chosen = sel.value
