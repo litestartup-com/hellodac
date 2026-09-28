@@ -1,13 +1,13 @@
-# 蜂群2计划 P2：容器形态（compose 脊柱）示例配置。
-# 复制为 manager.config.yaml 使用；install.sh（P5）会自动生成。
+# Hive plan 2 P2: example config for the container form (the compose spine).
+# Copy it to manager.config.yaml to use it; install.sh (P5) generates it automatically.
 #
-# 注意：
-# - manager 容器内与宿主机共享同一绝对路径 /opt/dac/workspaces（compose 挂载），
-#   这样 manager 发给 dockerd 的 bind mount 路径在宿主机上真实存在；
-# - 主脑无 spawn：compose 声明（脊柱，非托管——只读管控）；
-# - personal 是第一个工蜂：docker runner，由 manager 经 docker.sock 拉起。
-# - config_version：配置结构版本（P0，hive/plan-config-version-switch）——
-#   新装生成即当前版本，升级由 boot 自动迁移。
+# Notes:
+# - inside the manager container the same absolute path /opt/dac/workspaces is shared with the host (compose mount),
+#   so the bind mount paths the manager sends to dockerd really exist on the host;
+# - the brain has no spawn: declared by compose (the spine, unmanaged -- read-only control);
+# - personal is the first worker: a docker runner, started by the manager over docker.sock.
+# - config_version: the config structure version (P0, hive/plan-config-version-switch) --
+#   a new install generates the current version, upgrades migrate automatically at boot.
 
 config_version: 1
 
@@ -16,8 +16,8 @@ listen:
   port: 8080
 
 endpoints:
-  # 0.1.2 切主路接线清单：manager 走 facade（进程内门面 + key 鉴权），
-  # 不再直连宿主 /api（0.1.2 的 /api 是信任栅栏，loopback 也 401）。
+  # The 0.1.2 switch to the main route, wiring checklist: the manager goes through the facade (an in-process front plus key
+  # auth) and no longer talks to the host /api directly (the 0.1.2 /api is a trust fence, 401 even on loopback).
   brain:
     url: http://node-brain:3082
     driver: apiproxy
@@ -39,12 +39,12 @@ endpoints:
       ready_timeout_ms: 30000
       docker:
         image: hellodac/dac-node:0.1.2-rc.1
-        # 与 compose 里显式命名的网络一致（manager 在宿主机 dockerd 侧挂网）
+        # consistent with the explicitly named network in compose (the manager joins it on the host dockerd side)
         network: dac-hive
         port: 3081
         host_volumes:
-          # 左=宿主机路径（install.sh 会替换为安装目录真实路径）；右=节点容器内路径，
-          # 必须与 agents.workspace 同串——manager 把 workspace 作为 cwd 发给节点
+          # left = host path (install.sh replaces it with the real install dir path); right = path inside the node container,
+          # it must be the same string as agents.workspace -- the manager sends workspace to the node as its cwd
           /opt/dac/workspaces/personal: /opt/dac/workspaces/personal
         named_volumes:
           dac-personal: /data
@@ -75,8 +75,8 @@ brain:
 database:
   path: ./data/manager.db
 
-# 蜂群2计划 P4：额外纳入备份的 docker 命名卷（compose 脊柱的主脑卷无 spawn 段，
-# 在这里声明后随自动备份一起打包加密）。
+# Hive plan 2 P4: extra docker named volumes taken into the backup (the brain volume of the compose spine has no spawn
+# section, so declaring it here packs and encrypts it along with the automatic backup).
 backup:
   docker_volumes:
     - dac-brain

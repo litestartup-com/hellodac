@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # DAC — one-command install (Ubuntu 24, single-host container form:
-# nginx + manager + 主脑 spine; the 个人 worker is created by the manager).
+# nginx + manager + the brain spine; the `personal` worker is created by the manager).
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.0.0/install.sh -o install.sh && bash install.sh
@@ -12,10 +12,10 @@
 # Plan-only pass: DRY_RUN=1 bash install.sh
 #
 # Note: output is intentionally English — a minimal server locale (LANG=C)
-# would garble non-ASCII text (the one sanctioned exception to 默认中文).
+# would garble non-ASCII text (the one sanctioned exception to Chinese-only output).
 set -euo pipefail
 
-# 安装目录 = 执行本脚本时所在的目录（cd 到哪装到哪；APP_DIR 环境变量可覆盖）。
+# Install dir = the directory this script runs in (install where you cd to; the APP_DIR environment variable can override it).
 APP_DIR="${APP_DIR:-.}"
 DAC_VERSION="${DAC_VERSION:-v1.0.0}"
 RELEASE_BASE="https://github.com/litestartup-com/hellodac/releases/download/${DAC_VERSION}"
@@ -39,16 +39,16 @@ confirm() {
   case "$ANS" in y|Y|yes) return 0 ;; *) return 1 ;; esac
 }
 
-# ---- plan first (计划先行) ----
+# ---- plan first ----
 log "plan: Docker (skip if present) → download release ${DAC_VERSION} → .env (never overwrite) → compose up"
 log "install dir: $(pwd)"
 confirm "Continue?" || { log "aborted."; exit 0; }
 
-# 家目录本身拒绝默认安装：避免把 docker-compose.yml/.env/workspaces 摊一屋子
+# Installing into the home directory itself is refused by default: it would spread docker-compose.yml/.env/workspaces all over the house
 if [ "$APP_DIR" = "." ] && [ "$(pwd)" = "$HOME" ]; then
-  echo "[install] 检测到你在家目录（$HOME）里执行——请先建一个专用目录再跑："
+  echo "[install] home directory ($HOME) detected -- create a dedicated directory first and run it there:"
   echo "           mkdir -p ~/appx && cd ~/appx && bash ~/install.sh"
-  echo "          （确要装进家目录本身：设 APP_DIR=\$HOME 重跑。）"
+  echo "          (to really install into the home directory itself: set APP_DIR=\$HOME and re-run.)"
   exit 1
 fi
 
@@ -89,8 +89,8 @@ else
     rm -f /tmp/dac-compose.zip
     log "bundle unpacked."
   else
-    # 发布包尚不存在（tag 未打）或下载失败：回退到源码克隆。
-    # 绝不 rm -rf 安装目录（APP_DIR=. 时会删掉用户当前目录本身）——克隆进临时目录再搬入。
+    # The release bundle does not exist yet (tag not cut) or the download failed: fall back to a source clone.
+    # Never rm -rf the install dir (with APP_DIR=. that would delete the user's own current directory) -- clone into a temp dir and move it in.
     log "release bundle unavailable — falling back to git clone (master)"
     TMP_CLONE="$(mktemp -d)"
     run git clone --depth 1 https://github.com/litestartup-com/hellodac.git "$TMP_CLONE"
@@ -99,7 +99,7 @@ else
   fi
 fi
 
-# ---- secrets (唯一人肉输入 = API key) ----
+# ---- secrets (the only manual input = the API key) ----
 if [ -z "$DEEPSEEK_API_KEY" ]; then
   if [ "$DRY_RUN" = "1" ]; then
     DEEPSEEK_API_KEY="(ask in real run)"
@@ -111,7 +111,7 @@ if [ -z "$MANAGER_PASSWORD" ] && [ "$DRY_RUN" != "1" ]; then
   read -rsp "Manager initial password (empty = generate one): " MANAGER_PASSWORD; echo
 fi
 
-# ---- domain / TLS（留空 = 纯 HTTP 直连；给了域名会自动问 TLS 模式）----
+# ---- domain / TLS (empty = plain HTTP direct; with a domain it asks for the TLS mode) ----
 if [ -z "$APP_DOMAIN" ]; then
   if [ "$DRY_RUN" = "1" ]; then
     log "DRY: domain not provided — plain HTTP"
@@ -124,14 +124,15 @@ fi
 cd "$APP_DIR"
 APP_DIR_ABS="$(pwd)"
 if [ "$DRY_RUN" = "1" ]; then
-  log "DRY: scripts/gen-env.sh .env + host_volumes 宿主侧路径重钉到 ${APP_DIR_ABS}/workspaces"
+  log "DRY: scripts/gen-env.sh .env + re-pin the host-side paths of host_volumes to ${APP_DIR_ABS}/workspaces"
 else
   DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY" MANAGER_PASSWORD="$MANAGER_PASSWORD" bash scripts/gen-env.sh .env
-  # 评审 B2 + 搬家重钉（2026-09-20）：host_volumes 里行首的宿主侧工作区路径
-  # （左=宿主机、右=节点容器内路径）每次运行都重钉到当前安装目录的真实绝对路径——
-  # 目录移动后 cd 进去重跑 install.sh 即收敛（幂等，不匹配时无变化）。
-  # 注意只匹配「行首绝对路径 + /workspaces 结尾」：冒号右侧的容器内路径与
-  # agents.workspace 行不受影响（它们保持容器视角，不随宿主目录变）。
+  # Review B2 + move re-pin (2026-09-20): the host-side workspace path at the start of a host_volumes line
+  # (left = host machine, right = path inside the node container) is re-pinned on every run to the real absolute
+  # path of the current install dir -- after moving the directory, cd into it and re-run install.sh to converge
+  # (idempotent, nothing changes when it already matches).
+  # Note it only matches "absolute path at line start + /workspaces ending": the container-side path right of the
+  # colon and the agents.workspace line are untouched (they stay in the container's view, they do not follow the host dir).
   if [ -f manager.config.yaml ]; then
     sed -i -E "s|^([[:space:]]*)/[^ :]+/workspaces|\1${APP_DIR_ABS}/workspaces|g" manager.config.yaml
     log "config exists: host workspace path re-pinned to ${APP_DIR_ABS}/workspaces"
@@ -140,12 +141,13 @@ else
     sed -i -E "s|^([[:space:]]*)/[^ :]+/workspaces|\1${APP_DIR_ABS}/workspaces|g" manager.config.yaml
     log "created: manager.config.yaml (host workspace path pinned to ${APP_DIR_ABS}/workspaces)"
   fi
-  # 节点容器与宿主机部署用户同 uid（工作区写权限两边一致；root 服务器 = 0）
+  # Node containers share the uid of the host deploy user (workspace write permission matches on both sides; root server = 0)
   grep -q '^HOST_UID=' .env || echo "HOST_UID=$(id -u)" >> .env
   grep -q '^HOST_GID=' .env || echo "HOST_GID=$(id -g)" >> .env
-  # 债务 H1：manager 容器以 HOST_UID:HOST_GID 运行——真相文件与数据目录
-  # 必须按同一属主放行（root 部署 = 0:0 时 chown 无变化，manager 保持 root，
-  # 降权只在非 root 部署用户下生效；docker.sock 的组级访问见 gen-env.sh 的 DOCKER_GID）
+  # Debt H1: the manager container runs as HOST_UID:HOST_GID -- the truth files and the data directory
+  # must be released to the same owner (on a root deployment = 0:0 the chown is a no-op and the manager stays
+  # root; dropping privileges only takes effect under a non-root deploy user; for docker.sock group access see
+  # DOCKER_GID in gen-env.sh)
   HOST_UID_VAL="$(grep '^HOST_UID=' .env | cut -d= -f2)"
   HOST_GID_VAL="$(grep '^HOST_GID=' .env | cut -d= -f2)"
   mkdir -p data workspaces
@@ -165,9 +167,9 @@ if [ -n "$APP_DOMAIN" ]; then
   log "nginx: domain=$APP_DOMAIN tls=$TLS_MODE"
 
   if [ "$TLS_MODE" = "origin-ca" ]; then
-    # 证书约定位置 = <安装目录>/ssl/cert.pem 与 key.pem（文档明示，可提前放置）；
-    # 也支持交互输入现有证书路径，或 SSL_CERT_SRC/SSL_KEY_SRC 环境变量指定。
-    # 新用户从 Cloudflare 下载的证书（SSL/TLS → Origin Server）直接放进约定位置即可。
+    # Canonical certificate location = <install dir>/ssl/cert.pem and key.pem (stated in the docs, they can be placed ahead of time);
+    # entering the path of an existing certificate interactively, or the SSL_CERT_SRC/SSL_KEY_SRC environment variables, work too.
+    # A new user can simply put the certificate downloaded from Cloudflare (SSL/TLS -> Origin Server) into the canonical location.
     if [ "$DRY_RUN" = "1" ]; then
       log "DRY: ensure cert/key (canonical: $APP_DIR_ABS/ssl/{cert,key}.pem, or prompt for paths)"
     else
@@ -179,12 +181,12 @@ if [ -n "$APP_DOMAIN" ]; then
           if [ -f "$SSL_CERT_SRC" ]; then
             cp "$SSL_CERT_SRC" "$CERT" && log "cert copied from $SSL_CERT_SRC"
           else
-            echo "[install] SSL_CERT_SRC 指向的文件不存在：$SSL_CERT_SRC"; exit 1
+            echo "[install] the file SSL_CERT_SRC points at does not exist: $SSL_CERT_SRC"; exit 1
           fi
         else
-          read -rp "证书文件路径 cert.pem（回车 = $APP_DIR_ABS/ssl/cert.pem）: " CERT_SRC || true
+          read -rp "Certificate file path cert.pem (enter = $APP_DIR_ABS/ssl/cert.pem): " CERT_SRC || true
           if [ -n "$CERT_SRC" ]; then
-            if [ -f "$CERT_SRC" ]; then cp "$CERT_SRC" "$CERT"; else echo "[install] 找不到证书文件：$CERT_SRC"; exit 1; fi
+            if [ -f "$CERT_SRC" ]; then cp "$CERT_SRC" "$CERT"; else echo "[install] certificate file not found: $CERT_SRC"; exit 1; fi
           fi
         fi
       fi
@@ -193,24 +195,24 @@ if [ -n "$APP_DOMAIN" ]; then
           if [ -f "$SSL_KEY_SRC" ]; then
             cp "$SSL_KEY_SRC" "$KEY" && log "key copied from $SSL_KEY_SRC"
           else
-            echo "[install] SSL_KEY_SRC 指向的文件不存在：$SSL_KEY_SRC"; exit 1
+            echo "[install] the file SSL_KEY_SRC points at does not exist: $SSL_KEY_SRC"; exit 1
           fi
         else
-          read -rp "私钥文件路径 key.pem（回车 = $APP_DIR_ABS/ssl/key.pem）: " KEY_SRC || true
+          read -rp "Private key file path key.pem (enter = $APP_DIR_ABS/ssl/key.pem): " KEY_SRC || true
           if [ -n "$KEY_SRC" ]; then
-            if [ -f "$KEY_SRC" ]; then cp "$KEY_SRC" "$KEY"; else echo "[install] 找不到私钥文件：$KEY_SRC"; exit 1; fi
+            if [ -f "$KEY_SRC" ]; then cp "$KEY_SRC" "$KEY"; else echo "[install] private key file not found: $KEY_SRC"; exit 1; fi
           fi
         fi
       fi
       if [ ! -f "$CERT" ] || [ ! -f "$KEY" ]; then
-        echo "[install] 还缺证书/私钥（Cloudflare 用户：SSL/TLS → Origin Server → Create Certificate 下载）："
-        echo "           1) 放进 $APP_DIR_ABS/ssl/cert.pem 与 $APP_DIR_ABS/ssl/key.pem 后重跑（幂等）；"
-        echo "           2) 或重跑时直接输入两个文件路径；"
-        echo "           3) 或设 SSL_CERT_SRC/SSL_KEY_SRC 环境变量后重跑。"
+        echo "[install] certificate/private key still missing (Cloudflare users: SSL/TLS -> Origin Server -> Create Certificate to download):"
+        echo "           1) put them at $APP_DIR_ABS/ssl/cert.pem and $APP_DIR_ABS/ssl/key.pem, then re-run (idempotent);"
+        echo "           2) or just type the two file paths when re-running;"
+        echo "           3) or set the SSL_CERT_SRC/SSL_KEY_SRC environment variables and re-run."
         exit 1
       fi
       chmod 600 "$KEY"
-      # 反代上 HTTPS 后 manager 必须开 secure cookie
+      # Once the reverse proxy serves HTTPS the manager must enable secure cookies
       grep -q '^NODE_ENV=' .env 2>/dev/null || echo 'NODE_ENV=production' >> .env
     fi
   fi
@@ -220,9 +222,9 @@ if [ -n "$APP_DOMAIN" ]; then
   fi
 fi
 
-# ---- nginx 运行时配置（生成物，不进 git）----
-# 真相源 = deploy/nginx/default.conf.example（无域名 HTTP）与 tls-*.conf（域名模板）；
-# default.conf 每次重跑都重新生成——线上改完不进 git，git pull 不再报 modified。
+# ---- nginx runtime config (a generated artifact, never in git) ----
+# Truth source = deploy/nginx/default.conf.example (no domain, HTTP) and tls-*.conf (domain templates);
+# default.conf is regenerated on every re-run -- a live edit never enters git, so git pull no longer reports modified.
 if [ "$DRY_RUN" = "1" ]; then
   log "DRY: write deploy/nginx/default.conf"
 else
@@ -239,14 +241,14 @@ else
     log "nginx config written ($SRC)"
   else
     cp deploy/nginx/default.conf.example deploy/nginx/default.conf
-    log "nginx config written (default.conf.example → default.conf，HTTP 直连)"
+    log "nginx config written (default.conf.example -> default.conf, plain HTTP)"
   fi
   NGINX_CONFIG_WRITTEN=1
 fi
 
 # ---- up ----
 run docker compose up -d --build
-# 重跑场景：default.conf 是 bind mount，文件变了 nginx 不会自己 reload
+# Re-run scenario: default.conf is a bind mount, nginx does not reload by itself when the file changes
 if [ "${NGINX_CONFIG_WRITTEN:-0}" = "1" ] && [ "$DRY_RUN" != "1" ]; then
   run docker compose restart nginx
 fi

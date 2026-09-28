@@ -15,14 +15,14 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
-      # P2-2：lint 抓类型系统兜不住的几类真 bug（悬挂 promise / 误用 promise）
+      # P2-2: lint catches a few classes of real bugs the type system cannot: hanging promises / misused promises
       - run: npm run lint
       - run: npm test
-      # 债务 C4:覆盖率门禁(2026-09-12 起生效)——只统计生产代码(src,排除测试),
-      # 阈值 lines 80 / branch 70 / funcs 75(基线实测 85.18/78.19/83.08,留余量防误报);
-      # 低于阈值非零退出,CI 即红。C2 补测后逐步抬升。
+      # Debt C4: coverage gate (in force since 2026-09-12) -- production code only (src, tests excluded),
+      # thresholds lines 80 / branch 70 / funcs 75 (measured baseline 85.18/78.19/83.08, headroom left against false alarms);
+      # below the threshold it exits non-zero and CI goes red. Raised step by step as C2 adds tests.
       - run: npm run test:coverage
-      # P2-1：前端测试此前从未在 CI 跑过——md.js 的 escape-first 是 XSS 的唯一防线
+      # P2-1: the frontend tests never ran in CI before this -- md.js escape-first is the only defense against XSS
       - run: npm run test:web
       - run: npm run drill
       - run: npm run build
@@ -31,9 +31,9 @@ jobs:
       - run: node scripts/check-docs.mjs
 
   compose-e2e:
-    # 债务 R10(=C5):compose 全栈 E2E(nginx + manager + 脊柱主脑 + 动态工蜂)。
-    # 验证发布门:启动/登录/节点认领/动态开通/停机/恢复保护/下线。
-    # 后续一切容器/部署相关改动的验证前置——不在本 job 绿之前推进生产部署链验证。
+    # Debt R10 (= C5): full-stack compose E2E (nginx + manager + spine brain + dynamic worker bees).
+    # Verifies the release gate: start / login / node claim / dynamic provisioning / shutdown / restore protection / deregistration.
+    # The precondition for validating any later container or deployment change -- do not push production deployment-chain validation forward before this job is green.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

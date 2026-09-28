@@ -1,6 +1,7 @@
-// 蜂群2计划 P2：构建期生成容器内节点 profile（与 src/cli/setup.ts 的 profileFiles
-// 同构，但 webserver 绑 0.0.0.0 —— 容器网络隔离下端口不发布，manager 走 hive 内网）。
-// 版本钉死值由 Dockerfile 的 ARG 注入，默认与 src/dsh-matrix.ts 的 SUPPORTED_DSH 首行一致。
+// Hive plan 2 P2: generate the in-container node profile at build time (isomorphic to profileFiles in
+// src/cli/setup.ts, except webserver binds 0.0.0.0 -- under container network isolation the port is not published,
+// and the manager reaches it over the hive network).
+// The pinned version comes in through the Dockerfile's ARG; the default matches the first line of SUPPORTED_DSH in src/dsh-matrix.ts.
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -10,16 +11,16 @@ const DSH_VERSION = process.env.DSH_VERSION ?? '0.1.2-rc.1'
 const GATEWAY_REF = process.env.GATEWAY_REF ?? 'github:litestartup-com/dsh-api-gateway#b592b4f'
 const NPM_REGISTRY = process.env.NPM_REGISTRY ?? 'https://registry.npmjs.org'
 const out = process.env.PROFILE_DIR ?? '/opt/dac-profile'
-/** 锁目录：构建期由 Dockerfile 拷进上下文（LOCK_DIR），仓库侧刷新时指到 profile-lock/。 */
+/** Lock directory: copied into the build context by the Dockerfile (LOCK_DIR); a repo-side refresh points it at profile-lock/. */
 const LOCK_DIR = process.env.LOCK_DIR ?? join(import.meta.dirname, 'profile-lock')
-// 与 src/dsh-matrix.ts 的 needsLegacyPeerDeps 保持一致（check-docs.mjs 常驻断言）：
-// facade peer 区间 ^0.1.2-rc.1 覆盖不到 0.1.5 线 → 不带 --legacy-peer-deps 必 ERESOLVE
-// （服务器 smoke15 实测，事实卡 dsh-facts §12；裸机路径 profileInstallCommand 同款修复）。
+// Kept in sync with needsLegacyPeerDeps in src/dsh-matrix.ts (a standing check-docs.mjs assertion):
+// the facade peer range ^0.1.2-rc.1 does not reach the 0.1.5 line -> without --legacy-peer-deps it is a guaranteed ERESOLVE
+// (measured on server smoke15, fact card dsh-facts §12; the bare-metal path profileInstallCommand carries the same fix).
 const LEGACY_PEER_DEPS_VERSIONS = ['0.1.5-rc.2']
-// M1 试点实证（事实卡 dsh-facts §14）：legacy 跳过全部 peer，0.1.5 家族的
-// dsh-app-boot 静态导入 cordis-plugin-group、23 个旧家族名包只存在于 peer 区间——
-// 显式补为直接依赖，否则新装节点启动即崩。与 src/host-node/profile.ts 的
-// LEGACY_PEER_PINS 保持一致（check-docs.mjs 常驻断言）。
+// M1 pilot evidence (fact card dsh-facts §14): legacy skips every peer, and in the 0.1.5 family
+// dsh-app-boot statically imports cordis-plugin-group, while 23 old-family-name packages exist only in the peer
+// range -- pin them explicitly as direct dependencies, otherwise a freshly installed node crashes on startup.
+// Kept in sync with LEGACY_PEER_PINS in src/host-node/profile.ts (a standing check-docs.mjs assertion).
 const LEGACY_PEER_PINS = {
   '0.1.5-rc.2': {
     '@deepseek-ai/cordis-plugin-group': '1.0.2',
@@ -60,7 +61,7 @@ writeFileSync(`${out}/package.json`, JSON.stringify(
     dsh: {
       profile: {
         bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'ohdsh-api-facade'],
-        // M1 试点实证：节点 profile 不启用 live patch 监听（免 HMR 硬依赖）
+        // M1 pilot evidence: a node profile does not enable the live patch watcher (avoids a hard HMR dependency)
         patchReload: 'startup',
       },
     },
@@ -74,26 +75,27 @@ writeFileSync(`${out}/package.json`, JSON.stringify(
   null,
   2,
 ) + '\n', 'utf8')
-// profile 依赖安装已改 npm（见下方 execFileSync）：pnpm@9 对 0.1.2-rc.1 的内层
-// 预发布区间解析失败、pnpm@11 的 onlyBuiltDependencies 白名单失效——服务器构建两次实锤；
-// npm 同版本集实证可解析且按旧语义跑原生构建脚本。
-// 端口用动态表达式透传 CLI --port（写死 3080 会盖掉 --port，节点全听 3080，
-// manager 探 3081/3082 全 fetch failed——容器实测踩坑）。
+// Profile dependency installation moved to npm (see execFileSync below): pnpm@9 fails to resolve the inner
+// prerelease range of 0.1.2-rc.1, and pnpm@11's onlyBuiltDependencies allowlist stops working -- both nailed down by
+// two server builds; the same version set under npm demonstrably resolves and runs native build scripts with the old semantics.
+// The port passes CLI --port through as a dynamic expression (a hard-coded 3080 would override --port, every node would
+// listen on 3080 and the manager's probes of 3081/3082 would all fetch-fail -- a pit hit in the container).
 const patchYaml = "- id: webserver\n  config:\n    host: '0.0.0.0'\n    port: !!js ctx.webStartup.port ?? 3080\n"
 writeFileSync(`${out}/cordis.patch.yml`, patchYaml, 'utf8')
-// 播种版本标记：entrypoint 据此判断卷里旧 profile 是否需要重播种（镜像升级自愈）
+// Seed version marker: the entrypoint uses it to decide whether an old profile in the volume needs re-seeding (image upgrade self-heal)
 writeFileSync(
   `${out}/.seed-version`,
   createHash('sha1').update(`${DSH_VERSION}|${GATEWAY_REF}|${patchYaml}`).digest('hex') + '\n',
   'utf8',
 )
 
-// 依赖安装：有锁用 `npm ci`（可复现），无锁回退 `npm install` 并显式告警。
+// Dependency installation: with a lock use `npm ci` (reproducible), without one fall back to `npm install` and warn loudly.
 //
-// 为什么要有锁（事实卡 §14「容器遗留」）：直接 `npm install` 时 DSH 与 gateway 的
-// **传递依赖**在构建当天现解，registry 一变镜像内容就变——同样的 tag 装出不同的树，
-// 出事无法复现。锁文件由本脚本的 --lock-only 模式生成（与构建期写入的 package.json
-// 同一份逻辑，不存在"锁和清单两套"的漂移），随仓库提交、由测试守着。
+// Why a lock is needed (fact card §14 "container leftovers"): with a plain `npm install` the **transitive dependencies**
+// of DSH and the gateway are resolved on the day of the build, so a registry change changes the image content -- the same
+// tag installs a different tree, and a failure cannot be reproduced. The lock file is generated by this script's
+// --lock-only mode (the same logic as the package.json written at build time, so there is no "lock and manifest drifting
+// apart"), is committed with the repo, and is guarded by tests.
 const lockFile = join(LOCK_DIR, `${DSH_VERSION}.package-lock.json`)
 const hasLock = existsSync(lockFile)
 if (hasLock) copyFileSync(lockFile, `${out}/package-lock.json`)
@@ -103,8 +105,8 @@ const installArgs = [...npmArgs, '--no-audit', '--no-fund', `--registry=${NPM_RE
 if (LEGACY_PEER_DEPS_VERSIONS.includes(DSH_VERSION)) installArgs.push('--legacy-peer-deps')
 
 if (process.argv.includes('--lock-only')) {
-  // 只生成锁（不下载 tarball）：仓库侧刷新锁文件用（`npm run lock:profile`）。
-  // 未显式给 PROFILE_DIR 时在 profile-lock/ 下用临时目录生成，再落到 <DSH_VERSION> 名下。
+  // Generate only the lock (without downloading tarballs): used for refreshing the lock file repo-side (`npm run lock:profile`).
+  // Without an explicit PROFILE_DIR it generates in a temp dir under profile-lock/, then files it under <DSH_VERSION>.
   const tmp = process.env.PROFILE_DIR === undefined
   const workDir = tmp ? join(LOCK_DIR, `.tmp-${DSH_VERSION}`) : out
   mkdirSync(workDir, { recursive: true })
@@ -115,7 +117,7 @@ if (process.argv.includes('--lock-only')) {
     copyFileSync(join(workDir, 'package-lock.json'), join(LOCK_DIR, `${DSH_VERSION}.package-lock.json`))
     rmSync(workDir, { recursive: true, force: true })
     console.log(`[gen-node-profile] lock refreshed: ${join(LOCK_DIR, `${DSH_VERSION}.package-lock.json`)}`)
-    console.log('[gen-node-profile] 提交它，并跑 npm test（profile-lock.test.ts 会核对锁与矩阵一致）')
+    console.log('[gen-node-profile] commit it and run npm test (profile-lock.test.ts checks the lock against the matrix)')
   } else {
     console.log(`[gen-node-profile] lock written to ${workDir}/package-lock.json (DSH ${DSH_VERSION})`)
   }

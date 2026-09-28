@@ -1,5 +1,5 @@
-// 一次性诊断脚本：解压 .jsonl.zstd 会话日志（多帧）并打印事件序列。
-// 用法: node dump-session.mjs <session.jsonl.zstd 路径>
+// One-off diagnostic script: decompress .jsonl.zstd chat logs (multiple frames) and print the event sequence.
+// Usage: node dump-session.mjs <session.jsonl.zstd path>
 import { readFileSync } from 'node:fs'
 import { zstdDecompressSync } from 'node:zlib'
 
@@ -10,8 +10,8 @@ if (file === undefined) {
 }
 const buf = readFileSync(file)
 
-// zstd 帧扫描：与 dsh-session-persistence-jsonl/src/zstd.ts scanZstdFrames 同款
-// （魔数 + 帧头 + 3 字节 block 头逐个跳帧）。
+// zstd frame scan: the same approach as dsh-session-persistence-jsonl/src/zstd.ts scanZstdFrames
+// (magic number + frame header + 3-byte block header, skipping frame by frame).
 function scanFrames(b) {
   const frames = []
   let offset = 0
