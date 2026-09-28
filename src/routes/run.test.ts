@@ -118,7 +118,10 @@ test('unauthenticated GET /api/runs is rejected by the requireUser hook', async 
     db,
     new Map(),
     async () => {
-      throw { statusCode: 401 }
+      // A real Error carrying the status, not a bare object literal: Fastify only reads `statusCode`
+      // off whatever is thrown, and throwing a non-Error trips `only-throw-error` -- which is the
+      // whole point of the rule (a bare object has no stack when it does reach a log).
+      throw Object.assign(new Error('unauthorized'), { statusCode: 401 })
     },
     new Map(),
   )
