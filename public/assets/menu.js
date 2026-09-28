@@ -1,34 +1,36 @@
 // @ts-check
-// 通用浮层菜单原语（DAC v1.0.0 UI 精简）：溢出菜单（⋮）与其子菜单的纯函数层。
+// Generic flyout menu primitives (DAC v1.0.0 UI slimming): the pure function layer behind the overflow
+// menu (the three-dot button) and its submenus.
 //
-// 为什么要有这一层：节点行、抽屉底部的语言/关于都长成「一行触发器 → 点开一列菜单
-// → 其中某项再展开第二层」的形状。以前每处各写一遍浮层与定位，视觉与行为就会
-// 各自漂移；这里把「行怎么画」「菜单怎么排」「浮层往哪摆」收敛成三个纯函数，
-// DOM 装配与事件绑定留在各自页面（可单测：menu.test.mjs）。
+// Why the layer exists: node rows and the language/about entries at the bottom of a drawer all share the
+// shape "one trigger row -> open a column of items -> one item expands a second level". Each site used to
+// write its own flyout and positioning, so looks and behaviour drifted apart; here "how a row is drawn",
+// "how a menu is ordered" and "where a flyout is placed" are three pure functions, while DOM assembly and
+// event binding stay in the pages (unit-testable: menu.test.mjs).
 //
-// 定位约束（实测过的坑，别用 CSS 的 absolute 图省事）：
-//   节点行、抽屉都在会裁剪/滚动/变换的容器里（.card 圆角裁剪、抽屉 transform），
-//   absolute 子菜单会被裁掉。所以浮层一律 position: fixed + 挂 body，
-//   坐标由 JS 按触发器 rect 现算，并在视口边缘钳制。
+// Positioning constraints (measured the hard way; do not reach for CSS absolute):
+//   node rows and drawers live inside containers that clip, scroll or transform (.card rounds its corners,
+//   drawers apply a transform), so an absolute submenu gets clipped. Flyouts are therefore always
+//   position: fixed and appended to body, with coordinates derived in JS from the trigger rect and clamped.
 import { esc, t } from './ui.js'
 
-/** 触发器按钮：⋮ 溢出菜单的标准形态（图标按钮，带展开态标记）。 */
+/** Trigger button: the standard shape of a three-dot overflow menu (icon button, marked when expanded). */
 export const triggerButtonHtml = ({ id, label, controls }) =>
   `<button type="button" class="icon-btn menu-trigger" id="${esc(id)}" aria-haspopup="true" aria-expanded="false" aria-controls="${esc(controls)}" title="${esc(label)}" aria-label="${esc(label)}"><svg width="16" height="16" aria-hidden="true"><use href="#i-more-v" /></svg></button>`
 
 /**
- * 一行菜单项。
+ * One menu item row.
  *
- * 图标是**可选**的，而且只在调用方明确给出时才渲染：节点行的操作项没有对应的
- * 语义图标（图标集里没有 stop/restart/tag 这些），硬凑会拿错图标表达错意思
- * ——那批菜单项保持纯文字；而侧栏导航项本来就有约定俗成的图标（spark/archive/
- * coin/shield/pencil），丢了反而认不出来。
+ * The icon is **optional** and only rendered when the caller explicitly provides one: node actions have no
+ * corresponding semantic icon (the icon set has no stop/restart/tag), and forcing one would express the
+ * wrong meaning -- those items stay text-only; sidebar navigation items do have conventional icons
+ * (spark/archive/coin/shield/pencil) and would become unrecognisable without them.
  *
- * **带 href 的项渲染成 `<a>`，其余渲染成 `<button>`**（2026-09-25 实测事故）：
- * 早先这里恒返回 `<button>`，调用方却把 `href` 当属性塞进来——`<button href>` 是
- * 无效属性，点上去什么都不发生。表现就是「语言选择点了没反应」，而且底部
- * Skills/Cost/… 一整列导航同样是死的。导航项本来就该是链接（可中键、可复制地址、
- * 可被读屏当链接念），操作项才该是按钮。
+ * **Items with an href render as `<a>`, everything else as `<button>`** (measured incident 2026-09-25):
+ * this used to always return `<button>` while callers passed `href` as an attribute -- `<button href>` is
+ * not a valid attribute, so clicking did nothing. The symptom was "the language picker does not react",
+ * and the whole Skills/Cost/... navigation column at the bottom was dead the same way. Navigation items
+ * should be links (middle-click, copyable address, announced as links by screen readers); actions buttons.
  * @param {{ kind?: 'item' | 'submenu' | 'danger' | 'sep' | 'note' | 'group', label?: string, icon?: string | null, attrs?: string, trailing?: string | null }} spec
  * @returns {string}
  */
@@ -36,16 +38,16 @@ export const menuItemHtml = (spec) => {
   const kind = spec.kind ?? 'item'
   const attrs = typeof spec.attrs === 'string' ? ` ${spec.attrs}` : ''
   if (kind === 'sep') return '<div class="menu-sep" role="separator"></div>'
-  // note/group 也必须透传 attrs（2026-09-26 事故：版本回填的 data-about-version
-  // 标记被静默丢掉 → querySelector 永远命中不了 → 版本号永远不显示）。
+  // note/group must pass attrs through as well (incident 2026-09-26: the data-about-version marker used
+  // to backfill the version was silently dropped -> querySelector never matched -> the version never showed).
   if (kind === 'group') return `<div class="menu-group"${attrs}>${esc(spec.label ?? '')}</div>`
   if (kind === 'note') return `<div class="menu-note"${attrs}>${esc(spec.label ?? '')}</div>`
   const cls = kind === 'danger' ? ' class="menu-item danger"' : ' class="menu-item"'
   /**
-   * 图标两种形态：
-   *   icon: 'spark'      → 精灵图标 <use href="#i-spark">（与侧栏同一套字形）
-   *   icon: { raw: svg } → 内联 SVG（用于精灵里没有的字形，如信封——加进精灵
-   *                        需要改 layout.html 并重启，内联则完全不受此限）
+   * Two icon forms:
+   *   icon: 'spark'      -> sprite icon <use href="#i-spark"> (the same glyphs as the sidebar)
+   *   icon: { raw: svg } -> inline SVG (for glyphs the sprite lacks, such as the envelope: adding one
+   *                        to the sprite means editing layout.html and restarting; inline does not)
    */
   const icon =
     spec.icon === null || spec.icon === undefined || spec.icon === ''
@@ -55,7 +57,7 @@ export const menuItemHtml = (spec) => {
         : `${String(spec.icon.raw ?? '')}`
   const trailing = typeof spec.trailing === 'string' && spec.trailing !== '' ? `<span class="menu-trailing">${esc(spec.trailing)}</span>` : ''
   const isLink = /\bhref\s*=/.test(attrs)
-  // 子菜单/浮窗触发器：用 aria-haspopup 标出来（与普通项区分）。
+  // Submenu/flyout triggers are marked with aria-haspopup (to tell them apart from plain items).
   const popup = kind === 'submenu' ? ' aria-haspopup="true" aria-expanded="false"' : ''
   const tag = isLink ? 'a' : 'button'
   const typeAttr = isLink ? '' : ' type="button"'
@@ -64,7 +66,7 @@ export const menuItemHtml = (spec) => {
 }
 
 /**
- * 一个浮层菜单面板。
+ * One flyout menu panel.
  * @param {{ id: string, label: string, items: string[], modifier?: string, hidden?: boolean, side?: boolean }} spec
  * @returns {string}
  */
@@ -76,13 +78,13 @@ export const menuPanelHtml = (spec) => {
 }
 
 /**
- * 浮层水平/垂直坐标：先按「右对齐触发器右边缘」试算，再在视口内钳制。
- * 返回的是 CSS 值，调用方直接写 style。
+ * Flyout horizontal/vertical coordinates: first try right-aligning to the trigger's right edge, then clamp
+ * inside the viewport. The return value is CSS, written straight into style by the caller.
  * @param {{ rect: { top: number, right: number, bottom: number, left: number }, width: number, height: number, viewport: { w: number, h: number }, gap?: number }} p
  * @returns {{ left: number, top: number, side: 'left' | 'right' }}
  */
 export const placePanel = ({ rect, width, height, viewport, gap = 8 }) => {
-  // 优先右对齐（⋮ 在所有者的右端），越界则改左对齐，仍越界就贴边。
+  // Prefer right alignment (the three-dot button sits at the right end of its owner); overflow flips it to left alignment, and still overflowing means pinning it to the edge.
   let left = rect.right - width
   let side = 'left'
   if (left < gap) {
@@ -90,7 +92,7 @@ export const placePanel = ({ rect, width, height, viewport, gap = 8 }) => {
     side = 'right'
   }
   if (left + width > viewport.w - gap) left = Math.max(gap, viewport.w - width - gap)
-  // 垂直：默认从触发器下方展开；下方放不下且上方更宽裕时翻到上方。
+  // Vertically: open below the trigger by default; when there is no room below and more room above, flip up.
   let top = rect.bottom + 6
   if (top + height > viewport.h - gap && rect.top - height - 6 >= gap) top = rect.top - height - 6
   if (top + height > viewport.h - gap) top = Math.max(gap, viewport.h - height - gap)
@@ -98,7 +100,7 @@ export const placePanel = ({ rect, width, height, viewport, gap = 8 }) => {
 }
 
 /**
- * 子菜单挂靠点：主菜单项右边缘 → 子菜单左边缘；放不下就翻到左侧。
+ * Submenu anchor: the right edge of the parent item -> the left edge of the submenu; flip left when it does not fit.
  * @param {{ rect: { top: number, right: number, left: number, bottom: number }, width: number, height: number, viewport: { w: number, h: number }, gap?: number }} p
  * @returns {{ left: number, top: number }}
  */
@@ -111,11 +113,12 @@ export const placeSubmenu = ({ rect, width, height, viewport, gap = 6 }) => {
 }
 
 /**
- * 节点行的 ⋮ 菜单项（纯数据 → HTML）。
+ * The three-dot menu items of a node row (pure data -> HTML).
  *
- * 为什么要整个搬进菜单：这一行原来常显最多 5 个按钮 + 版本下拉 + 一张 330px 的
- * 原生 GUI 卡（含整条 SSH 命令），真正该一眼看到的「哪个节点活着」反被挤到角落。
- * 低频操作进菜单后，主行只留状态、ID、归属、当前版本。
+ * Why all of this moved into a menu: the row used to show up to five buttons plus a version dropdown plus
+ * a 330px native GUI card (containing an entire SSH command), squeezing the one thing that should be visible
+ * at a glance -- which node is alive -- into a corner. With the low-frequency actions in a menu, the main
+ * row keeps only status, ID, ownership and the current version.
  *
  * @param {{ id: string, state: string, managed: boolean, dshDrift?: boolean, pinnedVersion?: string | null, hasVersions?: boolean }} n
  * @returns {string[]}
@@ -125,7 +128,7 @@ export const nodeMenuItems = (n) => {
   const disabled = n.state === 'starting' ? ' disabled' : ''
   const items = []
   if (!n.managed) {
-    // 外管节点 manager 不掌控生命周期，只给日志与原生访问。
+    // For an externally managed node the manager does not own the lifecycle, so it only offers logs and native access.
     items.push(menuItemHtml({ kind: 'note', label: t('nodes.externalManual') }))
   } else if (n.state === 'cold' || n.state === 'offline') {
     items.push(menuItemHtml({ label: t('nodes.action.start'), attrs: `data-node-up="${id}"` }))
@@ -134,7 +137,7 @@ export const nodeMenuItems = (n) => {
     items.push(menuItemHtml({ label: t('nodes.action.restart'), attrs: `data-node-restart="${id}"${disabled}` }))
   }
   items.push(menuItemHtml({ kind: 'sep' }))
-  // 版本切换：原来是常显下拉框，改成子菜单（罕见操作，不配占常显位）。
+  // Version switching: used to be an always-visible dropdown, now a submenu (a rare action does not deserve permanent space).
   if (n.managed && n.hasVersions === true) {
     const pinned = typeof n.pinnedVersion === 'string' && n.pinnedVersion !== '' ? n.pinnedVersion : null
     items.push(
@@ -142,12 +145,12 @@ export const nodeMenuItems = (n) => {
         kind: 'submenu',
         label: t('nodes.action.version'),
         trailing: pinned ?? t('nodes.version.default'),
-        // 带上它控制的面板 id：打开子菜单时直接拿，不必从节点 id 反推。
+        // Carry the id of the panel it controls, so opening the submenu can use it directly instead of deriving it from the node id.
         attrs: `data-node-version-menu="${id}" aria-controls="${esc(n.versionMenuId ?? '')}"`,
       }),
     )
   }
-  // 对齐只在真漂移时出现（原来是个条件按钮，位置却在常显区）。
+  // Alignment only appears when it really drifted (it used to be a conditional button living in the always-visible area).
   if (n.dshDrift === true) items.push(menuItemHtml({ label: t('nodes.action.align'), attrs: `data-node-align="${id}"` }))
   items.push(menuItemHtml({ label: t('nodes.action.logs'), attrs: `data-node-logs="${id}"` }))
   if (n.managed) {
@@ -158,11 +161,11 @@ export const nodeMenuItems = (n) => {
 }
 
 /**
- * 版本子菜单的选项：数据源与旧下拉完全同源（GET /api/nodes 的 supportedDsh 矩阵，
- * 前端不硬编码版本清单），只是渲染成可点菜单项——原生 <select> 在浮层里样式与
- * 键盘行为都会走样，所以子菜单用一组菜单项而不是塞一个 select 进去。
+ * Options for the version submenu: the data source is exactly the old dropdown's (the supportedDsh matrix
+ * from GET /api/nodes; the frontend never hardcodes a version list), only rendered as clickable items -- a
+ * native <select> inside a flyout gets the styling and keyboard behaviour wrong, hence menu items instead.
  * @param {Array<{ dsh: string, status: string }>} list
- * @param {string | null | undefined} current 当前钉版（null/空 = 跟随默认）
+ * @param {string | null | undefined} current currently pinned version (null/empty = follow the default)
  * @returns {string[]}
  */
 export const versionMenuItems = (list, current) => {
