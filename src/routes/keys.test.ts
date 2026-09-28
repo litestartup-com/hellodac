@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import Fastify, { type preHandlerHookHandler } from 'fastify'
+import { eq } from 'drizzle-orm'
 import type { AppConfig } from '../config.js'
 import { openDb, schema, type Db } from '../db/index.js'
 import { registerApiKeyRoutes } from './keys.js'
@@ -95,3 +96,76 @@ test('the key-management surface: a missing name or an illegal scope = 400; revo
   const kinds = db.select().from(schema.auditLog).all().map((r) => r.kind)
   assert.ok(kinds.includes('api_key_revoked'))
 })
+
+const insertRun = (db: Db, over: Partial<Record<string, unknown>> & { id: string; apiKeyId: string }): void => {
+  // run.agent_id is a real FK: the fixture needs the agent row before any run row.
+  const hasAgent = db.select({ id: schema.agent.id }).from(schema.agent).where(eq(schema.agent.id, 'worker-1')).all().length > 0
+  if (!hasAgent) {
+    db.insert(schema.agent)
+      .values({ id: 'worker-1', name: 'Worker', workspacePath: '.', endpoint: 'A', preset: null, gitRemote: null, public: 0, createdAt: 0 })
+      .run()
+  }
+  db.insert(schema.run)
+    .values({
+      id: over.id,
+      agentId: 'worker-1',
+      apiKeyId: over.apiKeyId,
+      chatId: null,
+      sourceChatId: null,
+      conflict: null,
+      cronId: null,
+      dshSessionId: null,
+      trigger: 'api',
+      idempotencyKey: null,
+      state: typeof over.state === 'string' ? over.state : 'done',
+      resultSummary: null,
+      startedAt: typeof over.startedAt === 'number' ? over.startedAt : Date.now() - 3_600_000,
+      endedAt: typeof over.endedAt === 'number' ? over.endedAt : Date.now() - 3_599_000,
+      error: null,
+      commitHash: null,
+    })
+    .run()
+}
+
+test('the key detail: one key sees its own usage, calls and turns -- never another key\'s', async () => {
+  const { db } = openDb(':memory:')
+  const app = build(db)
+
+  const mine = (await create(app, { name: 'Mine', services: ['support'] })).json() as { key: { id: string } }
+  const other = (await create(app, { name: 'Other', services: ['support'] })).json() as { key: { id: string } }
+
+  // My key: two finished runs today (one with cost), one call logged.
+  insertRun(db, { id: 'mine-1', apiKeyId: mine.key.id })
+  insertRun(db, { id: 'mine-2', apiKeyId: mine.key.id, state: 'running', endedAt: null })
+  db.insert(schema.usageRecord)
+    .values({ runId: 'mine-1', provider: 'deepseek-official', model: 'deepseek-v4-flash', inputTokens: 10, outputTokens: 5, cost: 123, peakCost: 0, at: Date.now() })
+    .run()
+  db.insert(schema.auditLog).values({ at: Date.now(), actor: `api_key:${mine.key.id}`, kind: 'api_call', detail: 'GET /v1/usage → 200' }).run()
+  // The other key's activity must not leak in.
+  insertRun(db, { id: 'other-1', apiKeyId: other.key.id })
+  db.insert(schema.auditLog).values({ at: Date.now(), actor: `api_key:${other.key.id}`, kind: 'api_call', detail: 'GET /v1/services → 200' }).run()
+
+  const res = await app.inject({ method: 'GET', url: `/api/keys/${mine.key.id}` })
+  assert.equal(res.statusCode, 200)
+  const body = res.json() as {
+    key: { id: string; name: string; usedToday: number; active: number; serviceLabels: string[] }
+    recentCalls: Array<{ at: number; detail: string }>
+    recentRuns: Array<{ id: string; state: string; costMicroUsd: number | null }>
+  }
+
+  assert.equal(body.key.name, 'Mine')
+  assert.equal(body.key.usedToday, 2, 'today\'s usage is counted from the run ledger')
+  assert.equal(body.key.active, 1, 'the in-flight count is what the concurrency cap acts on')
+  assert.deepEqual(body.key.serviceLabels, ['Support'], 'the detail says which service this key may enter')
+  assert.deepEqual(body.recentCalls.map((c) => c.detail), ['GET /v1/usage → 200'], 'only this key\'s outward calls are listed')
+  assert.deepEqual(body.recentRuns.map((r) => r.id).sort(), ['mine-1', 'mine-2'], 'only this key\'s turns are listed')
+  assert.equal(body.recentRuns.find((r) => r.id === 'mine-1')?.costMicroUsd, 123, 'the turn carries its cost from the ledger')
+})
+
+test('the key detail: an unknown key id answers 404 without leaking anything', async () => {
+  const { db } = openDb(':memory:')
+  const res = await build(db).inject({ method: 'GET', url: '/api/keys/ffffffffffff' })
+  assert.equal(res.statusCode, 404)
+  assert.equal(res.json().error, 'unknown_key')
+})
+

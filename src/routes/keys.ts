@@ -5,11 +5,12 @@
  * The plaintext appears exactly once, in this POST's response; the list response has no secret field at all by construction.
  */
 import type { FastifyInstance, preHandlerHookHandler } from 'fastify'
+import { desc, eq, inArray } from 'drizzle-orm'
 import { z } from 'zod'
 import { KEY_SCOPES, listApiKeys, mintApiKey, revokeApiKey } from '../auth/api-key.js'
 import { recordAudit } from '../audit.js'
 import type { AppConfig } from '../config.js'
-import type { Db } from '../db/index.js'
+import { schema, type Db } from '../db/index.js'
 import { getPublicApiState } from '../public-api/listener.js'
 import { probeApiKey } from '../public-api/key-probe.js'
 import { activeRunsForKey, runsUsedToday, startOfLocalDay } from '../public-api/quota.js'
@@ -120,6 +121,56 @@ export const registerApiKeyRoutes = (
     } catch (error) {
       return reply.code(400).send({ error: 'invalid_key', detail: error instanceof Error ? error.message : String(error) })
     }
+  })
+
+  /**
+   * One key's whole story, in one answer (the detail panel behind a list row):
+   * what it may do, what it used today, the outward calls it made, and the turns it ran with their
+   * costs. The calls come from the audit trail (`actor = api_key:<id>`), the turns from the run
+   * ledger -- the same two sources the spend page and the quota counter read, so a detail view can
+   * never disagree with them.
+   */
+  app.get<{ Params: { id: string } }>('/api/keys/:id', { preHandler: requireUser }, async (request, reply) => {
+    const services = (config.services ?? []).map((service) => ({ id: service.id, label: service.label }))
+    const key = listApiKeys(db).find((candidate) => candidate.id === request.params.id)
+    if (key === undefined) return reply.code(404).send({ error: 'unknown_key' })
+
+    const calls = db
+      .select({ at: schema.auditLog.at, detail: schema.auditLog.detail })
+      .from(schema.auditLog)
+      .where(eq(schema.auditLog.actor, `api_key:${key.id}`))
+      .orderBy(desc(schema.auditLog.at))
+      .limit(20)
+      .all()
+
+    const runs = db
+      .select()
+      .from(schema.run)
+      .where(eq(schema.run.apiKeyId, key.id))
+      .orderBy(desc(schema.run.startedAt))
+      .limit(20)
+      .all()
+    const usage = db
+      .select()
+      .from(schema.usageRecord)
+      .where(inArray(schema.usageRecord.runId, runs.map((run) => run.id)))
+      .all()
+    const costOf = new Map(usage.map((row) => [row.runId, row.cost]))
+
+    return reply.header('cache-control', 'no-store').send({
+      key: keyFace(db, key, services),
+      recentCalls: calls,
+      recentRuns: runs.map((run) => ({
+        id: run.id,
+        state: run.state,
+        trigger: run.trigger,
+        startedAt: run.startedAt,
+        endedAt: run.endedAt,
+        summary: run.resultSummary,
+        costMicroUsd: costOf.get(run.id) ?? null,
+        error: run.error,
+      })),
+    })
   })
 
   /**
