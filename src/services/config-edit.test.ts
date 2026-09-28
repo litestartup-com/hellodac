@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { stringify } from 'yaml'
 import { loadConfig } from '../config.js'
-import { applyService, previewService, serviceEditorContext, type ServiceDraft } from './config-edit.js'
+import { applyService, deleteService, previewService, serviceEditorContext, type ServiceDraft } from './config-edit.js'
 
 /**
  * The service declaration editor (the operator flow this exists for): preview must be able to say
@@ -184,6 +184,30 @@ test('service editor: a declaration the editor does not expose (thresholds) surv
   const onDisk = readFileSync(configPath, 'utf8')
   assert.ok(onDisk.includes('min_free_mem_bytes: 300000000'), 'the threshold override survives the edit')
   assert.equal(loadConfig(configPath).services?.[0]?.thresholds?.minFreeMemBytes, 300_000_000, 'and the loader still reads it')
+})
+
+test('service editor: deleting a service removes its declaration and hot-swaps it out of memory', async () => {
+  const configPath = fileFor()
+  const config = loadConfig(configPath)
+  await applyService({ config, configPath, draft: draft() })
+  assert.equal(config.services?.length, 1)
+
+  const removed = await deleteService({ config, configPath, id: 'chat' })
+
+  assert.equal(removed, 'chat', 'the removed id comes back')
+  assert.equal(config.services?.length, 0, 'the running process loses the service without a restart')
+  assert.ok(!readFileSync(configPath, 'utf8').includes('id: chat'), 'the declaration is gone from the truth source')
+  assert.equal(loadConfig(configPath).services?.length ?? 0, 0, 'and the file itself still boots')
+})
+
+test('service editor: deleting a service that does not exist is a no-op, not an error to route around', async () => {
+  const configPath = fileFor()
+  const config = loadConfig(configPath)
+
+  const removed = await deleteService({ config, configPath, id: 'ghost' })
+
+  assert.equal(removed, null)
+  assert.equal(readFileSync(configPath, 'utf8').includes('services:'), false, 'nothing was written')
 })
 
 test('service editor: the context lists candidates with a reason attached, never a bare disabled row', () => {

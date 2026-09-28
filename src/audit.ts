@@ -34,6 +34,9 @@ export type AuditKind =
   // writing a service declaration into the truth source. Both are operator actions worth a trail.
   | 'api_key_probed'
   | 'service_applied'
+  // 2026-09-29: the three-view refactor adds edit and delete.
+  | 'api_key_edited'
+  | 'service_deleted'
 
 export const recordAudit = (db: Db, entry: { actor: string; kind: AuditKind; detail: string }): void => {
   db.insert(schema.auditLog).values({ at: Date.now(), actor: entry.actor, kind: entry.kind, detail: entry.detail }).run()

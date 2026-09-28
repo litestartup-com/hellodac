@@ -171,3 +171,47 @@ test('the key detail: an unknown key id answers 404 without leaking anything', a
   assert.equal(res.json().error, 'unknown_key')
 })
 
+test('the key edit: PATCH changes what was sent and nothing else -- the secret is never touched', async () => {
+  const { db } = openDb(':memory:')
+  const app = build(db)
+  const created = await create(app, { name: 'Billing service', services: ['support'], scopes: ['services:read'], quotaRunsDay: 50 })
+  const { key } = created.json() as { token: string; key: { id: string; name: string; rateLimitRpm: number } }
+  const id = key.id
+  const hashBefore = db.select({ keyHash: schema.apiKey.keyHash }).from(schema.apiKey).where(eq(schema.apiKey.id, id)).all()[0]?.keyHash
+
+  const res = await app.inject({
+    method: 'PATCH',
+    url: `/api/keys/${id}`,
+    payload: { name: 'Renamed', rateLimitRpm: 120, quotaRunsDay: 500 },
+  })
+  assert.equal(res.statusCode, 200, res.body)
+  const edited = res.json() as { key: { id: string; name: string; rateLimitRpm: number; quotaRunsDay: number; scopes: string[] } }
+  assert.equal(edited.key.name, 'Renamed')
+  assert.equal(edited.key.rateLimitRpm, 120, 'the per-minute cap follows the edit')
+  assert.equal(edited.key.quotaRunsDay, 500)
+  assert.deepEqual(edited.key.scopes, ['services:read'], 'fields not sent stay as they were')
+
+  // The secret survives an edit: the stored hash is byte-identical, so the customer is not locked out.
+  const hashAfter = db.select({ keyHash: schema.apiKey.keyHash }).from(schema.apiKey).where(eq(schema.apiKey.id, id)).all()[0]?.keyHash
+  assert.equal(hashAfter, hashBefore, 'editing must not rotate the secret')
+
+  const kinds = db.select().from(schema.auditLog).all().map((r) => r.kind)
+  assert.ok(kinds.includes('api_key_edited'), 'the edit leaves an audit trail')
+})
+
+test('the key edit: an unknown id is 404, and an illegal edit (service does not exist / bad scope) is refused', async () => {
+  const { db } = openDb(':memory:')
+  const app = build(db)
+
+  assert.equal((await app.inject({ method: 'PATCH', url: '/api/keys/ffffffffffff', payload: { name: 'x' } })).statusCode, 404)
+
+  const created = await create(app, { name: 'y', services: ['support'] })
+  const id = (created.json() as { key: { id: string } }).key.id
+  const badService = await app.inject({ method: 'PATCH', url: `/api/keys/${id}`, payload: { services: ['suport'] } })
+  assert.equal(badService.statusCode, 400)
+  assert.equal(badService.json().error, 'unknown_service')
+
+  const badScope = await app.inject({ method: 'PATCH', url: `/api/keys/${id}`, payload: { scopes: ['root:all'] } })
+  assert.equal(badScope.statusCode, 400)
+})
+

@@ -7,7 +7,7 @@
 import type { FastifyInstance, preHandlerHookHandler } from 'fastify'
 import { desc, eq, inArray } from 'drizzle-orm'
 import { z } from 'zod'
-import { KEY_SCOPES, listApiKeys, mintApiKey, revokeApiKey } from '../auth/api-key.js'
+import { KEY_SCOPES, listApiKeys, mintApiKey, revokeApiKey, updateApiKey } from '../auth/api-key.js'
 import { recordAudit } from '../audit.js'
 import type { AppConfig } from '../config.js'
 import { schema, type Db } from '../db/index.js'
@@ -171,6 +171,57 @@ export const registerApiKeyRoutes = (
         error: run.error,
       })),
     })
+  })
+
+  /**
+   * Edit a key in place. The secret is never touched (the customer keeps working), and every field
+   * goes through the same validation as minting -- a partial body edits only what it names.
+   */
+  app.patch<{ Params: { id: string } }>('/api/keys/:id', { preHandler: requireUser, config: mutateLimit }, async (request, reply) => {
+    const parsed = z
+      .object({
+        name: z.string().min(1).max(80).optional(),
+        services: z.union([z.literal('*'), z.array(z.string().min(1)).min(1)]).optional(),
+        scopes: z.array(z.enum(KEY_SCOPES)).min(1).optional(),
+        quotaRunsDay: z.number().int().positive().nullable().optional(),
+        rateLimitRpm: z.number().int().min(1).max(6_000).optional(),
+        maxConcurrency: z.number().int().min(1).max(64).optional(),
+        expiresAt: z.number().int().positive().nullable().optional(),
+      })
+      .safeParse(request.body)
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'invalid_body', detail: parsed.error.issues.map((i) => i.message).join('; ') })
+    }
+    const body = parsed.data
+
+    // The same rule as creation: a mistyped service name would make a key that reaches nothing while
+    // looking perfectly normal.
+    if (body.services !== undefined && body.services !== '*') {
+      const known = new Set((config.services ?? []).map((service) => service.id))
+      const unknown = body.services.filter((id) => id !== '*' && !known.has(id))
+      if (unknown.length > 0) {
+        return reply.code(400).send({ error: 'unknown_service', detail: `no such service: ${unknown.join(', ')}` })
+      }
+    }
+
+    const actor = request.currentUser?.username ?? 'unknown'
+    try {
+      const key = updateApiKey(db, request.params.id, {
+        ...(body.name === undefined ? {} : { name: body.name }),
+        ...(body.services === undefined ? {} : { scopeServices: body.services === '*' ? ['*'] : body.services }),
+        ...(body.scopes === undefined ? {} : { scopes: body.scopes }),
+        ...(body.quotaRunsDay === undefined ? {} : { quotaRunsDay: body.quotaRunsDay }),
+        ...(body.rateLimitRpm === undefined ? {} : { rateLimitRpm: body.rateLimitRpm }),
+        ...(body.maxConcurrency === undefined ? {} : { maxConcurrency: body.maxConcurrency }),
+        ...(body.expiresAt === undefined ? {} : { expiresAt: body.expiresAt }),
+      })
+      if (key === null) return reply.code(404).send({ error: 'unknown_key' })
+      recordAudit(db, { actor, kind: 'api_key_edited', detail: `key ${key.id} "${key.name}" edited` })
+      const servicesForFace = (config.services ?? []).map((service) => ({ id: service.id, label: service.label }))
+      return reply.send({ key: keyFace(db, key, servicesForFace) })
+    } catch (error) {
+      return reply.code(400).send({ error: 'invalid_key', detail: error instanceof Error ? error.message : String(error) })
+    }
   })
 
   /**

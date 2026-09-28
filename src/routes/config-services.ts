@@ -16,7 +16,7 @@ import { recordAudit } from '../audit.js'
 import type { AppConfig } from '../config.js'
 import type { Db } from '../db/index.js'
 import { reconcileAll } from '../reconcile/index.js'
-import { applyService, previewService, serviceEditorContext, type ServiceDraft } from '../services/config-edit.js'
+import { applyService, deleteService, previewService, serviceEditorContext, type ServiceDraft } from '../services/config-edit.js'
 import type { ReconcileContext } from '../reconcile/index.js'
 
 const draftSchema = z.object({
@@ -108,6 +108,20 @@ export const registerServiceEditorRoutes = (app: FastifyInstance, deps: ServiceE
       return reply.send({ ok: true, resolved: result.resolved, warnings: result.warnings, changed: result.changed, restartRequired: false })
     } catch (error) {
       // mutateYamlFile restores the previous version before throwing, so this is 'nothing was written'.
+      return reply.code(400).send({ error: 'write_rejected', detail: error instanceof Error ? error.message : String(error) })
+    }
+  })
+
+  /** Remove a service declaration. Live immediately, same atomic write + rollback pipeline as apply. */
+  app.delete<{ Params: { id: string } }>('/api/config/services/:id', { preHandler: deps.requireUser, config: applyLimit }, async (request, reply) => {
+    const actor = request.currentUser?.username ?? 'unknown'
+    try {
+      const removed = await deleteService({ config: deps.config, configPath, id: request.params.id })
+      if (removed === null) return reply.code(404).send({ error: 'unknown_service' })
+      await reconcileAll(deps.reconcile, { onlyNodes: new Set(), removeStaleAgents: false, sweepIdle: false })
+      recordAudit(deps.db, { actor, kind: 'service_deleted', detail: `service ${removed} removed from the declaration` })
+      return reply.send({ ok: true, removed, restartRequired: false })
+    } catch (error) {
       return reply.code(400).send({ error: 'write_rejected', detail: error instanceof Error ? error.message : String(error) })
     }
   })

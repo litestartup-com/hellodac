@@ -22,7 +22,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parseDocument, stringify, type Document } from 'yaml'
 import { loadConfig, type AppConfig, type ResolvedService } from '../config.js'
-import { mutateYamlFile, withConfigLock } from '../config-store.js'
+import { mutateYamlFile, withConfigLock, writeFileAtomic } from '../config-store.js'
 
 /** A service declaration as the editor writes it (snake_case = the file's own spelling). */
 export interface ServiceDraft {
@@ -312,6 +312,47 @@ export interface ApplyResult {
   resolved: ResolvedService | null
   /** False = the file did not change (the declaration was already identical). */
   changed: boolean
+}
+
+/**
+ * Remove a service declaration. Same pipeline as apply (atomic write, full validation with rollback,
+ * in-memory hot swap), only in reverse. Returns the removed id, or null when it was not there.
+ */
+export const deleteService = async (deps: { config: AppConfig; configPath: string; id: string }): Promise<string | null> => {
+  const { config, configPath, id } = deps
+  return await withConfigLock(() => {
+    const before = readFileSync(configPath, 'utf8')
+    const doc = parseDocument(before)
+    let removed = false
+    const seq = doc.get('services')
+    const items = seq !== null && typeof seq === 'object' && Array.isArray((seq as { items?: unknown }).items)
+      ? ((seq as { items: unknown[] }).items)
+      : []
+    for (let i = 0; i < items.length; i += 1) {
+      if (doc.getIn(['services', i, 'id']) === id) {
+        doc.deleteIn(['services', i])
+        removed = true
+        break
+      }
+    }
+    if (!removed) return null
+    const next = stringify(doc, { lineWidth: 0 })
+    writeFileAtomic(configPath, next)
+    try {
+      const loaded = loadConfig(configPath)
+      config.services = loaded.services ?? []
+    } catch (error) {
+      try {
+        writeFileAtomic(configPath, before)
+      } catch (restoreError) {
+        throw new Error(
+          `config write rejected and restore failed: ${(error as Error).message}; restore: ${(restoreError as Error).message}`,
+        )
+      }
+      throw new Error(`config write rejected (validation failed, previous version restored): ${(error as Error).message}`)
+    }
+    return id
+  })
 }
 
 /**

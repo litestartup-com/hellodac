@@ -206,6 +206,55 @@ export const revokeApiKey = (db: Db, id: string): boolean => {
   return true
 }
 
+/** The fields an edit may change (the secret and the id never do -- an edit must not lock the customer out). */
+export interface UpdateKeyInput {
+  name?: string
+  scopes?: readonly KeyScope[]
+  scopeServices?: readonly string[]
+  quotaRunsDay?: number | null
+  rateLimitRpm?: number
+  maxConcurrency?: number
+  expiresAt?: number | null
+}
+
+/**
+ * Edit a key in place. Every provided field passes the same validation as minting; fields that are
+ * absent stay as they were, and `keyHash`/`revokedAt`/`createdAt` are never writable through here.
+ */
+export const updateApiKey = (db: Db, id: string, input: UpdateKeyInput): ApiKey | null => {
+  if (!KEY_ID_RE.test(id)) return null
+  const existing = db.select().from(schema.apiKey).where(eq(schema.apiKey.id, id)).all()[0]
+  if (existing === undefined) return null
+
+  const name = input.name ?? existing.name
+  const scopes = input.scopes ?? parseScopes(existing.scopes)
+  const scopeServices = input.scopeServices ?? parseList(existing.scopeServices)
+  const quotaRunsDay = input.quotaRunsDay !== undefined ? input.quotaRunsDay : existing.quotaRunsDay
+  const rateLimitRpm = input.rateLimitRpm ?? existing.rateLimitRpm
+  const maxConcurrency = input.maxConcurrency ?? existing.maxConcurrency
+  const expiresAt = input.expiresAt !== undefined ? input.expiresAt : existing.expiresAt
+
+  // The mint assertion is the one validation web (a second, looser copy would drift): build a mint
+  // input from the merged result and let it judge.
+  assertMintInput({ name, scopes, scopeServices, quotaRunsDay, rateLimitRpm, maxConcurrency, expiresAt, createdBy: existing.createdBy }, Date.now())
+
+  db.update(schema.apiKey)
+    .set({
+      name: name.trim(),
+      scopes: JSON.stringify(scopes),
+      scopeServices: JSON.stringify(scopeServices),
+      quotaRunsDay,
+      rateLimitRpm,
+      maxConcurrency,
+      expiresAt,
+    })
+    .where(eq(schema.apiKey.id, id))
+    .run()
+
+  const row = db.select().from(schema.apiKey).where(eq(schema.apiKey.id, id)).all()[0]
+  return row === undefined ? null : toApiKey(row)
+}
+
 /** The list never returns plaintext (there is structurally no such field). */
 export const listApiKeys = (db: Db): ApiKey[] =>
   db.select().from(schema.apiKey).orderBy(desc(schema.apiKey.createdAt)).all().map(toApiKey)
