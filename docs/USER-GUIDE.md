@@ -98,7 +98,7 @@ you set during install, or the one printed once in the manager's boot log.
 - **Bell** — in-app notifications: an offline machine, an abnormal node, a budget breaker, a
   finished brain dispatch.
 - **⋮ menu at the bottom of the sidebar** — skills / archived / cost / audit / password, the
-  **language switcher** (English ⇄ 中文) and the link to this project on GitHub.
+  **language switcher** (English ⇄ Chinese) and the link to this project on GitHub.
 
 ## 3. Using the brain
 

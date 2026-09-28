@@ -55,341 +55,485 @@ Hardening and UI polish landed on the public line before the tag (2026-09-25/26)
   state dots instead of stacked cards; the password page's submit button is deep ink rather
   than accent blue (the login button stays blue).
 - **Docs & polish** — product screenshots in both READMEs; the tagline split from the
-  description; the sidebar tagline localized (统一调度的智能体集群 in Chinese); icon
+  description; the sidebar tagline localized (Chinese: "an agent cluster under unified dispatch"); icon
   spacing, a proper mail glyph and an inline copy bubble in the About flyout.
 - **Guards** — new tests pin the anchor-vs-button contract, icon-sprite names, DOM wiring
   against the built pages, the password-button colour contract, the view-switch contrast,
   and the `?lang=` hook ordering, so these regressions fail in CI rather than in a browser.
 
-## 未发布（1.1.2 候选 · 升级零手改配置，2026-09-22）
+## Unreleased (1.1.2 candidate · upgrades need no manual config edits, 2026-09-22)
 
-- **配置版本化迁移（P0）**：`manager.config.yaml` 增 `config_version` 字段 +
-  `src/config/migrations.ts` 迁移链（0 → CURRENT 逐级 +1）；loadConfig 在解析
-  前自动迁移旧配置——写回前原文件备份 `.pre-mig.bak`、迁移说明进 warnings
-  （boot 日志可见）、版本超前/链断裂 fail-loud；check-docs 常驻断言迁移链
-  覆盖完整（改结构忘配迁移 = CI 红）
-- **节点切版本 API + 页面下拉（P1/P2）**：`POST /api/nodes/:id/version` 双分支
-  ——进程 = 改钉版 + 对齐链（与 align-version 共享实现）；容器 = 改镜像 tag +
-  立即重建（补上容器节点 409 无替代入口的缺口）；审计 `node_version_change`；
-  节点行「DSH 版本」下拉（矩阵数据源，pending 标注），切版本全程零 sed
-- **能力四 · 舰队 M1（node-agent 多机形态）**：设计稿 `fleet-agent-architecture.md`
-  Q1–Q5 拍板后按 `plan-fleet-agent.md` 落地——`spawn.runner=agent + host` 配置
-  真相源；agent 注册链（一次性 join token 换发身份、token 哈希落库、吊销）；
-  指令队列与事件通道（DB 持久化、长轮询领取、结果/心跳/日志回报、90s 在线
-  判定）；supervisor agent 分支（远端生命周期走指令队列，spawn 结果订阅快速
-  失败链）；node-agent 进程本体（零原生依赖、DSH 钉版装自有 prefix、失联退避
-  自愈、401 清身份重注册；join.sh/join.ps1）；派生下发（profile/种子/fleet.md
-  随 spawn 载荷送达，幂等落盘）；机器页 UI（agent 目录 + join 命令 + 节点
-  主机列 + 向导主机下拉）。修复：profileDependencies 展开顺序 bug（0.1.5
-  节点拿 0.1.2 bundles）、微任务饥饿（瞬时 resolve 链饿死定时器）。
-- **能力四 · 舰队 M1 本地试点与三连修复（2026-09-23）**：M1 本地试点在
-  Windows 本机跑通全链（agent 注册 → 机器区现身 → API 建 agent 节点 →
-  facade live → 聊天回合 → 起停/重启/日志），过程中实证并修复三类问题：
-  1. **Windows 平台双坑**——agent 的 `execFileSync('npm')` 无 shell 直接
-  ENOENT（npm 是 .cmd 垫片）、`spawn(bin.js)` EFTYPE（CreateProcess 无
-  shebang），均改为平台感知调用（shell: true / win32 经 node 执行）；
-  2. **0.1.5 家族浮动区间 + legacy 跳 peer 双杀**（事实卡 dsh-facts §14）——
-  dsh@0.1.5-rc.2 依赖全是 `^` 浮动区间，registry 已发 0.1.5-rc.3，新装整树
-  漂移且 `--legacy-peer-deps` 跳过全部 peer → 启动即崩；修复 = profile 随送
-  package-lock 整树快照（profile-locks.ts）+ 26 个显式 peer 钉版
-  （LEGACY_PEER_PINS，profile.ts 与容器生成器逐字同步）+ `patchReload:
-  startup`（免 HMR 硬依赖）+ agent 优先 profile-local bin；
-  3. **agent 节点就绪窗 30s → 120s**（远端首启 = 依赖安装 + 全量 boot，实测
-  40~90s）；兼容性信号改走版本矩阵（0.1.5-rc.2 verified 行不再误报不兼容）。
-  试点另证实：worker agent 节点无模型凭据（设计如此，凭据下发属 M3），
-  同机复制 `.credentials.yaml` 后聊天回合即通。
-- **能力四 · 舰队 M3-3 告警提前（§13 补丁，2026-09-23）**：fleet 看门狗
-  （`src/fleet/watchdog.ts`）30s 一轮——agent 心跳超时（90s）与 agent 节点
-  监督器 offline 边沿触发进站内铃铛（`agent_offline` / `node_offline`，恢复
-  再报 `*_recovered`）；未读去重防 manager 重启刷屏；只报 agent runner 节点，
-  本机 process/docker 节点不越界。本地实测：停 agent 任务 → 铃铛
-  「机器掉线」；重启任务 → 「机器恢复」。
-- **能力四 · 舰队 M4-1 agent token 轮换（2026-09-23）**：
-  `POST /api/agents/:id/rotate`（机器页「轮换密钥」按钮）——仅在线机器可轮换
-  （离线 409 防打砖）；新 token 只经 `config.deliver` 指令投递给 agent
-  （不回传浏览器）；旧 token 进 30 分钟宽限位（ack 丢失不砖机），agent 报
-  成功才清宽限、报失败自动回滚；迁移 18（prev_token_hash/prev_set_at）+
-  审计 `agent_token_rotated`。本地 E2E：轮换 → agent 身份落盘换新 → ack
-  收敛 → 新 token 心跳续命。
-- **能力四 · 舰队 M3 ops 节点开锁（2026-09-23）**：danger-full-access 工作区
-  → spawn 载荷带 `ALLOW_FULL_ACCESS` → agent 写 facade settings
-  `allowFullAccess: true`（facade 侧风险告警日志兜底）。192.168.33.11 实测：
-  ops33 节点 host.describe 报 `allowFullAccess: true`，聊天能力面
-  fullAccess 解锁（composer accessMode=danger-full-access）。审批卡片链路为
-  facade 既有机制；真实卡片回合待该机放置模型凭据（凭据口径属 M3 验收）。
-- **能力四 · 舰队 M2 跨机试点（2026-09-23，192.168.33.11 实测）**：Linux
-  机器经 join.sh（systemd user unit）接入本机 manager——跨机节点 spike02
-  （0.1.5-rc.2）创建/探活 live/日志流/起停/断连恢复（agent 停起 → 铃铛
-  掉线恢复 + 节点存活 + 对账收敛）/facade 防火墙白名单（ufw 只放行 manager
-  出口 IP，非白名单源实测拒绝）。过程中修复 4 个真 bug：① 就绪探活延后到
-  spawn 结果后（冷安装不被 120s 窗误杀，此前会 stop+重试风暴）；② agent
-  安装完成标记（.installed-ok）跳过 warm 重装（慢盘重装分钟级）；③ join
-  脚本 Node 门禁 ≥22.18（DSH 0.1.5 启动器依赖 import.meta.main，22.17 上
-  节点拉起即死、日志空——静默退出 0 实证）；④ agent 节点远端工作区路径
-  原样透传（Windows resolve 把 /root/... 拧成 C:\root\...，facade 拒收
-  非绝对 cwd）。聊天回合链到模型层（凭据缺失为设计预期，凭据口径属 M3）。
-- **能力四 · 舰队 M4-4 指标采集（2026-09-23）**：agent 每 60s 随心跳上报
-  主机指标（CPU 忙占比 ×10 整数、内存/磁盘总量与用量、运行时长、平台）——
-  CPU 用两次采样间差值（`os.cpus()` 时间片），磁盘走 `fs.statfs`；manager 落库
-  （迁移 20 `agent_metric`，7 天保留自动清理）、`GET /api/agents/:id/metrics`
-  趋势端点（≤1440 点）、机器行展示最新快照（CPU/内存/磁盘占比）。红绿 2 例
-  + 本地 E2E（真实 agent 两轮采样：CPU 差值 1.4% 落库并进快照）。
-- **能力四 · 舰队 M4-3 agent 自更新原子性（2026-09-23）**：
-  `POST /api/agents/:id/update`（在线门禁）把 manager 静态面的
-  agent.mjs/runtime.mjs/update.mjs + 排序拼接 sha256 打成 `agent.update`
-  指令；agent 校验后 staging 到 `.next` → 以非零码退出（Windows 批处理
-  5s 重启循环兜底，systemd Restart=always 天然支持）→ 启动期原子换装
-  （当前 → `.prev` 保留一代）→ 新代码加载；**秒崩自动回滚**：90s 内重启 +
-  换装 10 分钟内 + 上一代存在 = 新代码崩溃循环 → 恢复 `.prev`；版本协商 =
-  注册/心跳上报 agentVersion（迁移 19），机器页「待更新」徽标对比
-  managerVersion。本地 E2E：自动更新 → v1.1.1 生效；注入坏 runtime → 秒崩
-  → 自动回滚 → 机器恢复在线。
-- **能力四 · 舰队 M4-2 日志限额与背压边界（2026-09-23）**：agent 侧
-  `node.log` 上限 50MB——spawn 前超限自动轮转（保留一代 `.1` 供崩溃排障，
-  Windows 上旧 fd 已关闭时 rename 安全）；README 双语新增「规模与背压边界」
-  一节（通道限流矩阵 / 日志限额 / 单 manager ≤50 台建议与依据）；
-  check-docs 守卫 `NODE_LOG_MAX_BYTES`。
-- **能力四 · 舰队 M3-1 ops 节点（2026-09-23）**：向导/API 放行第三档沙箱
-  `danger-full-access`（整机全量，Q2 拍板口径）——provision schema 档位 +
-  向导下拉（高危标注）+ 独立黄字确认（审批卡片/审计/凭据口径）；check-docs
-  三件套守卫；README 双语补「运维助手节点（ops）」部署配方（布放规则 D3、
-  审批卡片兜底、服务器本地凭据不经 manager 下发、节点侧 allowFullAccess
-  开锁）。
+- **Versioned config migration (P0)**: `manager.config.yaml` gains a `config_version` field plus the
+  migration chain in `src/config/migrations.ts` (0 → CURRENT, +1 per step); loadConfig migrates an old
+  config before parsing it — the original file is backed up to `.pre-mig.bak` first, migration notes go
+  into warnings (visible in the boot log), and a version ahead of the chain or a broken chain fails loud;
+  check-docs asserts the chain stays complete (change the shape and forget the migration = CI red)
+- **Node version-switch API + page dropdown (P1/P2)**: `POST /api/nodes/:id/version` has two branches —
+  process = change the pin plus chain alignment (the implementation is shared with align-version); container
+  = change the image tag and rebuild right away (closing the gap where a container node answered 409 with no
+  alternative path); audit `node_version_change`; a "DSH version" dropdown on the node row (fed by the
+  matrix, pending marked) — switching a version needs zero sed
+- **Capability four · Fleet M1 (node-agent multi-machine form)**: after Q1–Q5 were signed off in the design
+  doc `fleet-agent-architecture.md`, this landed per `plan-fleet-agent.md` — `spawn.runner=agent + host` in
+  config as the source of truth; the agent registration chain (a one-time join token is exchanged for an
+  identity, the token hash is stored in the DB, revocation); command queue and event channel (DB-persisted,
+  claimed by long polling, results / heartbeat / logs reported back, a 90s online decision); the supervisor
+  agent branch (remote lifecycle goes through the command queue, spawn-result subscription with a fast-failure
+  chain); the node-agent process itself (zero native dependencies, DSH pinned into its own prefix, backoff
+  self-healing after losing contact, a 401 clears the identity and re-registers; join.sh/join.ps1); derived
+  delivery (profile / seed / fleet.md arrive with the spawn payload and are written idempotently); the
+  machines page UI (agent directory + join command + node host column + wizard host dropdown). Fixes: a
+  profileDependencies expansion-order bug (a 0.1.5 node picked up 0.1.2 bundles) and microtask starvation
+  (an instant resolve chain starved the timer).
+- **Capability four · Fleet M1 local pilot and three fixes (2026-09-23)**: the M1 local pilot ran the whole
+  chain on this Windows machine (agent registration → the machine shows up → create an agent node through
+  the API → facade live → chat turn → start/stop/restart/logs), and it proved out and fixed three classes
+  of problem:
+  1. **Two Windows platform traps** — the agent's `execFileSync('npm')` hit ENOENT with no shell (npm is a
+  .cmd shim) and `spawn(bin.js)` hit EFTYPE (CreateProcess has no shebang); both became platform-aware
+  calls (shell: true / on win32 run through node);
+  2. **The 0.1.5 family's floating ranges plus legacy peer-skipping, a double kill** (fact card dsh-facts §14)
+  — every dsh@0.1.5-rc.2 dependency is a `^` range, 0.1.5-rc.3 is already on the registry, so a fresh install
+  drifts the whole tree and `--legacy-peer-deps` skips every peer → the node crashes the moment it starts;
+  the fix = ship the package-lock tree snapshot with the profile (profile-locks.ts) + 26 explicit peer pins
+  (LEGACY_PEER_PINS, kept word-for-word in sync between profile.ts and the container generator) +
+  `patchReload: startup` (no hard HMR dependency) + the agent preferring the profile-local bin;
+  3. **The agent node readiness window went 30s → 120s** (a remote first start = dependency install plus a
+  full boot, measured at 40–90s); the compatibility signal now goes through the version matrix (a verified
+  0.1.5-rc.2 row no longer reports a false incompatibility).
+  The pilot also confirmed: a worker agent node has no model credentials (by design; credential delivery
+  belongs to M3), and copying `.credentials.yaml` onto the same machine made chat turns work.
+- **Capability four · Fleet M3-3 earlier alerts (§13 patch, 2026-09-23)**: the fleet watchdog
+  (`src/fleet/watchdog.ts`) runs every 30s — an agent heartbeat timeout (90s) and an agent node's supervisor
+  going offline fire the in-app bell on the edge (`agent_offline` / `node_offline`, and `*_recovered` when it
+  comes back); unread dedup keeps a manager restart from flooding the bell; only agent-runner nodes report,
+  local process/docker nodes stay out of scope. Measured locally: stop the agent task → the bell shows
+  "machine offline"; restart it → "machine recovered".
+- **Capability four · Fleet M4-1 agent token rotation (2026-09-23)**: `POST /api/agents/:id/rotate`
+  (the "rotate key" button on the machines page) — only an online machine can rotate (409 when offline, so
+  nobody bricks it); the new token reaches the agent only through a `config.deliver` command (it never goes
+  back to the browser); the old token enters a 30-minute grace window (a lost ack must not brick the agent),
+  the grace is cleared only when the agent reports success and rolled back automatically when it reports
+  failure; migration 18 (prev_token_hash/prev_set_at) plus the `agent_token_rotated` audit. Local E2E:
+  rotate → the agent's on-disk identity switches to the new token → the ack converges → heartbeats continue
+  on the new token.
+- **Capability four · Fleet M3 ops-node unlock (2026-09-23)**: a danger-full-access workspace puts
+  `ALLOW_FULL_ACCESS` into the spawn payload → the agent writes `allowFullAccess: true` into the facade
+  settings (a risk warning in the facade log is the backstop). Measured on 192.168.33.11: the ops33 node's
+  host.describe reports `allowFullAccess: true` and fullAccess is unlocked on the chat capability surface
+  (composer accessMode=danger-full-access). The approval-card path is existing facade machinery; a real card
+  turn waits for model credentials on that machine (credential handling is part of M3 acceptance).
+- **Capability four · Fleet M2 cross-machine pilot (2026-09-23, measured on 192.168.33.11)**: a Linux
+  machine joined this manager through join.sh (systemd user unit) — the cross-machine node spike02
+  (0.1.5-rc.2) was created / probed live / streamed logs / started and stopped / recovered from a dropped
+  connection (stopping and starting the agent → the bell reports offline and then recovery + the node stays
+  alive + reconcile converges) / the facade firewall allowlist (ufw admits only the manager's egress IP, and
+  a non-allowlisted source is refused, measured). 4 real bugs were fixed on the way: (1) the readiness
+  probe moved after the spawn result (a cold install is no longer killed by the 120s window, which used to
+  trigger a stop + retry storm); (2) an agent install-complete marker (.installed-ok) skips warm reinstalls
+  (a slow disk makes them take minutes); (3) the join scripts gate Node ≥22.18 (the DSH 0.1.5 launcher needs
+  import.meta.main; on 22.17 a node dies the moment it is started with an empty log — measured as a silent
+  exit 0); (4) a remote workspace path on an agent node passes through untouched (Windows resolve turned
+  /root/... into C:\root\..., and the facade rejects a non-absolute cwd). Chat turns reach the model layer
+  (missing credentials are expected by design; credential handling belongs to M3).
+- **Capability four · Fleet M4-4 metric collection (2026-09-23)**: every 60s the agent reports host metrics
+  alongside its heartbeat (CPU busy share as an integer ×10, memory/disk total and used, uptime, platform) —
+  CPU from the difference between two samples (`os.cpus()` time slices), disk through `fs.statfs`; the manager
+  stores them (migration 20 `agent_metric`, 7-day retention with automatic cleanup), `GET /api/agents/:id/metrics`
+  serves a trend (≤1440 points), and the machine row shows the latest snapshot (CPU/memory/disk share). 2
+  red-green cases plus local E2E (two samples from a real agent: a 1.4% CPU delta stored and put into the
+  snapshot).
+- **Capability four · Fleet M4-3 atomic agent self-update (2026-09-23)**: `POST /api/agents/:id/update`
+  (online only) packs the manager's static agent.mjs/runtime.mjs/update.mjs plus a sorted, concatenated
+  sha256 into an `agent.update` command; after verifying it the agent stages it to `.next` → exits with a
+  non-zero code (on Windows a batch 5s restart loop is the backstop, systemd Restart=always supports it
+  natively) → at startup it swaps atomically (current → `.prev`, one generation kept) → the new code loads;
+  **automatic rollback on an instant crash**: a restart within 90s + a swap within 10 minutes + a previous
+  generation present = the new code is crash-looping → restore `.prev`; version negotiation = the
+  registration/heartbeat reports agentVersion (migration 19), and the machines page shows a "pending update"
+  badge compared against managerVersion. Local E2E: automatic update → v1.1.1 takes effect; injecting a bad
+  runtime → instant crash → automatic rollback → the machine is online again.
+- **Capability four · Fleet M4-2 log cap and backpressure boundary (2026-09-23)**: on the agent side
+  `node.log` is capped at 50MB — it rotates automatically when the cap is exceeded before a spawn (one
+  generation kept as `.1` for crash diagnosis; on Windows the rename is safe once the old fd is closed);
+  both READMEs gained a "scale and backpressure boundaries" section (channel rate-limit matrix / log cap /
+  the recommendation of ≤50 machines per manager and why); check-docs guards `NODE_LOG_MAX_BYTES`.
+- **Capability four · Fleet M3-1 ops nodes (2026-09-23)**: the wizard/API admit a third sandbox tier,
+  `danger-full-access` (the whole machine, the Q2 decision) — a provision schema tier + a wizard dropdown
+  (marked high risk) + a separate yellow-text confirmation (approval cards / audit / credential handling);
+  the three check-docs guards cover it; both READMEs gained the "operations assistant node (ops)" deployment
+  recipe (placement rule D3, approval cards as the backstop, server-local credentials never delivered through
+  the manager, node-side allowFullAccess unlock).
 
-## 1.1.1 — 线上验收修复三连（2026-09-20）
+## 1.1.1 — three online-acceptance fixes (2026-09-20)
 
-- **线上磁盘教训**：15 分钟自动快照 + 节点家目录打包在小盘线上吃满磁盘——
-  `backup.auto` 默认**关闭**（`manager.config.yaml` 显式 `auto: true` 才开）；
-  手动 `npm run backup` 与更新前备份不受影响
-- **目录搬家自愈**：install.sh 每次运行都把 `host_volumes` 的宿主侧工作区路径
-  重钉到当前安装目录（评审 B2 的泛化——旧实现只在首次创建时钉一次，搬家后
-  会指向旧目录）。现在**任意目录安装 + 搬家后 `cd` 进去重跑 `bash install.sh`
-  即收敛**；check-docs 加搬家重钉守卫
-- **容器形态拒绝宿主机进程节点**（线上实测教训）：manager 镜像内置
-  `OHDSH_DEPLOY_FORM=container` 标记——provision 对显式 `runner: process`
-  返回 400 `host_process_unavailable`（原来得到的是「找不到 bin.js」的误导性
-  报错），向导同步禁用「宿主机进程」选项；裸机部署（含混合 docker.sock
-  部署）无标记不受限
+- **Production disk lesson**: 15-minute automatic snapshots plus packing the node home directory filled the
+  disk on a small production box — `backup.auto` now defaults to **off** (`manager.config.yaml` must set
+  `auto: true` explicitly); a manual `npm run backup` and the pre-update backup are unaffected
+- **Directory-move self-healing**: every install.sh run re-pins the host-side workspace paths in
+  `host_volumes` to the current install directory (a generalisation of review item B2 — the old
+  implementation pinned them once at first creation, so after a move they pointed at the old directory).
+  Now **installing into any directory, then moving it, `cd` into it and re-running `bash install.sh`, converges**;
+  check-docs gained a move re-pin guard
+- **The container form refuses host-process nodes** (a production lesson): the manager image carries an
+  `OHDSH_DEPLOY_FORM=container` marker — provision returns 400 `host_process_unavailable` for an explicit
+  `runner: process` (the old behaviour was a misleading "bin.js not found" error), and the wizard disables
+  the "host process" option in step; bare-metal deployments (including mixed docker.sock deployments) carry
+  no marker and are unrestricted
 
-## 1.1.0 — 节点三能力 · 隧道直开 / 宿主机节点 / 多版本（2026-09-20）
+## 1.1.0 — three node capabilities · direct tunnels / host nodes / multiple versions (2026-09-20)
 
-> 设计/计划：`hive/nodes-install-version-tunnel.md`、`hive/plan-node-capabilities.md`；
-> 依据事实：S0 spike（dsh-facts §11）——nginx 域名反代被上游 loopback 钉死面
-> （PRIVILEGED_METHODS / dynamicCordisRunner）否决，原生 GUI 全功能通道 =
-> 用户侧 SSH 隧道（浏览器即 loopback）。
+> Design/plan: `hive/nodes-install-version-tunnel.md`, `hive/plan-node-capabilities.md`;
+> the underlying facts: the S0 spike (dsh-facts §11) — an nginx domain reverse proxy is rejected by the
+> upstream loopback-pinned surface (PRIVILEGED_METHODS / dynamicCordisRunner), so the full-feature native
+> GUI channel = a user-side SSH tunnel (the browser is loopback).
 
-- **能力三 v1**：配置真相源 `endpoints.*.access`（ssh_user/ssh_host/ssh_port/
-  gui_port/local_port，缺省 22/3080）——manager 只记「怎么连」，**SSH 私钥永不进
-  配置**；`POST /api/nodes/:id/access` 写回（锁+原子写+审计 `node_access_update`+
-  clear 移除）；节点页「原生 GUI」卡：隧道命令 + 复制 + 一键打开，0.1.5 的
-  `?token=` 从节点日志（buffer/docker/file 三源）即时捕获、重启轮换自动跟随；
-  节点 GUI 端口只发布宿主机 loopback（compose node-brain + 动态工蜂
-  PortBindings 127.0.0.1）。体验优化（验收反馈）：隧道命令加 `-N`（纯隧道）+
-  `-o ExitOnForwardFailure=yes` + 可选 `ssh_key` 私钥路径（`-i`，只存路径不存
-  密钥）；**本机 loopback 节点免隧道**——卡片直接「本机直连」打开（URL 用节点
-  启动行自报端口 + token）
-- **能力一 · 宿主机节点安装**：profile 生成/安装/钥匙/依赖命令抽公共模块
-  `src/host-node/`（setup 与 provision 共用）；profile 依赖新增
-  `@deepseek-ai/dsh` 自身——隔离安装后 spawn 优先用 profile 内 bin.js
-  （回退全局，存量兼容）；向导形态选择「自动 / 容器工蜂 / 宿主机进程」，
-  宿主机进程黄字确认 + 审计 `node_create_host`，显式 docker 但未挂 sock 时 400
-- **能力二 · 节点级多版本 DSH**：`src/dsh-matrix.ts` 版本矩阵（(dsh ↔ facade)
-  配对表，唯一真相源；`src/dsh-version.ts` 退化为 re-export 垫片）；矩阵两行
-  0.1.2-rc.1 / 0.1.5-rc.2 均已 **verified**——0.1.5 经服务器 smoke15 全链
-  smoke（host.describe 合成版本 / session.create / session.prompt 真实回合 /
-  mux 帧流 user→assistant→turn/end；安装需 `--legacy-peer-deps`、运行时需
-  node ≥22.19，事实卡 dsh-facts §12）；向导/API 支持 `dsh_version` 按节点钉版
-  ——profile 钉目标版本、yaml 仅显式设置才落盘（默认跟随矩阵首行，不冻结）、
-  未知版本 400、pending 配对黄字警告；节点页显示配置版本 + 漂移探测 +
-  `POST /api/nodes/:id/align-version` 一键对齐（reseed→installDeps→隔离 bin
-  重启，审计 `node_align_version`，容器节点 409 显性拒绝）；容器镜像随钉版
-  `ohdsh/dsh-node:<dshVersion>`；`profileInstallCommand`/后台安装按矩阵配对自动
-  追加 `--legacy-peer-deps`（0.1.5 ERESOLVE 修复，dsh-facts §12）；升级脚本泛化
-  `scripts/upgrade-node-version.mjs`（目标版本参数化、幂等、`--dry-run`、备份
-  `.pre-<version>.bak`、`.env` 镜像 tag 同升），旧 `upgrade-012-win.mjs` 留兼容壳，
-  check-docs 守卫升级为「脚本 SUPPORTED 表与矩阵逐行对齐」断言。UI 面补全
-  （验收反馈）：节点行「版本漂移」黄标 + 「对齐版本」按钮（确认→202 受理）；
-  向导「DSH 版本」下拉（数据源 = GET /api/nodes 的 supportedDsh，不前端硬编码），
-  显式钉版在节点行展示「钉 x.y.z」
+- **Capability three v1**: the config source of truth is `endpoints.*.access`
+  (ssh_user/ssh_host/ssh_port/gui_port/local_port, defaulting to 22/3080) — the manager records only *how to
+  connect*, **the SSH private key never enters config**; `POST /api/nodes/:id/access` writes it back (lock +
+  atomic write + `node_access_update` audit + clear to remove); the node page's "native GUI" card gives the
+  tunnel command + copy + one-click open, the 0.1.5 `?token=` is captured on the spot from the node log
+  (three sources: buffer/docker/file) and follows restarts and rotation automatically; node GUI ports are
+  published on the host loopback only (compose node-brain + dynamic worker PortBindings 127.0.0.1). UX
+  polish (acceptance feedback): the tunnel command gained `-N` (tunnel only) + `-o ExitOnForwardFailure=yes`
+  + an optional `ssh_key` private-key path (`-i`, the path only, never the key); **a local loopback node
+  needs no tunnel** — the card opens "direct local" instead (the URL uses the port and token the node reports
+  in its startup line)
+- **Capability one · host node install**: profile generation/installation/keys/dependency commands moved into
+  the shared module `src/host-node/` (used by both setup and provision); the profile dependencies gained
+  `@deepseek-ai/dsh` itself — after an isolated install, spawn prefers the profile's own bin.js (falling back
+  to the global one, for existing installs); the wizard offers the forms "auto / container worker / host
+  process", host process needs a yellow-text confirmation + the `node_create_host` audit, and an explicit
+  docker runner with no sock mounted returns 400
+- **Capability two · per-node DSH versions**: the version matrix in `src/dsh-matrix.ts` (the (dsh ↔ facade)
+  pairing table, the single source of truth; `src/dsh-version.ts` degrades to a re-export shim); both matrix
+  rows, 0.1.2-rc.1 / 0.1.5-rc.2, are now **verified** — 0.1.5 went through the server-side smoke15 full-chain
+  smoke (host.describe synthesised version / session.create / session.prompt with a real turn / the mux frame
+  stream user→assistant→turn/end; installing it needs `--legacy-peer-deps` and running it needs node ≥22.19,
+  fact card dsh-facts §12); the wizard/API support pinning `dsh_version` per node — the profile pins the
+  target version, yaml is written only when set explicitly (the default follows the first matrix row and does
+  not freeze), an unknown version is 400, a pending pairing warns in yellow; the node page shows the
+  configured version + drift detection + one-click `POST /api/nodes/:id/align-version` (reseed → installDeps →
+  restart on the isolated bin, audit `node_align_version`, container nodes refused with an explicit 409);
+  container images follow the pin as `ohdsh/dsh-node:<dshVersion>`; `profileInstallCommand`/background installs
+  append `--legacy-peer-deps` automatically for the matrix pairing (the 0.1.5 ERESOLVE fix, dsh-facts §12);
+  the upgrade script was generalised into `scripts/upgrade-node-version.mjs` (target version as a parameter,
+  idempotent, `--dry-run`, `.pre-<version>.bak` backup, `.env` image tag bumped too), while the old
+  `upgrade-012-win.mjs` stays as a compatibility shell, and the check-docs guard was upgraded to assert "the
+  script's SUPPORTED table lines up row by row with the matrix". UI completion (acceptance feedback): a
+  "version drift" yellow tag + an "align version" button on the node row (confirm → 202 accepted); a
+  "DSH version" dropdown in the wizard (fed by GET /api/nodes supportedDsh, not hardcoded in the frontend),
+  and an explicit pin shows as "pinned x.y.z" on the node row
 
-## 1.0.4 — 安全修复 + 四批技术债清偿（2026-09-12）
+## 1.0.4 — security fixes + four rounds of technical-debt repayment (2026-09-12)
 
-> ⚠️ **升级注意**：
-> - `engines` 收紧为 **Node ≥ 22**（better-sqlite3 13 要求）——旧 Node 升级会被拒，先升 Node；
-> - 升级后首次启动 `.env` 经 zod 集中校验，`SESSION_SECRET` 不足 32 位等会 fail-loud 拒绝启动；
-> - 备份产物改为密文：新备份 DB 快照为 `<file>.db.enc`、`.env` 为 `.env.enc`（GCM 加密）；
->   旧明文快照仍可恢复（兼容读），但**新备份不再落明文**。
+> ⚠️ **Upgrade notes**:
+> - `engines` tightened to **Node ≥ 22** (required by better-sqlite3 13) — an upgrade on an older Node is
+>   rejected, so upgrade Node first;
+> - after the upgrade the first start validates `.env` centrally through zod: a `SESSION_SECRET` shorter
+>   than 32 characters, and the like, fail loud and refuse to start;
+> - backup artifacts became ciphertext: a new backup's DB snapshot is `<file>.db.enc` and `.env` is
+>   `.env.enc` (GCM encryption); old plaintext snapshots still restore (compatible read), but **new backups
+>   no longer write plaintext**.
 
-### 安全与数据正确性（第一批 · 发布门修复，R1–R10 + S3）
+### Security and data correctness (round one · release-gate fixes, R1–R10 + S3)
 
-- **R2 备份加密**：DB 快照与 `.env` 全走 AES-256-GCM（临时目录中转，崩溃不留明文）；restore 按 `.enc` 分流解密，篡改必失败
-- **R3/R4 备份走真相源**：backup/update CLI 的 DB 路径/备份目录/探活端口全来自 `loadConfig()`；配置副本明确「仅供人工参考」，不再宣称完整恢复
-- **R5 mux 首连判据**：以真实 `onopen` 为「曾连接」事实，首连失败不再误广播重连（修掉 run 被错标「结果未知」的计费链 bug）
-- **R6 配置写锁全路径**：provision/setup/auth 的配置写全过 `withConfigLock`；YAML `doc.errors` 输入+回读双查
-- **R7 治理规则透传**：`applyWrites` 落盘后二次校验用与写前同一份 agent 规则（不再退化为 DEFAULT_RULES）
-- **R8 apiproxy 订阅泄漏**：prompt 拒绝/抛错/超时全部 try/finally 退订；`finish` 幂等闸
-- **R9 对账单一化**：provision 热变更全走 `reconcileAll`（onlyNodes 范围化，不抢拉用户手动停掉的冷节点）
-- **S3 变更端点全量限流**：nodes 起停/增删 20/min、internal 派工/续写/crons 60/min、改密 10/min 与登录同档
-- **R10 发布门补丁**：`gen-env.sh` 写入 `HOST_UID/HOST_GID`（compose 容器与部署用户同 uid）——此前跳过 install.sh 直接用 gen-env 的场景（CI compose-e2e）容器回落 1000 而宿主文件属 1001，manager 写不进 data → `SQLITE_CANTOPEN` 死循环、nginx 全 502；节点镜像 `/data` 卷根 777 + `HOME=/data`——容器按 HOST_UID 运行而命名卷继承镜像 1000 属主时，`mkdir /data/profiles` EACCES、节点无限重启、工蜂认领超时；manager 镜像 `/app` 目录放写——真相文件原子写（`.tmp`+rename）要求目录可写，否则动态开通写 `/app/.env.tmp` EACCES 500；`writeFileAtomic` 加 EBUSY 回落——文件级 bind mount（`./.env:/app/.env`）在 Linux 上不能被 rename 顶替，rename 失败回落原地写（与 auth.ts 清初始口令同款取舍，注入 rename 回归测试）；**provision 新建端点切 0.1.2 facade 主路**——旧 0.1.1 接线（`prefix:/api` + `key_ref:''`）探活 host.describe 401，新节点永远 live 不了（compose-e2e worker live 超时实证；yaml 与内存端点、docker/process 两分支同修，key_ref=GW_KEY_<名> 与 sandbox 同一把钥匙）；**节点卷备份/恢复改 attach 流式传输**（`runToolIo`）——旧实现把 manager 容器内的备份目录当宿主路径 bind，dockerd 按宿主语义解析到幽灵目录，tar 产物读不到（ENOENT）；现在只绑命名卷、数据走 stdin/stdout 流，`tar czf -`/`tar xzf -`（docker-runner 3 例 + nodebackup 桩 1 例回归）
-- **E8 协议帧判别收紧**：RPC/mux/translate 六帧型 zod 判别（形状不符 fail-loud 丢弃，不猜上游）
-- **卡片丢失链修复（2026-09-17，生产实证：卡片偶发不显示、ask_user_question 卡住）**：根因 = question/approval 帧是**一次性广播、无恢复通道**——facade 只在问题出现的瞬间广播一次，mux 断线窗口/manager 重启/SSE 断流任何一环错过就永久丢卡。修复五件套：① runner 重连时若正等人作答（awaitingHuman>0）不再杀回合（问题挂起时回合必然未结束，答案经 respond 独立送达）；② 挂起卡片（pendingCards）独立于回合生命周期持久化，GET 刷新与 SSE 重连（hello 后）均重放，resolved 或 15 分钟 TTL 清理；③ 应答/决断成功即合成 resolved 帧（不依赖上游广播，卡片必关）；④ **facade 恢复通道**：answerer 留存挂起载荷 + `GET /api-gw/v1/answerer/pending`（gateway commit `b592b4f` 钉入），manager 新增端口能力 `pendingAsks`——回合开始、mux 重连、GET 刷新三处按需取回断线窗口/重启前丢失的卡片帧（按 rpcId 去重）；⑤ mux 帧丢弃/断线/重连全部留日志（`setMuxLogger` → app.log）。红绿 7 例（runner 2 / mux 2 / chat 3）
+- **R2 backup encryption**: DB snapshots and `.env` both go through AES-256-GCM (staged through a temp
+  directory, so a crash leaves no plaintext); restore branches on `.enc` and decrypts, and tampering always
+  fails
+- **R3/R4 backups read the source of truth**: the DB path / backup directory / liveness port used by the
+  backup and update CLIs all come from `loadConfig()`; the config copy is explicitly "for manual reference
+  only" and no longer claims a complete restore
+- **R5 mux first-connect criterion**: a real `onopen` is the fact of "was connected", so a failed first
+  connect no longer broadcasts a bogus reconnect (this fixed the billing-chain bug where a run was
+  mislabelled "result unknown")
+- **R6 config write lock on every path**: every config write in provision/setup/auth goes through
+  `withConfigLock`; YAML `doc.errors` is checked twice, on input and on read-back
+- **R7 governance rules passed through**: the post-write re-validation in `applyWrites` uses the same agent
+  rules as before the write (it no longer degrades to DEFAULT_RULES)
+- **R8 apiproxy subscription leak**: a rejected, throwing or timed-out prompt always unsubscribes in
+  try/finally; `finish` is an idempotent gate
+- **R9 a single reconcile path**: every hot change in provision goes through `reconcileAll` (scoped with
+  onlyNodes, so it does not drag up a cold node the user stopped by hand)
+- **S3 rate limits on every mutating endpoint**: node start/stop and add/delete 20/min, internal
+  dispatch/continue/crons 60/min, password change 10/min on the same tier as login
+- **R10 release-gate patches**: `gen-env.sh` now writes `HOST_UID/HOST_GID` (so a compose container and the
+  deploying user share a uid) — previously, a setup that skipped install.sh and used gen-env directly
+  (CI compose-e2e) left the container falling back to 1000 while host files belonged to 1001, the manager
+  could not write data → an endless `SQLITE_CANTOPEN` loop and 502s from nginx everywhere; the node image's
+  `/data` volume root is 777 with `HOME=/data` — when a container runs as HOST_UID while a named volume
+  inherits the image's 1000 owner, `mkdir /data/profiles` hit EACCES, the node restarted forever and worker
+  claiming timed out; the manager image puts the `/app` directory out for writing — the atomic write of
+  truth files (`.tmp` + rename) needs a writable directory, otherwise dynamic provisioning hit EACCES and a
+  500 writing `/app/.env.tmp`; `writeFileAtomic` gained an EBUSY fallback — a file-level bind mount
+  (`./.env:/app/.env`) cannot be replaced by a rename on Linux, so a failed rename falls back to writing in
+  place (the same trade-off as clearing the initial password in auth.ts, with an injected-rename regression
+  test); **provision's new endpoints switched to the 0.1.2 facade main line** — the old 0.1.1 wiring
+  (`prefix:/api` + `key_ref:''`) made the liveness probe against host.describe return 401, so a new node
+  could never go live (proven by a compose-e2e worker live timeout; the yaml and in-memory endpoints and both
+  the docker/process branches were fixed together, key_ref=GW_KEY_<name> being the same key as sandbox);
+  **node volume backup/restore moved to attach streaming** (`runToolIo`) — the old implementation bound the
+  manager container's backup directory as if it were a host path, and dockerd resolved it by host semantics to
+  a ghost directory, so the tar artifact could not be read (ENOENT); now only the named volume is bound and
+  the data travels over stdin/stdout, `tar czf -`/`tar xzf -` (3 docker-runner cases + 1 nodebackup
+  stub case in regression)
+- **E8 tighter protocol-frame discrimination**: zod discrimination of the six RPC/mux/translate frame types
+  (a shape mismatch is dropped fail-loud, upstream is not guessed at)
+- **Card-loss chain fixed (2026-09-17, proven in production: cards occasionally missing, ask_user_question
+  stuck)**: the root cause = question/approval frames are a **one-shot broadcast with no recovery channel** —
+  the facade broadcasts once, at the instant the question appears, so missing any one of the mux disconnect
+  window / manager restart / SSE stream break loses the card forever. The fix is five parts: (1) on
+  reconnect the runner no longer kills a turn that is waiting for a human answer (awaitingHuman>0) (a turn
+  with a pending question can never be finished, and the answer arrives separately through respond);
+  (2) pending cards (pendingCards) are persisted independently of the turn lifecycle, replayed both on a GET
+  refresh and on an SSE reconnect (after hello), and cleared when resolved or after a 15-minute TTL;
+  (3) a successful answer/decision synthesises a resolved frame on the spot (without depending on the
+  upstream broadcast, the card always closes); (4) **a facade recovery channel**: the answerer keeps the
+  pending payload plus `GET /api-gw/v1/answerer/pending` (pinned into gateway commit `b592b4f`), and the
+  manager gained the port capability `pendingAsks` — at turn start, on mux reconnect and on GET refresh it
+  fetches on demand the card frames lost to a disconnect window or a restart (deduplicated by rpcId);
+  (5) every dropped mux frame, disconnect and reconnect is logged (`setMuxLogger` → app.log). 7
+  red-green cases (runner 2 / mux 2 / chat 3)
 
-### 后端疗程（第二批）
+### Backend treatment (round two)
 
-- **E1–E4 巨型模块拆分**：runner（回合状态机 `runner/turn.ts`）、chat（relay/回合编排/CRUD 三层）、provision（四段开通流水线）、setup（六阶段 main）各自收窄
-- **E9 usage 聚合 drizzle 化** + 钱字段 API 统一 MicroUsd 命名（不再泄露裸列名 cost/peakCost）
-- **E16 三份 ADR**（回合驱动语义 / usage 两规则 / chat 回合计数复盘）+ wire 现实迁事实卡 `dsh-facts.md` §9
+- **E1–E4 giant-module split**: runner (the turn state machine in `runner/turn.ts`), chat (three layers:
+  relay / turn orchestration / CRUD), provision (a four-stage provisioning pipeline) and setup (a six-phase
+  main) each narrowed
+- **E9 usage aggregation moved to drizzle** + money fields in the API unified under a MicroUsd name (no more
+  leaking the bare column names cost/peakCost)
+- **E16 three ADRs** (turn-driven semantics / the two usage rules / a chat turn-count retrospective) + the
+  wire reality moved into the fact card `dsh-facts.md` §9
 
-### 前端疗程（第三批）
+### Frontend treatment (round three)
 
-- **F1 chat.js 拆五模块**（reducer/render/wire/composer/state，2146 → 876 行）+ 前端测试 80 例
-- **F6 apiJson 统一 Result 层**：八页「status 判断 + 读 JSON + 拼 banner」样板清零，错误 banner 共享且自动转义
-- **F3/F4** SSE 重连与轮询收口（autoReconnect / poll）；**F5** 全站唯一未转义 innerHTML sink 修复；**F7** ui.js 开启 @ts-check 进 CI typecheck
+- **F1 chat.js split into five modules** (reducer/render/wire/composer/state, 2146 → 876 lines) + 80
+  frontend cases
+- **F6 apiJson unifies the Result layer**: the "check status + read JSON + build a banner" boilerplate is
+  gone from eight pages, and the error banner is shared and escapes automatically
+- **F3/F4** SSE reconnect and polling consolidated (autoReconnect / poll); **F5** the site's only unescaped
+  innerHTML sink fixed; **F7** ui.js switches on @ts-check and joins the CI typecheck
 
-### 测试与工具链（第四批）
+### Tests and toolchain (round four)
 
-- **C3 共享测试 harness**：13 个测试文件重复 helper 收敛；mux 重连测试 mock 时钟（省 12s）；supervisor 测试全程假进程（不再真起 node -e）
-- **C4 coverage 门禁**：只统计生产代码，lines 80 / branch 70 / funcs 75 进 CI
-- **D4 依赖追平**：better-sqlite3 13 + zod 4 + @types 9.6.0
-- **D5 版本号构建期注入**（/api/status 暴露 managerVersion）+ env 集中 zod 校验 + exactOptionalPropertyTypes 收紧
+- **C3 a shared test harness**: 13 duplicated test-helper files converged; the mux reconnect test
+  mocks the clock (saving 12s); supervisor tests use a fake process throughout (no real node -e process any more)
+- **C4 a coverage gate**: production code only, lines 80 / branch 70 / funcs 75 into CI
+- **D4 dependencies caught up**: better-sqlite3 13 + zod 4 + @types 9.6.0
+- **D5 the version number injected at build time** (exposed by /api/status as managerVersion) + central zod
+  validation for env + exactOptionalPropertyTypes tightened
 
-## 1.0.3 — 0.1.2 切主路（2026-09-10）
+## 1.0.3 — switching to the 0.1.2 main line (2026-09-10)
 
-> ⚠️ **升级注意**：切主路升级顺序 = **先停栈 → 跑 upgrade 脚本 → 重启 → smoke**。
-> 脚本首次运行自动备份 `*.pre-012.bak`（含 `.env`，不入库），出错按备份回滚。
-> Linux 容器：`node scripts/upgrade-012.mjs`（manager.config.yaml 接线 + .env 镜像标签）；
-> Windows 裸机：`node scripts/upgrade-012-win.mjs`（profile 换 facade / 铸钥 / .env 同步 / 全局 DSH，
-> 端口预检被占即拒）。
+> ⚠️ **Upgrade notes**: the order for switching to the main line = **stop the stack first → run the upgrade
+> script → restart → smoke**. The script backs up `*.pre-012.bak` on its first run (including `.env`, not
+> committed), and any error rolls back from the backup.
+> Linux containers: `node scripts/upgrade-012.mjs` (manager.config.yaml wiring + the .env image tag);
+> Windows bare metal: `node scripts/upgrade-012-win.mjs` (profile → facade / key minting / .env sync / global
+> DSH; a pre-flight port check refuses when a port is taken).
 
-### 修路（manager 上层重写）
+### Road repair (rewriting the manager's upper layer)
 
-- **SessionDriver 端口化**：上层只依赖端口，facade 驱动成为插头（探活改 probeVersion、release 语义入端口，零行为变化）；拔插头验收 FakeSessionDriver 纯内存驱动 apiproxy 全链路 8 条测试
-- **ACP 窄桥**：SDK 客户端中继 + 窄面映射（权限→审批帧；usage/history 缺口入档），假 agent 验收 4 条 + runner 拔插头复跑
-- **对账单一化**：reconcileAll 统一入口（镜像/run 收敛/孤儿/fleet/节点认领），boot 与 provision 共用；healOnly 只治 offline；supervisor 运行时健康对账（probeLive 连续失败转 offline，同 tick 自愈）
-- **apiproxy prefix 显式配置生效**：0.1.2 facade 接线的先决条件（省略时保留旧默认 /api）
+- **SessionDriver became a port**: the upper layer depends on the port alone, and the facade driver becomes a
+  plug (liveness probing moved to probeVersion, the release semantics entered the port, zero behaviour
+  change); the unplug acceptance ran FakeSessionDriver as a pure in-memory driver over 8 apiproxy end-to-end
+  cases
+- **A narrow ACP bridge**: an SDK client relay + narrow-surface mapping (permissions → approval frames; the
+  usage/history gaps recorded), accepted with 4 fake-agent cases + a runner unplug re-run
+- **A single reconcile path**: reconcileAll as the one entry point (images / run convergence / orphans /
+  fleet / node claiming), shared by boot and provision; healOnly treats offline only; the supervisor
+  reconciles health at runtime (consecutive probeLive failures turn a node offline, self-healed in the same
+  tick)
+- **An explicit apiproxy prefix now takes effect**: a precondition for the 0.1.2 facade wiring (omitting it
+  keeps the old /api default)
 
-### 0.1.2 切主路
+### Switching to the 0.1.2 main line
 
-- COMPAT_DSH_VERSION 升 `0.1.2-rc.1`，gateway 0.1.2 门禁化改包名 **ohdsh-api-facade** 全线接线（镜像 / 节点 profile / entrypoint 命名空间 / 默认 tag），endpoints 走 `/api-gw/v1/proxy` + key_ref（与 sandbox_key_ref 同一把钥匙）
-- **upgrade-012.mjs**：manager.config.yaml 一次性接线迁移（幂等 / 备份 / 缺钥匙退出码 2 大声失败）+ `.env` 镜像标签迁移（`DSH_NODE_IMAGE→0.1.2-rc.1`、`MANAGER_VERSION→1.0.3`，gen-env 幂等不覆盖旧值所以必须显式升）
-- **upgrade-012-win.mjs**：Windows 裸机节点升级（profile 换 facade / 铸钥 / .env 同步 / 全局 DSH），端口预检（8080/3081/3082/3090 被占即拒，EPERM 半毁树教训固化）、`--dry-run` / `--force`、幂等
-- 节点 profile 依赖安装 **pnpm→npm**（pnpm@9 预发布区间失效 + pnpm@11 白名单失效，双墙实证；npm 同版本集本机 e2e 全绿）
-- Windows setup resolveGatewayKey 切 facade 命名空间（旧 dsh-api-gw 段不读，含回归测试）
-- entrypoint 密钥判定加命名空间条件（0.1.1 旧 settings.yaml 残留同 key 串不再误判跳过）
-- compose 删 `--trusted-host`（0.1.2 CLI 已删）；镜像 stage-2 用户创建兼容已有 1000:1000
-- **双线验证**：Linux 容器集群 + Windows 生产节点 smoke 全 PASS（三节点 apiKeySet:true）
-- 文档双语规范落地：README.md（英文）+ README.zh.md（中文）分文件，禁止混排
+- COMPAT_DSH_VERSION goes to `0.1.2-rc.1`, the gateway 0.1.2 gate-ified package name **ohdsh-api-facade** is
+  wired everywhere (image / node profile / entrypoint namespace / default tag), and endpoints go through
+  `/api-gw/v1/proxy` + key_ref (the same key as sandbox_key_ref)
+- **upgrade-012.mjs**: a one-shot manager.config.yaml wiring migration (idempotent / backs up / exits with
+  code 2 and fails loudly when a key is missing) + the `.env` image tag migration
+  (`DSH_NODE_IMAGE→0.1.2-rc.1`, `MANAGER_VERSION→1.0.3`; gen-env is idempotent and does not overwrite old
+  values, so the bump has to be explicit)
+- **upgrade-012-win.mjs**: the Windows bare-metal node upgrade (profile → facade / key minting / .env sync /
+  global DSH), a pre-flight port check (8080/3081/3082/3090 taken = refuse, the EPERM half-destroyed-tree
+  lesson made permanent), `--dry-run` / `--force`, idempotent
+- Node profile dependency install **pnpm→npm** (the pnpm@9 prerelease range stopped resolving and the
+  pnpm@11 allowlist stopped working, two walls proven; npm with the same version set is all green in the
+  local e2e)
+- Windows setup resolveGatewayKey switched to the facade namespace (the old dsh-api-gw section is not read,
+  with a regression test)
+- The entrypoint key decision gained a namespace condition (a leftover 0.1.1 settings.yaml carrying the same
+  key string is no longer misjudged and skipped)
+- compose dropped `--trusted-host` (the 0.1.2 CLI removed it); the image's stage-2 user creation tolerates an
+  existing 1000:1000
+- **Two-track verification**: a Linux container cluster + a Windows production node, smoke all PASS (three
+  nodes apiKeySet:true)
+- The bilingual documentation rule landed: README.md (English) + README.zh.md (Chinese) as separate files,
+  mixing the two forbidden
 
-## 1.0.2 — 安全与部署加固（2026-09-08）
+## 1.0.2 — security and deployment hardening (2026-09-08)
 
-> ⚠️ **升级注意**：本版数据库迁移会把既有账号的 `must_change_password` 置 1——升级后首次登录
-> 强制改密。请确认你记得当前密码、或 `.env` 里 `MANAGER_INITIAL_PASSWORD` 仍在；两者都丢失的
-> 用户将被锁死（当前无重置途径，只能重建 `data/manager.db` 并丢失运行历史）。
+> ⚠️ **Upgrade notes**: this version's database migration sets `must_change_password` to 1 on existing
+> accounts — the first login after the upgrade forces a password change. Make sure you still remember the
+> current password, or that `MANAGER_INITIAL_PASSWORD` is still in `.env`; a user who has lost both is locked
+> out (there is no reset path today — only rebuilding `data/manager.db`, which loses the run history).
 
-### 安全
+### Security
 
-- **H1 manager 容器非 root + docker.sock 组级降权 + nginx 内网 ACL**：manager 镜像内建 `USER 1000:1000`；compose 以 `HOST_UID:HOST_GID` 运行并经 `group_add` 注入宿主 docker 组 GID（`DOCKER_GID` 由 gen-env.sh 探测写入 .env）；install.sh 按 HOST_UID 放行 `.env`/`manager.config.yaml`/`data`/`workspaces`；四个 nginx 模板对 `/api/internal/` 加私网 ACL（token 之外的第二道门）。注意：部署用户为 root（HOST_UID=0）时容器仍为 root——完整收口需 socket-proxy/rootless docker（后续）
-- **H2 provision 全量回滚**：副作用重排为「准备 → DB → 真相文件 → 内存 → 进程」，任一步失败按相反顺序撤销，杜绝半开通幽灵节点；审计记录失败尝试
-- **H3 fleet.md 提交收窄**：`git commit -- fleet.md` 路径限定（用户已 staged 的其它改动绝不被捎带）+ 每 agent 提交锁，不再互踩 index.lock
-- **登录限流不再信任转发头**：trustProxy 收紧，轮换 X-Forwarded-For 绕过已封堵（回归测试实证）
-- **helmet + CSP `script-src 'self'`** 全套安全头（HSTS 仅 TLS 形态），与前端逐条核对零冲突
-- **改密吊销其它会话** + `.env` 抹除初始口令（配合首登强制改密与 CSRF 自愈）
-- **BRAIN_TOKEN 落点 `$HOME/.brain-auth`**（0600，不进工作区/不随 git 流动）
+- **H1 manager container non-root + group-level docker.sock de-privileging + nginx internal ACL**: the
+  manager image ships `USER 1000:1000`; compose runs it as `HOST_UID:HOST_GID` and injects the host docker
+  group GID through `group_add` (`DOCKER_GID` is detected by gen-env.sh and written into .env); install.sh
+  grants `.env`/`manager.config.yaml`/`data`/`workspaces` to HOST_UID; four nginx templates add a private
+  network ACL to `/api/internal/` (a second door besides the token). Note: when the deploying user is root
+  (HOST_UID=0) the container stays root — closing that fully needs socket-proxy/rootless docker (later)
+- **H2 full provision rollback**: side effects are reordered as "prepare → DB → truth files → memory →
+  process", any failing step is undone in reverse order, so a half-provisioned ghost node cannot happen; a
+  failed attempt is recorded in the audit
+- **H3 fleet.md commits narrowed**: `git commit -- fleet.md` is path-limited (other changes the user already
+  staged are never dragged along) + a per-agent commit lock, so they no longer step on each other's
+  index.lock
+- **Login rate limiting no longer trusts forwarding headers**: trustProxy tightened, the rotating
+  X-Forwarded-For bypass is closed (proven by a regression test)
+- **helmet + CSP `script-src 'self'`** with the full set of security headers (HSTS only in the TLS form),
+  checked line by line against the frontend with zero conflicts
+- **A password change revokes other sessions** + the initial password is erased from `.env` (together with
+  forced password change on first login and CSRF self-healing)
+- **BRAIN_TOKEN lives at `$HOME/.brain-auth`** (0600, never in a workspace and never travelling with git)
 
-### 部署
+### Deployment
 
-- **nginx 运行时 default.conf 改为生成物**：模板改名 `default.conf.example`，install.sh 每次重跑生成，gitignore 排除——线上 git pull 不再报 modified。老部署升级：`git checkout -- deploy/nginx/default.conf && git pull`，然后重跑 `bash scripts/gen-env.sh .env`（补 DOCKER_GID）并 `docker compose restart nginx`
-- CI 扩展：lint + 前端测试（md.test 进 CI）+ 部署门禁（manager 非 root / group_add / nginx ACL 断言）
+- **nginx's runtime default.conf became a generated artifact**: the template was renamed
+  `default.conf.example`, install.sh regenerates it on every run and gitignore excludes it — a production
+  git pull no longer reports it as modified. Upgrading an old deployment:
+  `git checkout -- deploy/nginx/default.conf && git pull`, then re-run `bash scripts/gen-env.sh .env` (to add
+  DOCKER_GID) and `docker compose restart nginx`
+- CI extended: lint + frontend cases (md.test into CI) + deployment gates (assertions that the manager is
+  non-root / group_add / the nginx internal ACL)
 
-### 回归测试
+### Regression tests
 
-- `fleet-doc.test.ts`：用户预 staged 文件不得进入 manager 提交的断言
-- `provision.test.ts`：DB 写入失败 → 六面（内存/监督器/yaml/.env/目录/DB）零残留断言
-- `scripts/check-docs.mjs`：manager 镜像 USER、compose group_add/DOCKER_GID、nginx internal ACL 的部署门禁
+- `fleet-doc.test.ts`: an assertion that a file the user pre-staged never enters a manager commit
+- `provision.test.ts`: an assertion that a failed DB write leaves zero residue on six surfaces (memory /
+  supervisor / yaml / .env / directories / DB)
+- `scripts/check-docs.mjs`: deployment gates for the manager image USER, compose group_add/DOCKER_GID and the
+  nginx internal ACL
 
-## 1.0.1 — 产品级单机版（蜂群2计划，2026-09-05）
+## 1.0.1 — product-grade single-machine edition (Hive plan 2, 2026-09-05)
 
-从「功能 v1」到「产品级 v1」：一键安装、容器化、安全三件、备份全量、版本治理。
+From "feature v1" to "product-grade v1": one-command install, containerisation, the security trio, full
+backups, version governance.
 
-### 部署与分发
+### Deployment and distribution
 
-- **两条一键命令**：`install.sh`（Ubuntu 容器：nginx + manager + 主脑脊柱）/ `install.ps1`（Windows 裸机），幂等跳过已装组件，唯一人肉输入 = API key
-- `install.ps1` 带 UTF-8 BOM（发布前实测：无 BOM 时 Windows PowerShell 5.1 按 GBK 读中文 → ParserError，官方推荐路径直接失败）
-- `install.ps1` 克隆失败自动回退 codeload zip（发布前实测：国内网络 github.com git/raw 均超时，codeload 可达 200）
-- Windows 安装的节点依赖固定 `npx pnpm@9`（发布前实测：全局 pnpm 11 无视构建白名单，原生依赖不构建）；setup 预生成首启密码进 `.env`（隐藏窗口启动下生成密码会丢）
-- **容器化**：dsh-node / manager 双镜像（构建期冻结依赖，运行时零安装）+ compose 脊柱 + manager 经 docker.sock 管理工蜂容器（标签对账，向导/起停/日志语义不变）
-- nginx 三模式 TLS 模板 + `gen-env.sh` 幂等密钥生成 + 发布包生成器 + 发布清单（维护者内部）
+- **Two one-command paths**: `install.sh` (Ubuntu containers: nginx + manager + the brain's spine) /
+  `install.ps1` (Windows bare metal); both skip already-installed components idempotently, and the only
+  manual input = the API key
+- `install.ps1` carries a UTF-8 BOM (measured before release: without one, Windows PowerShell 5.1 reads the
+  Chinese as GBK → a ParserError, so the officially recommended path failed outright)
+- A failed clone in `install.ps1` falls back to the codeload zip (measured before release: on networks in
+  China both github.com git and raw time out while codeload answers 200)
+- Node dependencies in a Windows install are pinned to `npx pnpm@9` (measured before release: a global
+  pnpm 11 ignores the build allowlist and native dependencies are not built); setup pre-generates the
+  first-start password into `.env` (generating it under a hidden-window start loses it)
+- **Containerisation**: two images, dsh-node / manager (dependencies frozen at build time, zero install at
+  runtime) + a compose spine + the manager driving worker containers through docker.sock (label-based
+  reconcile, with the wizard / start / stop / log semantics unchanged)
+- Three-mode nginx TLS templates + idempotent key generation in `gen-env.sh` + a release-bundle generator + a
+  release checklist (internal to maintainers)
 
-### 安全（D2/D4）
+### Security (D2/D4)
 
-- **首登强制改密**（既有账号也转正一次）+ 改密页；新密码 ≥ 10 字符
-- **CSRF 双提交**：所有非 GET `/api/*` 校验（登录与主脑内部 API 豁免）
-- **CSRF 自愈**：升级前的老会话缺 csrf cookie 时，服务端 403 补发 + 前端带新 cookie 自动重试一次（Windows 升级改密的 403 现场修复）
-- **审计流水**：登录成败 / 改密 / 节点操作 / 备份，侧栏审计页
-- `.env` 在 POSIX 上收紧 600
+- **The first login forces a password change** (existing accounts are converted once too) + a password page;
+  a new password is ≥ 10 characters
+- **CSRF double submit**: every non-GET `/api/*` is validated (login and the brain's internal API are exempt)
+- **CSRF self-healing**: when a pre-upgrade session lacks the csrf cookie, the server answers 403 and
+  re-issues it, and the frontend retries once with the new cookie (a live fix for the 403 seen when changing
+  a password after a Windows upgrade)
+- **An audit trail**: login success and failure / password changes / node operations / backups, with the
+  sidebar audit page
+- `.env` is tightened to 600 on POSIX
 
-### 备份（D3）
+### Backup (D3)
 
-- 节点 home（会话/技能/settings）**加密归档**（AES-256-CBC，密钥派生自 SESSION_SECRET）
-- restore 扩展：DB + 节点 home 一并回滚
-- DR 演练 `npm run drill`（CI 常驻，实测全链路 0.2s，RTO 目标 ≤ 5 分钟）
+- A node home (chats/skills/settings) is **archived encrypted** (AES-256-CBC, key derived from
+  SESSION_SECRET)
+- restore extended: the DB and the node home roll back together
+- A DR drill, `npm run drill` (permanent in CI; measured end to end at 0.2s, RTO target ≤ 5 minutes)
 
-### 版本治理（R4）
+### Version governance (R4)
 
-- `COMPAT_DSH_VERSION` 单点真相源；setup 自检表（node/pnpm/git/dsh 红绿 + 端口占用检查，失败即红字退出，**无半成功态**）
-- 节点 hostVersion 告警（/nodes 页黄标 + 日志）；profile bundle 钉版本；gateway 钉 commit
-- Linux `detectDshBin` 修复（POSIX `command -v` + `npm root -g`）
+- `COMPAT_DSH_VERSION` as the single source of truth; a setup self-check table (node/pnpm/git/dsh red-green +
+  a port-in-use check; a failure exits in red, **no half-success state**)
+- A node hostVersion alert (a yellow tag on /nodes + a log line); the profile bundle pins a version; the
+  gateway pins a commit
+- Linux `detectDshBin` fixed (POSIX `command -v` + `npm root -g`)
 
-### 工程
+### Engineering
 
-- docs/notes 拆分（公开 docs/ = 路线图 + 用户手册）、README 重写（零死链 CI 断言、测试数禁手写）
-- CI：test + drill + fresh-boot 旅程 E2E + typecheck + audit + build + check-docs
-- 测试套件 335 → 360+
+- The docs/notes split (public docs/ = roadmap + user manual), README rewritten (a zero-dead-link CI
+  assertion, hand-written test counts forbidden)
+- CI: test + drill + the fresh-boot journey E2E + typecheck + audit + build + check-docs
+- The test suite went 335 → 360+
 
-## 1.0.0 — 蜂群 v1（2026-09-05）
+## 1.0.0 — Hive v1 (2026-09-05)
 
-单主机多节点版正式发布：默认安装 = manager（总办）+ 主脑（总控）+ 个人（工作区），
-一条命令、5 分钟用起来。
+The single-host multi-node edition is released: the default install = manager (HQ) + brain (chief
+controller) + personal (workspace), one command and you are up in 5 minutes.
 
-### 蜂群核心
+### Hive core
 
-- **主脑**：全局协调入口（派工单 / 查 fleet / 起草定时任务），对工作区只读、执行永远委托；
-  内部 REST API（仅 127.0.0.1 + `X-Brain-Token`）+ 技能手册（skill + curl，无 MCP）
-- **delegation 帧**：主脑会话页可见派工轨迹，点击跳回被派会话；`brain_done` 站内通知
-- **会话复用**：同类任务续接同名会话、空会话优先复用（`POST /api/internal/chats/:id/prompt`）
-- **主脑日预算熔断**：`brain.daily_budget_usd`（默认 $1/天），只拦派工、人工不拦，409 人话转述
+- **The brain**: the global coordination entry (work orders / fleet queries / drafting scheduled jobs),
+  read-only on workspaces and always delegating execution; an internal REST API (127.0.0.1 only +
+  `X-Brain-Token`) + a skill manual (skill + curl, no MCP)
+- **Delegation frames**: the brain's chat page shows the dispatch trail, and clicking jumps back to the
+  dispatched chat; a `brain_done` in-app notification
+- **Chat reuse**: a task of the same kind continues in a chat of the same name, and an empty chat is reused
+  first (`POST /api/internal/chats/:id/prompt`)
+- **A daily budget breaker for the brain**: `brain.daily_budget_usd` (default $1/day), it blocks dispatch
+  only and never a human, answering 409 in plain words
 
-### 多节点（fleet）
+### Multiple nodes (fleet)
 
-- manager 拉起/停止/重启多个 DSH 节点（监督器五态 + 指数退避 + 连续失败停用）
-- `/nodes` 页：节点全表 + 起/停/重启 + 日志抽屉；侧栏 `N/N` 就绪计数
-- **新增节点向导**：节点 = 工作区成对创建（高级设置折叠自定义），端口自动分配，
-  文件先行 + 失败自动回滚；删除 = 解除托管（磁盘目录保留）
-- 每节点独立 DSH_HOME / 端口 / gateway 密钥（`GW_KEY_*` 进 `.env`）
+- The manager starts/stops/restarts multiple DSH nodes (a five-state supervisor + exponential backoff +
+  disabling after consecutive failures)
+- The `/nodes` page: the full node table + start/stop/restart + a log drawer; a `N/N` ready count in the
+  sidebar
+- **The new-node wizard**: a node = a workspace created as a pair (advanced settings collapsed for
+  customisation), ports allocated automatically, files first + automatic rollback on failure; deleting =
+  unmanaging (the directory on disk stays)
+- Every node has its own DSH_HOME / port / gateway key (`GW_KEY_*` goes into `.env`)
 
-### 会话与并发
+### Chats and concurrency
 
-- 多轮对话（会话 adopt / SSE 中继 / 取消 / 双计费防护）、会话归档与恢复、
-  空会话自动清理（vacate）
-- **同 agent 多会话并发**：会话内串行、会话间并行（DSH 原生语义 + git 提交锁 +
-  冲突显性化 `run.conflict`）
-- 首页直达最近会话；归档单跳不双刷新
+- Multi-turn chat (chat adopt / SSE relay / cancel / double-billing protection), chat archive and restore,
+  empty-chat cleanup (vacate)
+- **Concurrent chats on the same agent**: serial within a chat, parallel between chats (DSH native semantics
+  + a git commit lock + conflicts surfaced as `run.conflict`)
+- The home page opens the most recent chat directly; archiving takes one hop without a double refresh
 
-### 平台化小件（P5）
+### Small platform pieces (P5)
 
-- `/skills` 技能清单页（文件即真相 + 工作区 git HEAD 版本对照）+ 技能仓库约定位置
-- 站内通知（铃铛 + 未读角标）：cron 成败 / 预算熔断 / 主脑派工完成
-- 计价：峰谷窗口 + **周六周日全天谷价**（`pricing.weekends_off_peak`）
+- The `/skills` inventory page (files are the truth + a version comparison against the workspace git HEAD) +
+  the agreed location for the skill repository
+- In-app notifications (bell + unread badge): cron success and failure / a budget breaker / a finished brain
+  dispatch
+- Pricing: peak/off-peak windows + **off-peak all weekend long** (`pricing.weekends_off_peak`)
 
-### 运维（P6）
+### Operations (P6)
 
-- 数据库备份/恢复：15 分钟自动快照、保留策略（24h 全留 → 每日 30 天 → 每周 12 周）、
+- Database backup/restore: 15-minute automatic snapshots, a retention policy (all kept for 24h → daily for 30
+  days → weekly for 12 weeks),
   `npm run backup/restore`
-- 服务化：`npm run service -- install/uninstall/status`（Windows 任务计划 / systemd user unit）
-- 自更新：`npm run update`（备份 → 拉新 → 构建 → 探活，失败自动回滚）
-- E2E 冒烟：`node scripts/smoke.mjs`（登录 → 聊天回合 → 主脑派工 → 通知，全链路）
+- Running as a service: `npm run service -- install/uninstall/status` (Windows Task Scheduler / systemd user
+  unit)
+- Self-update: `npm run update` (backup → pull → build → liveness probe, automatic rollback on failure)
+- E2E smoke: `node scripts/smoke.mjs` (login → chat turn → brain dispatch → notification, the whole chain)
 
-### 工程
+### Engineering
 
-- SQLite 显式迁移 `schema_version`；测试套件全绿（数量由 CI 断言）；前端零构建（hash 版本化资产）
-- 文档体系：公开 `docs/`（用户手册 + 路线图）与内部 `notes/`（设计/计划/调研）分层
+- Explicit SQLite migrations with `schema_version`; the test suite all green (the count is asserted by CI);
+  zero frontend build (hash-versioned assets)
+- The documentation split: public `docs/` (user manual + roadmap) and internal `notes/`
+  (design/plan/research) as layers
