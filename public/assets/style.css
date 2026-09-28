@@ -3138,3 +3138,127 @@ select.text-input {
   flex-direction: column;
   margin: 2px 0 12px;
 }
+
+/* ==========================================================================
+   outward services / keys pages: structural styles (UX pass, 2026-09-28)
+   The visual layer is a separate pass; this is the minimum to make the
+   controls behave like what they are.
+   ========================================================================== */
+
+.form-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.form-row > * {
+  flex: 1 1 180px;
+}
+
+.form-row .align-end {
+  flex: 0 0 auto;
+  align-self: flex-end;
+}
+
+label.inline {
+  display: inline;
+  font-weight: 400;
+}
+
+.filter-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.pill {
+  appearance: none;
+  font: 500 12px/1 var(--font);
+  color: var(--text-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.pill:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.pill.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-hover);
+}
+
+.detail-panel {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--r);
+  background: var(--surface-sunken);
+  display: grid;
+  gap: 4px;
+}
+
+.detail-panel h3 {
+  margin: 8px 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.advanced-body {
+  display: grid;
+  gap: 10px;
+  padding: 12px 2px 4px;
+}
+
+.token-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.token-row code {
+  flex: 1 1 260px;
+}
+
+.btn.ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-2);
+}
+
+.btn.ghost:hover {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.section-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin: 14px 0 4px;
+}
+
+.yaml-preview {
+  background: var(--surface-sunken);
+  border-radius: var(--r);
+  padding: 10px 12px;
+  overflow-x: auto;
+  font: 12px/1.6 var(--mono);
+  white-space: pre;
+}
+
+details > summary {
+  cursor: pointer;
+  color: var(--accent-hover);
+  font: 500 13px/1 var(--font);
+  margin-top: 12px;
+}

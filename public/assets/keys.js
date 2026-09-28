@@ -3,19 +3,21 @@
 // The plaintext appears in the creation response exactly once: it is displayed in the reveal area
 // with a "shown once" warning, and the list can never obtain it (the server has no such field).
 //
-// What the 2026-09-28 UX pass added on top of that promise:
-//   - scopes are explained in human terms (the real scope id stays visible in small print);
-//   - the form exposes everything the backend already accepts: per-minute rate, in-flight cap,
-//     expiry date, unlimited daily quota;
-//   - after issuing, the page can **test the key against the real outward door** (read-only, no
-//     spend) while the plaintext is still in hand, and offers a copyable handover block -- the
-//     endpoint, the service name, a working example, and the quota ground rules;
+// The operator flow this file serves (user, 2026-09-28, "key-first" blueprint):
+//   - the form shows three fields by default; scopes, rate, concurrency and expiry hide behind
+//     "more settings" (the defaults are the safe ones, and a credential is not a settings panel);
+//   - when no service exists, the service field is replaced by one action: create a service -- and
+//     the half-filled form survives the round trip (sessionStorage draft + ?service= return);
+//   - the list can be filtered per service, and each row opens a detail panel: which service it
+//     serves, its limits, its last calls and turns;
+//   - after issuing, the page can test the key against the real outward door (read-only) while the
+//     plaintext is still in hand, and offers a copyable handover block;
 //   - revoking asks for confirmation instead of firing on one click.
 //
 // Data contract (corrected after the 2026-09-27 incident): `apiJson` resolves to
 // `{ok, status, data}`, **not a Response** -- calling .json() on it leaves the whole page stuck at
 // "Loading..." (keys-page.test.mjs is the runtime guard for this now).
-import { $, esc, setHtml, apiJson, poll, t, loadI18n, ago } from './ui.js'
+import { $, esc, setHtml, apiJson, poll, t, loadI18n, ago, money } from './ui.js'
 
 await loadI18n()
 
@@ -30,6 +32,51 @@ const SCOPES = [
 
 const scopeLabel = (id) => SCOPES.find((scope) => scope.id === id)?.label ?? id
 
+const searchParams = () => {
+  try {
+    return new URLSearchParams(window.location?.search ?? '')
+  } catch {
+    return new URLSearchParams('')
+  }
+}
+
+/**
+ * The draft survives the "create a service" round trip (keys -> services -> keys). sessionStorage is
+ * per-tab and expires with the session; a browser without it simply loses the draft, never the flow.
+ */
+const draftStore = {
+  load() {
+    try {
+      const raw = sessionStorage.getItem('dac-key-draft')
+      return raw === null ? null : JSON.parse(raw)
+    } catch {
+      return null
+    }
+  },
+  save(draft) {
+    try {
+      sessionStorage.setItem('dac-key-draft', JSON.stringify(draft))
+    } catch {
+      // Storage unavailable: the draft just does not survive navigation.
+    }
+  },
+  clear() {
+    try {
+      sessionStorage.removeItem('dac-key-draft')
+    } catch {
+      // nothing to do
+    }
+  },
+}
+
+let pageData = null // the last list payload (access + services), which the handover block is built from
+let activeFilter = null // service id being filtered on, or null = all
+let openDetail = null // the key id whose detail panel is open
+const detailCache = new Map()
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
 const statePill = (key) => {
   if (key.revokedAt !== null) return `<span class="pill-mini muted">${esc(t('keys.revoked'))}</span>`
   if (key.expiresAt !== null && key.expiresAt <= Date.now()) return `<span class="pill-mini warn">${esc(t('keys.expired'))}</span>`
@@ -44,7 +91,40 @@ const quotaText = (key) => {
   return `${key.usedToday}/${key.quotaRunsDay} ${esc(t('keys.perDay'))}`
 }
 
-const keyRow = (key) => `<div class="node-row">
+const stamp = (ms) => (ms === null || ms === undefined ? '—' : new Date(ms).toLocaleString())
+
+const detailPanel = (key, detail) => {
+  if (detail === undefined || detail === null) return `<div class="node-meta muted">${esc(t('common.loading'))}</div>`
+  const calls = detail.recentCalls.length === 0
+    ? `<div class="node-meta muted">${esc(t('keys.detailEmptyCalls'))}</div>`
+    : detail.recentCalls.map((call) => `<div class="node-meta">${esc(stamp(call.at))} · <code>${esc(call.detail)}</code></div>`).join('')
+  const runs = detail.recentRuns.length === 0
+    ? `<div class="node-meta muted">${esc(t('keys.detailEmptyRuns'))}</div>`
+    : detail.recentRuns.map((run) => `<div class="node-meta">
+        <code class="muted">${esc(run.id.slice(0, 8))}</code>
+        <span class="pill-mini${run.state === 'done' ? '' : ' muted'}">${esc(run.state)}</span>
+        ${esc(stamp(run.startedAt))} · ${esc(t('keys.detailCost'))}: ${esc(money(run.costMicroUsd))}
+        ${run.summary === null ? '' : `· ${esc(String(run.summary).slice(0, 80))}`}
+      </div>`).join('')
+  return `<div class="detail-panel">
+    <div class="node-detail">${esc(t('keys.serving'))}: <strong>${key.serviceLabels.length === 0 ? '—' : esc(key.serviceLabels.join(', '))}</strong>
+      · ${esc(t('keys.today'))}: <strong>${quotaText(key)}</strong>
+      · ${esc(t('keys.inFlight'))}: ${key.active}/${key.maxConcurrency}
+      · ${key.rateLimitRpm}${esc(t('keys.perMinute'))}</div>
+    <div class="node-meta">${esc(t('keys.expires'))}: ${key.expiresAt === null ? esc(t('keys.expiresNever')) : esc(stamp(key.expiresAt))}
+      · ${esc(t('keys.createdLabel'))}: ${esc(stamp(key.createdAt))}
+      · ${esc(t('keys.lastUsed'))}: ${key.lastUsedAt === null ? '—' : esc(ago(key.lastUsedAt))}</div>
+    <h3 class="section-label">${esc(t('keys.detailCalls'))}</h3>${calls}
+    <h3 class="section-label">${esc(t('keys.detailRuns'))}</h3>${runs}
+  </div>`
+}
+
+const keyRow = (key) => {
+  const detail = openDetail === key.id ? detailCache.get(key.id) ?? null : null
+  const panel = detail === null
+    ? ''
+    : detailPanel(key, detail)
+  return `<div class="node-row">
   <div class="node-main">
     <div class="node-title">${esc(key.name)} ${statePill(key)} <code class="muted">${esc(key.id)}</code></div>
     <div class="node-detail">${esc(t('keys.serving'))}: ${key.serviceLabels.length === 0 ? '—' : esc(key.serviceLabels.join(', '))}</div>
@@ -53,9 +133,14 @@ const keyRow = (key) => `<div class="node-row">
       · ${esc(t('keys.inFlight'))}: ${key.active}/${key.maxConcurrency}
       · ${key.rateLimitRpm}${esc(t('keys.perMinute'))}
       · ${esc(t('keys.lastUsed'))}: ${key.lastUsedAt === null ? '—' : esc(ago(key.lastUsedAt))}</div>
+    ${panel}
   </div>
-  ${key.revokedAt === null ? `<div class="form-actions"><button class="btn" type="button" data-revoke="${esc(key.id)}" data-revoke-name="${esc(key.name)}">${esc(t('keys.revoke'))}</button></div>` : ''}
+  <div class="form-actions">
+    <button class="btn ghost" type="button" data-detail="${esc(key.id)}">${openDetail === key.id ? esc(t('keys.detailClose')) : esc(t('keys.detail'))}</button>
+    ${key.revokedAt === null ? `<button class="btn" type="button" data-revoke="${esc(key.id)}" data-revoke-name="${esc(key.name)}">${esc(t('keys.revoke'))}</button>` : ''}
+  </div>
 </div>`
+}
 
 const renderListener = (state, access) => {
   const el = $('keys-listener')
@@ -74,6 +159,18 @@ const renderListener = (state, access) => {
     accessEl.innerHTML = `${esc(t('keys.accessEndpoint'))}: <code>${esc(access?.baseUrl ?? `http://${where}/v1`)}</code>
       · ${esc(t('keys.accessQuota', { tz: access?.quotaTimeZone ?? '?' }))}`
   }
+}
+
+/** A key matches a service filter when it may enter it ('*' enters everything). */
+const matchesFilter = (key, serviceId) =>
+  key.scopeServices.includes('*') || key.scopeServices.includes(serviceId)
+
+const renderFilter = (services) => {
+  const row = $('keys-filter')
+  if (row === null) return
+  const all = `<button type="button" class="pill${activeFilter === null ? ' active' : ''}" data-filter="">${esc(t('keys.filterAll'))}</button>`
+  const chips = services.map((service) => `<button type="button" class="pill${activeFilter === service.id ? ' active' : ''}" data-filter="${esc(service.id)}">${esc(service.label)}</button>`).join('')
+  row.innerHTML = all + chips
 }
 
 const setMessage = (text) => {
@@ -119,7 +216,36 @@ const probeToken = async (token, target) => {
   renderProbe(response.data, target)
 }
 
-let pageData = null // the last list payload (access + services), which the handover block is built from
+// ---------------------------------------------------------------------------
+// The form: three visible fields, the rest under "more settings"
+// ---------------------------------------------------------------------------
+const readForm = () => ({
+  name: $('key-name')?.value ?? '',
+  service: $('key-services')?.value ?? '',
+  quota: $('key-quota')?.value ?? '200',
+  unlimited: $('key-quota-unlimited')?.checked === true,
+  rpm: $('key-rpm')?.value ?? '60',
+  concurrency: $('key-concurrency')?.value ?? '4',
+  expires: $('key-expires')?.value ?? '',
+  scopes: checkedScopes(),
+})
+
+const restoreDraft = (draft) => {
+  if (draft === null) return
+  const name = $('key-name'); if (name !== null && typeof draft.name === 'string') name.value = draft.name
+  const quota = $('key-quota'); if (quota !== null && typeof draft.quota === 'string') quota.value = draft.quota
+  const unlimited = $('key-quota-unlimited'); if (unlimited !== null) unlimited.checked = draft.unlimited === true
+  const rpm = $('key-rpm'); if (rpm !== null && typeof draft.rpm === 'string') rpm.value = draft.rpm
+  const concurrency = $('key-concurrency'); if (concurrency !== null && typeof draft.concurrency === 'string') concurrency.value = draft.concurrency
+  const expires = $('key-expires'); if (expires !== null && typeof draft.expires === 'string') expires.value = draft.expires
+}
+
+const saveDraft = () => draftStore.save(readForm())
+
+const checkedScopes = () =>
+  Array.from(document.querySelectorAll('#key-scopes input:checked'))
+    .map((input) => input.value)
+    .filter((value) => value !== '')
 
 const load = async () => {
   const r = await apiJson('/api/keys')
@@ -129,23 +255,52 @@ const load = async () => {
   renderListener(data.publicApi, data.access)
 
   const services = $('key-services')
-  if (services !== null && services.options.length === 0) {
-    services.innerHTML = data.services.map((s) => `<option value="${esc(s.id)}">${esc(s.label)} (${esc(s.id)})</option>`).join('')
-  }
-  // With no service configured the create form cannot submit, so give clear guidance instead of a dead button.
+  const empty = $('key-services-empty')
   const createButton = $('key-create')
-  if (createButton !== null) createButton.disabled = data.services.length === 0
-  setMessage(data.services.length === 0 ? t('keys.noServices') : '')
+  if (services !== null && empty !== null) {
+    const hasServices = data.services.length > 0
+    empty.hidden = hasServices
+    services.hidden = !hasServices
+    if (hasServices && services.options.length === 0) {
+      services.innerHTML = data.services.map((s) => `<option value="${esc(s.id)}">${esc(s.label)} (${esc(s.id)})</option>`).join('')
+      // The round trip back from creating a service preselects it here.
+      const wanted = searchParams().get('service')
+      if (wanted !== null && data.services.some((s) => s.id === wanted)) services.value = wanted
+    }
+    if (createButton !== null) createButton.disabled = !hasServices
+    if (!hasServices) setMessage(t('keys.noServices'))
+  }
 
-  setHtml('keys-list', data.keys.length === 0 ? `<p class="muted small">${esc(t('keys.empty'))}</p>` : data.keys.map(keyRow).join(''))
+  // A draft that survived the round trip comes back with its service preselect deferred to here
+  // (the options had to exist first).
+  const draft = draftStore.load()
+  if (draft !== null && services !== null && draft.service !== '' && services.value === '' && !services.hidden) {
+    services.value = draft.service
+  }
+
+  const visible = data.keys.filter((key) => activeFilter === null || matchesFilter(key, activeFilter))
+  renderFilter(data.services)
+  setHtml('keys-list', visible.length === 0
+    ? `<p class="muted small">${esc(t('keys.empty'))}</p>`
+    : visible.map(keyRow).join(''))
   const refreshed = $('keys-refresh')
   if (refreshed !== null) refreshed.textContent = new Date().toLocaleTimeString()
 }
 
-const checkedScopes = () =>
-  Array.from(document.querySelectorAll('#key-scopes input:checked'))
-    .map((input) => input.value)
-    .filter((value) => value !== '')
+const openKeyDetail = async (id) => {
+  if (openDetail === id) {
+    openDetail = null
+    await load()
+    return
+  }
+  openDetail = id
+  await load()
+  if (!detailCache.has(id)) {
+    const response = await apiJson(`/api/keys/${encodeURIComponent(id)}`)
+    if (response.ok) detailCache.set(id, response.data)
+    await load()
+  }
+}
 
 const create = async () => {
   const nameEl = $('key-name')
@@ -195,6 +350,7 @@ const create = async () => {
     if (probeResult !== null) probeResult.innerHTML = ''
   }
   if (nameEl !== null) nameEl.value = ''
+  draftStore.clear()
   await load()
 }
 
@@ -207,6 +363,9 @@ const copyText = async (text) => {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Wiring
+// ---------------------------------------------------------------------------
 $('key-form')?.addEventListener('submit', (event) => {
   event.preventDefault()
   void create()
@@ -247,20 +406,36 @@ $('key-verify-form')?.addEventListener('submit', (event) => {
   void probeToken(token, $('key-verify-result'))
 })
 
+document.addEventListener('input', saveDraft)
+document.addEventListener('change', saveDraft)
+
 document.addEventListener('click', (event) => {
   const target = event.target
   if (!(target instanceof HTMLElement)) return
   const id = target.dataset.revoke
-  if (id === undefined) return
-  const name = target.dataset.revokeName ?? id
-  if (!window.confirm(t('keys.revokeConfirm', { name }))) return
-  target.disabled = true
-  void apiJson(`/api/keys/${encodeURIComponent(id)}/revoke`, { method: 'POST' }).then(async (response) => {
-    setMessage(response.ok ? t('keys.revokedNow') : t('keys.revokeFailed'))
-    await load()
-  })
+  if (id !== undefined) {
+    const name = target.dataset.revokeName ?? id
+    if (!window.confirm(t('keys.revokeConfirm', { name }))) return
+    target.disabled = true
+    void apiJson(`/api/keys/${encodeURIComponent(id)}/revoke`, { method: 'POST' }).then(async (response) => {
+      setMessage(response.ok ? t('keys.revokedNow') : t('keys.revokeFailed'))
+      await load()
+    })
+    return
+  }
+  const detailId = target.dataset.detail
+  if (detailId !== undefined) {
+    void openKeyDetail(detailId)
+    return
+  }
+  if (target.dataset.filter !== undefined) {
+    activeFilter = target.dataset.filter === '' ? null : target.dataset.filter
+    void load()
+  }
 })
 
+// Restore the draft from before the "create a service" round trip (and keep refreshing it).
+restoreDraft(draftStore.load())
 await load()
 poll(load, 15_000)
 
@@ -269,8 +444,22 @@ poll(load, 15_000)
 const scopesEl = $('key-scopes')
 if (scopesEl !== null) {
   scopesEl.innerHTML = SCOPES.map((scope) => `<label class="checkbox-line">
-    <input type="checkbox" value="${esc(scope.id)}" ${scope.id === 'services:read' || scope.id === 'usage:read' ? 'checked' : ''} ${scope.available ? '' : 'disabled'} />
+    <input type="checkbox" value="${esc(scope.id)}" ${scope.id === 'services:read' || scope.id === 'usage:read' || scope.id === 'conversations:write' ? 'checked' : ''} ${scope.available ? '' : 'disabled'} />
     <span>${esc(scope.label)}${scope.available ? '' : ` <span class="pill-mini muted">${esc(t('keys.scopeUnreleased'))}</span>`} <code class="muted small">${esc(scope.id)}</code></span>
     <span class="muted small">${esc(scope.note)}</span>
   </label>`).join('')
+}
+
+// Test surface: the smoke test drives the real functions through this hook
+// (never present in production -- it is created only when the test flags it).
+if (globalThis.__DAC_TEST__ === true) {
+  globalThis.__DAC_KEYS_TEST__ = {
+    create,
+    load,
+    openKeyDetail,
+    readForm,
+    restoreDraft,
+    setFilter: (id) => { activeFilter = id },
+    draft: () => draftStore.load(),
+  }
 }

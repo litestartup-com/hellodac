@@ -23,15 +23,17 @@
     <form id="key-form" class="card narrow">
       <p id="key-create-msg" class="muted" hidden></p>
 
+      <!-- The whole basic form is three fields. Everything else lives behind "more settings":
+           a key is a credential, and the defaults are the safe ones. -->
       <label for="key-name">{{t:keys.name}}</label>
       <input id="key-name" type="text" maxlength="80" placeholder="{{t:keys.nameHint}}" />
 
       <label for="key-services">{{t:keys.services}}</label>
       <select id="key-services"></select>
-
-      <label>{{t:keys.scopes}}</label>
-      <div id="key-scopes" class="checks"></div>
-      <p class="muted small">{{t:keys.scopesHint}}</p>
+      <div id="key-services-empty" hidden>
+        <p class="muted small">{{t:keys.noServices}}</p>
+        <a class="btn" href="/services?create=1&return=keys">{{t:keys.createService}}</a>
+      </div>
 
       <div class="form-row">
         <div>
@@ -44,24 +46,29 @@
         </div>
       </div>
 
-      <div class="form-row">
-        <div>
-          <label for="key-rpm">{{t:keys.rpm}}</label>
-          <input id="key-rpm" type="number" min="1" max="6000" value="60" />
-        </div>
-        <div>
-          <label for="key-concurrency">{{t:keys.concurrency}}</label>
-          <input id="key-concurrency" type="number" min="1" max="64" value="4" />
-        </div>
-      </div>
+      <details id="key-advanced">
+        <summary>{{t:keys.moreSettings}}</summary>
+        <div class="advanced-body">
+          <label>{{t:keys.scopes}}</label>
+          <div id="key-scopes" class="checks"></div>
+          <p class="muted small">{{t:keys.scopesHint}}</p>
 
-      <div class="form-row">
-        <div>
+          <div class="form-row">
+            <div>
+              <label for="key-rpm">{{t:keys.rpm}}</label>
+              <input id="key-rpm" type="number" min="1" max="6000" value="60" />
+            </div>
+            <div>
+              <label for="key-concurrency">{{t:keys.concurrency}}</label>
+              <input id="key-concurrency" type="number" min="1" max="64" value="4" />
+            </div>
+          </div>
+
           <label for="key-expires">{{t:keys.expires}}</label>
           <input id="key-expires" type="date" />
+          <p class="muted small">{{t:keys.expiresHint}}</p>
         </div>
-        <p class="muted small">{{t:keys.expiresHint}}</p>
-      </div>
+      </details>
 
       <button type="submit" id="key-create">{{t:keys.createAction}}</button>
     </form>
@@ -93,6 +100,7 @@
       <h2>{{t:keys.existing}}</h2>
       <button id="key-verify-open" class="btn ghost" type="button">{{t:keys.verify}}</button>
     </div>
+    <div id="keys-filter" class="filter-row"></div>
     <div id="keys-list" class="nodes-list"><p class="muted small">{{t:common.loading}}</p></div>
   </section>
 
