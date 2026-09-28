@@ -1,18 +1,18 @@
-// 债务 F1:chat.js 拆分第四步——composer 层(发送/停止/排队/模型/权限/上下文渲染)
-// + 自绘下拉(模型/访问模式/推理深度共用的一套 DOM 面板)。
+// Debt F1, step four of splitting chat.js: the composer layer (send/stop/queue/model/permissions/context
+// rendering) plus the self-drawn dropdowns (one DOM panel shared by model, access mode and reasoning depth).
 //
-// 纯函数(modelKey/shortPath/accessOptions/sendPolicy)独立单测;
-// makeComposer 工厂注入 el/refs/deps,与 render/wire 层对称。
+// The pure functions (modelKey/shortPath/accessOptions/sendPolicy) are unit-tested separately; the makeComposer
+// factory takes el/refs/deps injected, mirroring the render and wire layers.
 
 import { esc, icon, apiFetch, t, loadI18n } from './ui.js'
 
 await loadI18n()
 
 // ---------------------------------------------------------------------------
-// 自绘下拉（模型 / 访问模式 / 推理深度）——原生 <option> 弹出列表浏览器
-// 不给样式，要 DSH web 的选项外观就得自绘：按钮 + body 挂载的选项面板，
-// token 同源（surface 卡片 + 悬停行 + 选中勾）。
-// DOM 初始化包在 hasDom 守卫里:node 单测导入本模块时无 document。
+// Self-drawn dropdowns (model / access mode / reasoning depth) -- the browser gives a native <option> popup no
+// styling at all, so matching the DSH web look means drawing it: a button plus an options panel appended to
+// body, sharing the same tokens (surface card + hover row + check mark for the selection).
+// DOM initialisation sits behind a hasDom guard: importing this module under node has no document.
 // ---------------------------------------------------------------------------
 
 const hasDom = typeof document !== 'undefined' && typeof document.createElement === 'function'
@@ -24,7 +24,7 @@ if (optionsPanel !== null) {
   document.body.appendChild(optionsPanel)
 }
 
-/** button 元素 → { options: [{value,label}], value, onPick }。 */
+/** button element -> { options: [{value,label}], value, onPick }. */
 export const dropdownState = new Map()
 let openDropdownBtn = null
 
@@ -56,9 +56,9 @@ const openDropdown = (button) => {
     row.setAttribute('aria-selected', String(selected))
     row.dataset.value = option.value
     if (option.locked === true) row.dataset.locked = '1'
-    // 债务 F5:全站唯一未转义的 innerHTML sink——option.label(上游模型目录/
-    // 沙箱模式名)原样拼进 innerHTML。改 DOM 构建(textContent 转义);
-    // CHECK_SVG 是静态常量,insertAdjacentHTML 安全。
+    // Debt F5: the only unescaped innerHTML sink site-wide -- option.label (upstream model catalogue or sandbox
+    // mode name) was interpolated into innerHTML as-is. Now DOM building escapes through textContent, and
+    // CHECK_SVG is a static constant, so insertAdjacentHTML is safe there.
     const labelSpan = document.createElement('span')
     labelSpan.textContent = option.label
     row.append(labelSpan)
@@ -75,7 +75,7 @@ const openDropdown = (button) => {
   ;(optionsPanel.querySelector('.composer-option.selected') ?? optionsPanel.querySelector('.composer-option'))?.focus()
 }
 
-/** 注册一个自绘下拉：button 点击开合；选中回填 value 并回调 onPick。 */
+/** Register a self-drawn dropdown: the button toggles it, a pick writes value back and calls onPick. */
 export const registerDropdown = (button, onPick) => {
   dropdownState.set(button, { options: [], value: '', onPick })
   button.addEventListener('click', () => {
@@ -123,12 +123,12 @@ if (optionsPanel !== null) {
   })
 }
 
-/** provider/model 的合成键(与 wire.loadModels 的 choices 键同一拼法)。 */
+/** Composite key for provider/model (the same spelling as the choices keys in wire.loadModels). */
 export const modelKey = (selection) => `${selection.provider}\u0000${selection.model}`
 
 /**
- * Windows 长路径的中间省略：保留盘符开头与尾部（工作区名），掐掉最无信息量
- * 的中段。完整路径始终在 title 里（hover 可见）。
+ * Middle-ellipsis for long Windows paths: keep the drive prefix and the tail (the workspace name) and cut the
+ * least informative middle. The full path always stays in the title attribute (visible on hover).
  */
 export const shortPath = (path) => {
   const s = String(path ?? '')
@@ -136,7 +136,7 @@ export const shortPath = (path) => {
   return `${s.slice(0, 16)}…${s.slice(-32)}`
 }
 
-/** 第三档选项随节点开锁状态变化：开锁 = 可选；未开锁 = 展示但锁定并说明。 */
+/** The third-tier option follows the node's unlock state: unlocked = selectable; locked = shown but disabled, with an explanation. */
 export const accessOptions = (caps) =>
   caps.fullAccess === true
     ? [
@@ -151,7 +151,7 @@ export const accessOptions = (caps) =>
       ]
 
 /**
- * 发送前置判断(纯函数):空文本/发送中/无状态一律不发。
+ * Pre-send check (pure function): empty text, a send in flight, or no state at all means do not send.
  * @param {{ text: string; sending: boolean; state: unknown }} input
  * @returns {{ kind: 'ok'; text: string } | { kind: 'empty' | 'busy' | 'no_state' }}
  */
@@ -163,7 +163,7 @@ export const sendPolicy = ({ text, sending, state }) => {
   return { kind: 'ok', text: trimmed }
 }
 
-// 全量访问的确认文案按部署形态区分（爆炸半径不同，2026-09-11 拍板）。
+// The full-access confirmation wording depends on the deployment form (different blast radius; agreed 2026-09-11).
 const FULL_WARNINGS = {
   container: t('chat.access.confirmContainer'),
   'bare-metal': t('chat.access.confirmBare'),
@@ -268,11 +268,12 @@ export const makeComposer = (refs, deps) => {
     const composer = state.composer ?? { capabilities: {}, model: null, context: null, accessMode: null }
     const capabilities = composer.capabilities ?? {}
     const lost = state.sessionState === 'lost'
-    // 会话尚未绑定（还没发过第一条消息）：切权限/选模型服务端必然 409 no_session，
-    // 控件直接禁用并说明原因，而不是「点了弹个 409」。
+    // The conversation is not bound yet (no first message sent): switching permissions or picking a model would
+    // answer 409 no_session, so the control is disabled with the reason shown instead of "click and get a 409".
     const fresh = state.sessionState === 'fresh'
-    // 蜂群 P5.4：跨会话不再互锁，composer 永不因别的会话而禁用；同会话的
-    // 新消息在上一回合跑完前由服务端排队，dock 可见可删。
+    // Hive P5.4: conversations no longer lock each other, so the composer is never disabled because of another
+    // conversation; a new message in the same conversation is queued server-side until the previous turn ends,
+    // visibly and deletably in the dock.
     const locked = lost || refs.sending.value
     const turnRunning = state.turns.some((t) => t.state === 'running')
 
@@ -302,9 +303,9 @@ export const makeComposer = (refs, deps) => {
     syncEffort()
     renderContext(composer.context)
     el.send.disabled = locked || el.input.value.trim() === ''
-    // 方案 C（2026-09-11）：发送/停止同槽变身——busy 时槽里只有停止方块，
-    // 空闲时只有发送箭头，主 CTA 位置永不跳动。排队发送是回合运行中输入非空
-    // 才浮现的 ghost 小按钮（P5.4 排队能力保留）。
+    // Option C (2026-09-11): one slot toggles between send and stop -- while busy it holds only the stop square,
+    // while idle only the send arrow, so the main CTA never moves. Queued send is a small ghost button that
+    // appears when a turn is running and the input is not empty (the P5.4 queuing ability is retained).
     const busy = refs.sending.value || turnRunning
     el.send.hidden = busy
     el.stop.hidden = !busy
