@@ -263,16 +263,17 @@ $('f-cancel').addEventListener('click', () => {
   $('node-editor').hidden = true
 })
 
-// 高级设置随节点名实时联动：没被手改过的字段跟着节点名走；手改过（dirty）
-// 的字段保持不动，清空才重新跟随。提交时 clean 字段省略，后端按同一规则
-// 自动生成——展示与落盘永远一致。
+// Advanced settings follow the node name live: fields never edited by hand track the name;
+// fields edited by hand (dirty) stay put and only follow again once cleared. Clean fields are
+// omitted on submit and the backend generates the same defaults by the same rule -- so what is
+// displayed and what is stored always agree.
 const advancedFields = ['f-agent-id', 'f-agent-name', 'f-agent-workspace']
 const advancedDirty = new Set()
-// 蜂群2计划 P6：容器模式（docker runner）下默认工作区 = manager 挂载视角路径
+// Hive plan 2 P6: in container mode (docker runner) the default workspace is the path as the manager sees its mount
 let dockerMode = false
-/** 能力二/P1：矩阵数据源缓存（节点行版本下拉用）。 */
+/** Capability two / P1: matrix data source cache (used by the version dropdown on a node row). */
 let versionList = []
-/** 能力四（M1-7）：agent id → hostname 展示映射（load 时刷新）。 */
+/** Capability four (M1-7): agent id -> hostname display map (refreshed on load). */
 let agentHostnames = new Map()
 
 for (const id of advancedFields) {
@@ -299,9 +300,9 @@ $('node-form').addEventListener('submit', async (event) => {
   const portRaw = $('f-node-port').value.trim()
   if (name === '') return
 
-  // 能力一：宿主机进程形态 = 整机能力，黄字确认（与审计 node_create_host 同源）。
+  // Capability one: the host-process form means whole-machine capability, so it takes a yellow-text confirmation (same source as the node_create_host audit).
   const runner = $('f-node-runner').value
-  // 能力四（M1-7）：选了主机 = agent 远端节点——强制 process 语义 + 地址必填
+  // Capability four (M1-7): a chosen host means an agent-run remote node -- process semantics are forced and the address is required
   const hostId = $('f-node-host').value.trim()
   const hostUrl = $('f-node-url').value.trim()
   if (hostId !== '' && hostUrl === '') {
@@ -313,10 +314,10 @@ $('node-form').addEventListener('submit', async (event) => {
     return
   }
   if ((hostId !== '' || runner === 'process') && !window.confirm(hostRunnerConfirmText(name))) return
-  // 舰队 M3-1：ops 第三档沙箱 = 整机全量，独立黄字确认（审批卡片 + 审计）
+  // Fleet M3-1: the third sandbox tier of an ops node means full machine access, with its own yellow-text confirmation (approval card + audit)
   if ($('f-agent-sandbox').value === 'danger-full-access' && !window.confirm(dangerSandboxConfirmText(name))) return
 
-  // 工作区总是创建；clean 的字段省略（后端按节点名生成同款默认）。
+  // The workspace is always created; clean fields are omitted (the backend generates the same defaults from the node name).
   const payload = nodeCreatePayload({
     name,
     port: portRaw,
@@ -337,7 +338,7 @@ $('node-form').addEventListener('submit', async (event) => {
   save.disabled = true
   save.textContent = t('nodes.form.creating')
   try {
-    // 债务 F6:统一 Result 层——创建失败提示读 r.detail。
+    // Debt F6: one Result layer -- a create failure notice reads r.detail.
     const r = await apiJson('/api/nodes', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -364,23 +365,23 @@ $('node-form').addEventListener('submit', async (event) => {
   }
 })
 
-// ---- 能力三 v1：原生访问配置（SSH 隧道元数据） ----
+// ---- Capability three v1: native access configuration (SSH tunnel metadata) ----
 
 /** @type {Record<string, { sshUser: string, sshHost: string, sshPort: number, guiPort: number, localPort: number, sshKey: string | null } | null>} */
 let accessById = {}
-/** @type {Record<string, string | null>} 节点原生 GUI 地址（后端按请求拼好，含 token）。 */
+/** @type {Record<string, string | null>} A node's native GUI address (assembled by the backend per request, token included). */
 let guiUrlById = {}
-/** @type {string | null} 编辑器当前编辑的节点 id。 */
+/** @type {string | null} The node id currently open in the editor. */
 let accessNode = null
 
 /**
- * 抽屉里的「连接」区：隧道命令 + 打开 GUI，**从表单当前值实时算**。
+ * The "connection" section of the drawer: tunnel command plus open GUI, **computed live from the form's current values**.
  *
- * 这一段原来常显在节点行里（330px 的卡，每个节点都给一条终端命令）；行精简后
- * 搬到这里——命令与「用这条命令做什么」放在一起，比摊在列表里合理。
+ * This used to sit permanently in the node row (a 330px card, one terminal command per node); once the row was
+ * slimmed down it moved here -- the command and "what to use it for" side by side, which beats spilling it over the list.
  *
- * 用表单值而不是已保存的 access 计算：配置过程中就能看到会生成什么命令，
- * 不必先保存再回来看（纯配置表单是「盲填」的）。
+ * Computed from the form values rather than the saved access: you can see which command will be generated while
+ * configuring, instead of saving first and coming back (a plain configuration form is filled in blind).
  */
 const renderAccessConn = () => {
   const box = $('f-acc-conn')
@@ -389,7 +390,7 @@ const renderAccessConn = () => {
   const local = Number($('f-acc-local').value)
   const gui = Number($('f-acc-gui').value)
   const sshPort = Number($('f-acc-sshport').value)
-  // 三个必需字段（与后端校验一致：user / host / local port）齐了才给命令。
+  // Only once the three required fields are there (matching the backend validation: user / host / local port) is the command offered.
   if (user === '' || host === '' || !Number.isInteger(local) || local <= 0) {
     box.hidden = true
     return
@@ -409,7 +410,7 @@ const renderAccessConn = () => {
   $('f-acc-conn-hint').textContent = url === null ? t('gui.notReady') : t('gui.tunnelHint')
 }
 
-// 表单任一项变化都重算命令（输入即所见，不用先保存）。
+// Any change to a form field recomputes the command (what you type is what you see, no saving first).
 for (const id of ['f-acc-user', 'f-acc-host', 'f-acc-sshport', 'f-acc-gui', 'f-acc-local', 'f-acc-key']) {
   $(id).addEventListener('input', () => renderAccessConn())
 }
@@ -508,7 +509,7 @@ $('node-access-form').addEventListener('submit', async (event) => {
   }
 })
 
-// ---- 能力四（M1-7）：机器目录 ----
+// ---- Capability four (M1-7): machine directory ----
 $('add-machine').addEventListener('click', async () => {
   try {
     const r = await apiJson('/api/agents/join', { method: 'POST' })
@@ -536,7 +537,7 @@ $('join-close').addEventListener('click', () => {
 })
 
 $('machines-list').addEventListener('click', (event) => {
-  // UI 收尾 C-P1.5：点本机行跳「全部节点」区块（本机没有 agent 专属动作）。
+  // UI wrap-up C-P1.5: clicking the local row jumps to the "all nodes" section (the local machine has no agent-only actions).
   if (event.target.closest('[data-local-machine-row]') !== null) {
     const list = $('nodes-list')
     if (list !== null) list.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -587,13 +588,13 @@ $('machines-list').addEventListener('click', (event) => {
     .catch((error) => alert(t('nodes.machine.revokeFailed', { message: error.message })))
 })
 
-// ---- UI 收尾 C-P1：集群拓扑（视图切换 + 边线绘制 + 卡片跳转） ----
+// ---- UI wrap-up C-P1: cluster topology (view switching + edge drawing + card navigation) ----
 let revokedCount = 0
 let topoState = { managerVersion: '', origin: window.location.origin, containerForm: false, machines: [], nodes: [], localHost: null }
 
 const VIEW_KEY = 'nodes-view'
 
-/** 折叠按钮文案（计数随机器数走；不靠中文字符串替换）。 */
+/** Fold button text (the count follows the number of machines; no Chinese string replacement). */
 const revokedToggleLabel = (visible) =>
   visible
     ? t('nodes.revoked.hide', { count: revokedCount })
@@ -610,13 +611,13 @@ const setRevokedFold = (show) => {
 const redrawTopo = () => {
   const container = document.querySelector('#topology .topo')
   if (container === null) return
-  // C-P1.5：有 host 为空的节点才渲染本机卡（本机节点从本机卡出发）。
+  // C-P1.5: the local card is rendered only when some node has an empty host (local nodes start from the local card).
   const hasLocal = topoState.nodes.some((n) => typeof n.host !== 'string' || n.host === '')
   drawTopoEdges(container, edgePairs(topoState.machines, topoState.nodes, hasLocal))
 }
 
 const renderTopo = () => {
-  // 轮询重绘时保留用户展开的「离线/已吊销」折叠区状态。
+  // Keep the user's expanded "offline / revoked" fold state across polling redraws.
   const prev = document.querySelector('#topology details.topo-fold')
   const wasOpen = prev !== null && prev.open
   setHtml('topology', topologyHtml(topoState))
@@ -625,13 +626,13 @@ const renderTopo = () => {
   redrawTopo()
 }
 
-// ── 三视图（DAC v1.0.0）：拓扑 / 节点 / 机器 ────────────────────────
+// ── Three views (DAC v1.0.0): topology / nodes / machines ────────────────────────
 const VIEWS = ['topo', 'nodes', 'machines']
 const VIEW_PANELS = { topo: 'topology-section', nodes: 'nodes-view', machines: 'machines-view' }
 const VIEW_BUTTONS = { topo: 'view-topo', nodes: 'view-nodes', machines: 'view-machines' }
 
 const setView = (view) => {
-  // 旧偏好（'list'）映射到节点视图，避免升级后落在空视图上。
+  // The old preference ('list') maps to the node view, so an upgrade does not land on an empty view.
   const active = VIEWS.includes(view) ? view : view === 'list' ? 'nodes' : 'topo'
   for (const name of VIEWS) {
     $(VIEW_PANELS[name]).hidden = name !== active
@@ -640,7 +641,7 @@ const setView = (view) => {
   try {
     localStorage.setItem(VIEW_KEY, active)
   } catch {
-    // 隐私模式等存储失败忽略——只是记不住偏好，不影响使用。
+    // Storage failures such as private mode are ignored -- the preference is simply not remembered, which does not affect use.
   }
   if (active === 'topo') redrawTopo()
   return active
@@ -648,7 +649,7 @@ const setView = (view) => {
 
 for (const name of VIEWS) $(VIEW_BUTTONS[name]).addEventListener('click', () => setView(name))
 
-// 点拓扑卡片 → 跳对应视图并定位到那一行（吊销折叠区先展开再定位）。
+// Clicking a topology card jumps to the matching view and focuses that row (a revoked fold is expanded before focusing).
 const jumpTo = (view, selector) => {
   setView(view)
   const row = document.querySelector(selector)
@@ -668,7 +669,7 @@ $('topology').addEventListener('click', (event) => {
   if (nd !== null) jumpTo('nodes', `[data-node-row="${CSS.escape(nd.dataset.topoNode)}"]`)
 })
 
-// ── 抽屉（新增节点向导 / 原生访问配置）：背景点击与 Esc 关闭 ─────────
+// ── Drawers (add-node wizard / native access configuration): background click and Esc close them ─────────
 const DRAWERS = ['node-editor', 'node-access-editor']
 for (const id of DRAWERS) {
   $(id).addEventListener('click', (event) => {
@@ -682,7 +683,7 @@ document.addEventListener('keydown', (event) => {
 
 window.addEventListener('resize', redrawTopo)
 
-// 默认落在拓扑视图（舰队全貌最有信息量）；用户切换后记住偏好。
+// Default to the topology view (the fleet at a glance is the most informative); once the user switches, remember the preference.
 let savedView = 'topo'
 try {
   savedView = localStorage.getItem(VIEW_KEY) ?? 'topo'
@@ -693,14 +694,14 @@ setView(savedView)
 
 const load = async () => {
   try {
-    // 债务 F6:统一 Result 层。
+    // Debt F6: one Result layer.
     const [nodesResult, agentsResult] = await Promise.all([apiJson('/api/nodes'), apiJson('/api/agents')])
     if (!nodesResult.ok) return
     const { nodes, dockerMode: isDocker, supportedDsh, containerForm, hostOs, hostArch, hostName, hostNodeVersion } = nodesResult.data
     dockerMode = isDocker === true
     if (Array.isArray(supportedDsh)) versionList = supportedDsh
-    // 能力四（M1-7/M4-3/UI 收尾 B）：机器目录 + 主机下拉 + 节点行主机名映射 +
-    // 待更新徽标；已吊销机器默认折叠（可展开 + 删除记录）。
+    // Capability four (M1-7/M4-3/UI wrap-up B): the machine directory plus the host dropdown, the node-row
+    // hostname map and the update-pending badge; revoked machines are folded by default (expandable, with record deletion).
     if (agentsResult.ok && Array.isArray(agentsResult.data.agents)) {
       const machines = agentsResult.data.agents
       const managerVersion = agentsResult.data.managerVersion
@@ -708,7 +709,7 @@ const load = async () => {
       const active = machines.filter((m) => !m.revoked)
       const revoked = machines.filter((m) => m.revoked)
       revokedCount = revoked.length
-      // UI 收尾 C-P1.5：机器列表首行 = 本机（纯 UI 投影，不进 agent_machine）。
+      // UI wrap-up C-P1.5: the first row of the machine list is the local machine (a pure UI projection, never written to agent_machine).
       const localNodes = nodes.filter((n) => typeof n.host !== 'string' || n.host === '')
       const localRow = localMachineRowHtml({
         hostname: typeof hostName === 'string' ? hostName : t('nodes.local.hostnameFallback'),
@@ -738,9 +739,10 @@ const load = async () => {
         opt.textContent = `${m.hostname}（${m.os}/${m.arch}）`
         hostSel.appendChild(opt)
       }
-      // UI 收尾 C-P1：集群拓扑数据帧（纯前端聚合 /api/nodes + /api/agents，
-      // 不另起真相；拓扑视图可见时才画 SVG 边线）。managerVersion 注入与
-      // 列表行同口径，否则「待更新」徽标在拓扑里永远不亮。
+      // UI wrap-up C-P1: the cluster topology data frame (the frontend aggregates /api/nodes + /api/agents
+      // only, it does not start a second truth; SVG edges are drawn only while the topology view is visible).
+      // managerVersion is injected on the same basis as the list rows, otherwise the "update pending" badge
+      // would never light up in the topology.
       topoState = {
         managerVersion,
         origin: window.location.origin,
@@ -751,14 +753,15 @@ const load = async () => {
       }
       renderTopo()
     }
-    // 容器形态部署（manager 在容器内）不支持宿主机进程节点——向导里禁用该
-    // 选项并改写文案；裸机部署（含混合 docker.sock 部署）不受限。
+    // A container-form deployment (manager inside a container) does not support host-process nodes -- the
+    // wizard disables that option and rewrites its text; bare-metal deployments (including a mixed
+    // docker.sock deployment) are unaffected.
     const processOpt = $('f-node-runner').querySelector('option[value="process"]')
     if (processOpt !== null) {
       processOpt.disabled = containerForm === true
       processOpt.textContent = containerForm === true ? t('nodes.form.runnerProcessDisabled') : t('nodes.form.runnerProcess')
     }
-    // 能力二：版本下拉 = 矩阵数据源（首次填充后不再重复）
+    // Capability two: the version dropdown is the matrix data source (filled once, never repeated)
     if (Array.isArray(supportedDsh)) {
       const sel = $('f-node-version')
       if (sel.options.length <= 1) {
@@ -770,7 +773,7 @@ const load = async () => {
         }
       }
     }
-    // 能力三 v1：access 真相缓存（编辑器预填用）+ GUI 地址缓存（连接区用）
+    // Capability three v1: access truth cache (for editor prefill) plus GUI address cache (for the connection section)
     accessById = Object.fromEntries(nodes.map((n) => [n.id, n.access ?? null]))
     guiUrlById = Object.fromEntries(nodes.map((n) => [n.id, typeof n.guiUrl === 'string' && n.guiUrl !== '' ? n.guiUrl : null]))
     const live = nodes.filter((n) => n.state === 'live').length
@@ -783,7 +786,7 @@ const load = async () => {
 
     $('nodes-refresh').textContent = t('nodes.refreshAt', { time: new Date().toLocaleTimeString(undefined, { hour12: false }) })
   } catch {
-    // 网络失败时保留上一帧，不刷成错误页。
+    // Keep the previous frame on a network failure rather than repainting an error page.
   }
 }
 
