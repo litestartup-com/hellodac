@@ -11,6 +11,7 @@ import { eq, inArray } from 'drizzle-orm'
 import type { AppConfig } from '../config.js'
 import { schema, type Db } from '../db/index.js'
 import { archiveOrphanChats } from '../chat/store.js'
+import { sweepIdleConversations } from '../public-api/idle-sweep.js'
 import { syncFleetDocs } from '../workspace/fleet-doc.js'
 import type { NodeSupervisor } from '../nodes/supervisor.js'
 import { DockerRunner, NODE_LABEL, type DockerRunner as DockerRunnerType } from '../nodes/docker-runner.js'
@@ -229,6 +230,12 @@ export const reconcileAll = async (
     onlyNodes?: Set<string>
     /** Debt R9: false = mirror only, no convergence deletes (the hot-change path keeps deleted agent rows for the life of the process). */
     removeStaleAgents?: boolean
+    /**
+     * Outward idle reclaim. **On by default** (boot and the periodic tick; a reclaim window has to
+     * hold while the manager is up, not only at boot). Set false on the config hot-change path, where
+     * a provision action has no business archiving somebody's conversation.
+     */
+    sweepIdle?: boolean
   } = {},
 ): Promise<void> => {
   const { db, config, supervisors, docker, log } = deps
@@ -243,6 +250,19 @@ export const reconcileAll = async (
     if (dropped > 0) log(`marked ${dropped} interrupted agent command(s) as failed (payload cleared)`)
     const orphan = convergeOrphanChats(db, config)
     if (orphan > 0) log(`archived ${orphan} orphan chat(s) whose agent left the config`)
+  }
+  // Outward idle reclaim (CONCEPTS-ALIGNED.md §6/§8.3): a conversation idle past its service's
+  // session_idle_hours is archived, which frees its agent slot and releases the sticky anchor.
+  //
+  // Deliberately **not** inside the runHygiene block above, and deliberately true on the periodic
+  // tick: runHygiene is boot-only because converging in-flight runs would kill live turns on a tick,
+  // whereas archiving an idle conversation is safe at any time and is a promise to the operator --
+  // enforced only at boot, a conversation that goes idle while the manager is up would survive until
+  // the next restart. It rides this existing tick rather than getting a scheduler of its own.
+  // Cost: one indexed read of live rows, plus at most one update each.
+  if (opts.sweepIdle !== false) {
+    const idle = sweepIdleConversations({ db, config })
+    if (idle > 0) log(`reclaimed ${idle} idle outward conversation(s)`)
   }
   const fleet = await convergeFleet(config, log)
   if (fleet.length > 0) log(`fleet.md synced: ${fleet.join(', ')}`)

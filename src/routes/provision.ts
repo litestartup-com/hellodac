@@ -290,10 +290,12 @@ export const registerProvisionRoutes = (
   // - an empty set = touch no node this round (the mirror and fleet still run);
   // - {new node} = bring up the new node only -- never let a hot change drag up other cold nodes the user stopped by hand.
   // removeStaleAgents=false: after a hot delete the agent row survives for the life of the process (billing/audit FK).
+  // sweepIdle=false: reclaiming idle outward conversations belongs to the periodic tick, not to a
+  // provision action (adding a node must not archive somebody's conversation as a side effect).
   const reconcile = (onlyNodes: Set<string>): Promise<void> =>
     reconcileAll(
       { db, config, supervisors, docker: deps.docker ?? null, log: (line) => app.log.info(line) },
-      { onlyNodes, removeStaleAgents: false },
+      { onlyNodes, removeStaleAgents: false, sweepIdle: false },
     )
 
   app.post<{ Body: unknown }>('/api/nodes', { preHandler: requireUser, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (request, reply) => {
