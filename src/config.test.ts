@@ -217,6 +217,7 @@ test('能力四回归: runner=agent + host 解析——舰队远端节点形态�
         spawn: { managed: true, runner: 'agent', host: 'agent-abc123', env: { DSH_HOME: '/home/dac-node/.dac/ops01' } },
       },
     },
+    agents: { personal: { name: '个人', endpoint: 'A', workspace: '/home/dac-node/ws' } },
   }))
   const spawn = cfg.endpoints['A']?.spawn
   assert.equal(spawn?.runner, 'agent')
@@ -500,7 +501,7 @@ const onMachine = (ids: string[], host: string, publicIds: string[] = []): Recor
       ids.map((id) => [id, { url: `http://10.0.0.5:${3100 + ids.indexOf(id)}`, driver: 'apiproxy', spawn: { managed: true, runner: 'agent', host } }]),
     ),
     agents: Object.fromEntries(
-      ids.map((id) => [id, { name: id, endpoint: id, workspace: '.', public: publicIds.includes(id) }]),
+      ids.map((id) => [id, { name: id, endpoint: id, workspace: `/srv/ws-${id}`, public: publicIds.includes(id) }]),
     ),
   })
 
@@ -543,6 +544,38 @@ test('机器隔离: 本机（无 spawn.host）同样适用', () => {
     },
   })
   assert.throws(() => loadFrom(local), /machine "local" hosts both outward agents/)
+})
+
+/**
+ * 远端工作区原样透传（2026-09-28 实机事故）：manager 在 Windows 上，节点在 Linux 上，
+ * `resolve('/home/dac/ws')` 会变成 `C:\home\dac\ws`，节点侧 session.create 直接拒绝
+ * （cwd must be an absolute path）。同年那台 Linux 上留下的 `C:\root\...\spike02` 怪目录
+ * 就是这个 bug 的化石。
+ */
+test('远端工作区: runner=agent 的路径按那台机器的命名空间原样透传，不做本机解析', () => {
+  const cfg = loadFrom(
+    baseConfig({
+      endpoints: {
+        R: { url: 'http://10.0.0.5:3201', driver: 'apiproxy', spawn: { managed: true, runner: 'agent', host: 'box-1' } },
+      },
+      agents: { remote: { name: 'remote', endpoint: 'R', workspace: '/home/dac/workspaces/chat' } },
+    }),
+  )
+  assert.equal(cfg.agents['remote']?.workspacePath, '/home/dac/workspaces/chat')
+
+  // 本机节点仍然按 manager 自己的文件系统解析（相对路径是有意义的）
+  const local = loadFrom(baseConfig({ agents: { here: { name: 'here', endpoint: 'A', workspace: 'sub/dir' } } }))
+  assert.equal(local.agents['here']?.workspacePath, resolve('sub/dir'))
+})
+
+test('远端工作区: 相对路径 fail-loud（远端没有"当前目录"可以参照）', () => {
+  const relative = baseConfig({
+    endpoints: {
+      R: { url: 'http://10.0.0.5:3201', driver: 'apiproxy', spawn: { managed: true, runner: 'agent', host: 'box-1' } },
+    },
+    agents: { remote: { name: 'remote', endpoint: 'R', workspace: 'workspaces/chat' } },
+  })
+  assert.throws(() => loadFrom(relative), /must be an absolute path on the remote machine/)
 })
 
 test('死路告警: driver: gateway 端点必须 warning（facade 0.2.x 无会话 REST 面）', () => {

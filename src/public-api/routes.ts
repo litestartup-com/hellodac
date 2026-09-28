@@ -226,6 +226,8 @@ export const registerPublicApiRoutes = (app: FastifyInstance, deps: PublicApiDep
           replyPayload.usage = outcome.usage
           replyPayload.costMicroUsd = outcome.costMicroUsd
           replyPayload.state = outcome.state
+          // 失败态必须带原因：调用方要能自己判断"重试有用"还是"请求得改"。
+          if (outcome.error !== null) replyPayload.error = outcome.error
         }
         return reply.header('cache-control', 'no-store').send(replyPayload)
       }
@@ -272,6 +274,7 @@ export const registerPublicApiRoutes = (app: FastifyInstance, deps: PublicApiDep
       payload.usage = outcome.usage
       payload.costMicroUsd = outcome.costMicroUsd
       payload.state = outcome.state
+      if (outcome.error !== null) payload.error = outcome.error
     }
     return reply.code(201).header('cache-control', 'no-store').send(payload)
   })
@@ -310,6 +313,7 @@ export const registerPublicApiRoutes = (app: FastifyInstance, deps: PublicApiDep
       agentId: chat.agentId,
       reply: outcome.summary,
       state: outcome.state,
+      ...(outcome.error === null ? {} : { error: outcome.error }),
       usage: outcome.usage,
       costMicroUsd: outcome.costMicroUsd,
       durationMs: outcome.durationMs,

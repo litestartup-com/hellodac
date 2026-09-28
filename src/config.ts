@@ -608,14 +608,27 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
 
   const agents: Record<string, ResolvedAgent> = {}
   for (const [id, a] of Object.entries(file.agents)) {
-    if (endpoints[a.endpoint] === undefined) {
+    const endpoint = endpoints[a.endpoint]
+    if (endpoint === undefined) {
       throw new Error(`agent "${id}": unknown endpoint "${a.endpoint}"`)
+    }
+    // 远端工作区**不能**按 manager 自己的文件系统解析（2026-09-28 实测事故）：
+    // `resolve('/home/dac/ws')` 在 Windows 上会变成 `C:\home\dac\ws`，于是节点侧
+    // session.create 直接拒绝（"cwd must be an absolute path"）——非 root 用户那次
+    // 还在那台 Linux 上留下过一个 Windows 风格路径名的怪目录，就是这个 bug 的化石。
+    // 远端 agent 的路径属于**那台机器**的命名空间，原样透传。
+    const remoteWorkspace = endpoint.spawn?.runner === 'agent'
+    if (remoteWorkspace && !/^\/|^[A-Za-z]:[\\/]/.test(a.workspace)) {
+      throw new Error(
+        `agent "${id}": workspace "${a.workspace}" must be an absolute path on the remote machine ` +
+          '(runner: agent keeps the path verbatim; relative paths cannot be resolved there).',
+      )
     }
     agents[id] = {
       id,
       name: a.name,
       endpoint: a.endpoint,
-      workspacePath: resolve(a.workspace),
+      workspacePath: remoteWorkspace ? a.workspace : resolve(a.workspace),
       public: a.public,
       preset: a.preset ?? null,
       sandboxMode: a.sandbox_mode ?? null,
