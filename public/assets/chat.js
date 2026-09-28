@@ -23,7 +23,7 @@
 import { $, esc, icon, apiFetch, t, loadI18n } from './ui.js'
 
 await loadI18n()
-// 债务 F1:reducer/render/wire/composer 四层已下沉——chat.js 只编排与持有页面状态。
+// Debt F1: the reducer/render/wire/composer layers have moved out -- chat.js only orchestrates and holds page state.
 import { makeRenderer } from './chat-render.js'
 import { makeWire } from './chat-wire.js'
 import { makeComposer, fullAccessWarning, dropdownState, registerDropdown, setDropdownLabel } from './chat-composer.js'
@@ -65,18 +65,18 @@ const segments = window.location.pathname.split('/').filter(Boolean)
 const chatId = segments[0] === 'chat' && segments[1] !== undefined ? decodeURIComponent(segments[1]) : null
 
 // ---------------------------------------------------------------------------
-// 自绘下拉（模型 / 访问模式 / 推理深度）已下沉 chat-composer.js——
-// dropdownState/registerDropdown/setDropdownLabel 从那里 re-export 使用。
+// The self-drawn dropdowns (model / access mode / reasoning depth) moved to chat-composer.js --
+// dropdownState/registerDropdown/setDropdownLabel are re-exported from there.
 // ---------------------------------------------------------------------------
 
 /** Everything the last GET told us. Null until it answers. */
 let state = null
 
-// 本会话排队/刚发送、可能尚未进入 DSH 历史的消息：reload 重建列表时补画。
-// 每页只对应一个 chat（chatId 来自 URL），所以页面级状态即可。
+// Messages queued or just sent in this conversation that may not have reached the DSH history yet: redrawn
+// when reload rebuilds the list. One page serves one chat (chatId comes from the URL), so page state is enough.
 let pendingUserTexts = []
-// 本会话正在排队的消息（composer 上方的队列 dock，一行一条）。
-// turn_queued 帧入队、turn_start 帧出队；刷新页面即重置。
+// Messages currently queued in this conversation (the queue dock above the composer, one row each).
+// A turn_queued frame enqueues, a turn_start frame dequeues; refreshing the page resets it.
 let queuedItems = []
 /** Blocks built by the reducer, in transcript order. */
 let blocks = []
@@ -104,8 +104,8 @@ let effortSignature = null
 let buffered = []
 let loading = false
 
-// 债务 F1:wire 层(chat-wire.js)经 refs 盒读写页面状态——本文件其余代码
-// 继续用裸变量,盒子的 getter/setter 转发,状态只有一份。
+// Debt F1: the wire layer (chat-wire.js) reads and writes page state through ref boxes -- the rest of this
+// file keeps using bare variables, with the boxes forwarding through getters/setters, so state exists once.
 const refs = {
   state: { get value() { return state }, set value(v) { state = v } },
   pendingUserTexts: { get value() { return pendingUserTexts }, set value(v) { pendingUserTexts = v } },
@@ -127,11 +127,11 @@ const toast = (text) => {
 }
 
 // ---------------------------------------------------------------------------
-// the reducer（已下沉 chat-reducer.js,本文件只留渲染/连线/编排）
+// the reducer (moved to chat-reducer.js; this file keeps rendering, wiring and orchestration)
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// rendering（已下沉 chat-render.js,本文件只留注入与编排）
+// rendering (moved to chat-render.js; this file keeps injection and orchestration)
 // ---------------------------------------------------------------------------
 
 /**
@@ -151,8 +151,9 @@ const openTools = new Set()
  */
 const openContext = new Set()
 
-// 债务 F1:帧/block → HTML 的构造全部来自 chat-render.js 工厂;折叠状态
-// 与会话快照注入,markdown 缓存由工厂持有(renderLog 每帧重建仍吃缓存)。
+// Debt F1: every frame/block -> HTML construction comes from the chat-render.js factory; folding state and
+// the conversation snapshot are injected, and the markdown cache is held by the factory (renderLog rebuilds
+// on every frame but still hits that cache).
 const {
   writeRow, toolsBlock, footer, agentTurn, userTurn, contextFold,
   questionCard, approvalCard, readFeedback, setFeedback,
@@ -209,7 +210,7 @@ const runningHere = () => {
  * What it is doing, from the last frame that said anything.
  *
  * The point is not precision, it is that the words change: a label that moves
- * from 思考 to 正在用 read to 正在回答 is evidence of progress, while one frozen
+ * from "thinking" to "running read" to "answering" is evidence of progress, while one frozen
  * string is indistinguishable from a hang no matter what it says.
  */
 const waitLabel = (block) => {
@@ -302,8 +303,8 @@ let waitTimer = null
  * the waiting indicator does -- a redraw mid-answer must not swallow the text
  * someone is typing into one.
  */
-// 债务 F1:asks 状态机已下沉 chat-state.js(makeAsks/track 纯函数,7 例单测);
-// 本文件保留 syncAsks 的 DOM 挂载与 askNode。
+// Debt F1: the asks state machine moved to chat-state.js (makeAsks/track are pure functions with seven unit
+// tests); this file keeps the DOM mounting of syncAsks together with askNode.
 const asks = makeAsks()
 const trackAsks = asks.track
 
@@ -314,7 +315,7 @@ let paintedAsks = null
 const askNode = document.createElement('div')
 askNode.className = 'asks'
 
-// 债务 F1:卡片构造(optionRow/questionCard/approvalCard)已下沉 chat-render.js。
+// Debt F1: card construction (optionRow/questionCard/approvalCard) moved to chat-render.js.
 
 /**
  * Attaches the cards, rebuilding them only when the asks changed.
@@ -391,7 +392,7 @@ askNode.addEventListener('click', (event) => {
     const group = option.parentElement
     // Single-select behaves like radios; multi-select toggles. Enforced here as
     // well as in the gateway, so the shape of the card matches what it accepts.
-    // aria-checked follows the visual state (DSH QuestionComposer 语义).
+    // aria-checked follows the visual state (DSH QuestionComposer semantics).
     if (!group.classList.contains('multi')) {
       for (const sibling of group.querySelectorAll('.ask-opt.on')) {
         if (sibling !== option) {
@@ -494,7 +495,7 @@ window.addEventListener('resize', syncToBottom)
 
 const renderLog = () => {
   const pinned = atBottom()
-  // A turn can be running before its first frame has arrived, and "还没有消息"
+  // A turn can be running before its first frame has arrived, and "no messages yet"
   // under a message you just sent is the exact false impression this whole
   // indicator exists to prevent.
   if (blocks.length === 0 && !runningHere()) {
@@ -645,7 +646,7 @@ el.log.addEventListener('click', (event) => {
 
 const chatTitle = () => {
   if (state === null) return t('chat.defaultTitle')
-  // 变量名不要用 t：它会遮蔽 ui.js 的翻译函数（2026-09-24 线上事故）。
+  // Do not name a variable t: it shadows the ui.js translation function (production incident 2026-09-24).
   const title = state.chat.title
   return title === null || title === '' ? t('side.newChat') : title
 }
@@ -689,7 +690,7 @@ const renderQueueDock = () => {
 /**
  * Edit pulls the queued text back into the composer (undo); delete drops it.
  * Both call the same idempotent cancel endpoint and remove the row locally.
- * (实现已下沉 chat-composer.js)
+ * (implementation moved to chat-composer.js)
  */
 
 const renderNotices = () => {
@@ -709,7 +710,7 @@ const renderNotices = () => {
 }
 
 // ---------------------------------------------------------------------------
-// Ongoing Goal 条（DSH web 同款：读宿主 goal 投影，仅显示不操作）
+// Ongoing Goal bar (the same as DSH web: reads the host goal projection, display only, no actions)
 // ---------------------------------------------------------------------------
 
 const GOAL_PHASES = {
@@ -721,7 +722,7 @@ const GOAL_PHASES = {
 const renderGoalBar = () => {
   if (el.goalBar === null) return
   const goal = state?.goal ?? null
-  // 无目标、目标已完成（或投影形状不符）都不占地方——与 DSH web 一致。
+  // No goal, a finished goal, or an unexpected projection shape takes no space -- the same as DSH web.
   if (goal === null || goal === undefined || goal.phase === 'complete' || typeof goal.objective !== 'string') {
     el.goalBar.hidden = true
     el.goalBar.innerHTML = ''
@@ -739,17 +740,17 @@ const renderGoalBar = () => {
 }
 
 // ---------------------------------------------------------------------------
-// composer（渲染/发送/模型/权限/上下文,已下沉 chat-composer.js,本文件接线）
+// composer (render/send/model/permissions/context moved to chat-composer.js; this file wires it up)
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// loading + live stream（已下沉 chat-wire.js,本文件只接线）
+// loading + live stream (moved to chat-wire.js; this file only wires it up)
 // ---------------------------------------------------------------------------
 
-// 债务 F1:wire 层——加载/重载/SSE 帧分发全部在 chat-wire.js,状态经 refs
-// 盒读写,渲染与卡片回调注入。chat.js 只持有 { connect, disconnect, reload }。
-// 注意顺序:reload 要先于 makeComposer 初始化(composer 的 send 依赖它),否则
-// 模块求值期就会踩 TDZ(Uncaught ReferenceError: Cannot access 'reload')。
+// Debt F1: wire layer -- loading, reloading and SSE frame dispatch all live in chat-wire.js, state is read
+// and written through ref boxes, and rendering plus card callbacks are injected. chat.js holds only
+// { connect, disconnect, reload }. Order matters: reload must be initialised before makeComposer, because the
+// composer's send depends on it, or module evaluation hits the TDZ (Uncaught ReferenceError: Cannot access 'reload').
 const { connect, disconnect, reload } = makeWire(refs, {
   chatId,
   el,
@@ -766,8 +767,8 @@ const grow = () => {
   el.input.style.height = `${el.input.scrollHeight}px`
 }
 
-// 债务 F1:composer 层——renderComposer/send/cancel/selectModel/cancelQueued/
-// syncAccessOptions 全部在 chat-composer.js;纯函数 modelKey/shortPath 同源。
+// Debt F1: composer layer -- renderComposer/send/cancel/selectModel/cancelQueued/syncAccessOptions all live
+// in chat-composer.js, next to the pure functions modelKey/shortPath.
 const composer = makeComposer(refs, {
   chatId,
   el,
@@ -783,7 +784,7 @@ const { renderComposer, syncAccessOptions, send, cancel, selectModel, cancelQueu
 // ---- remaining header/notices helpers ----
 
 // ---------------------------------------------------------------------------
-// sending（send/cancel/selectModel 已下沉 chat-composer.js,本文件只绑事件）
+// sending (send/cancel/selectModel moved to chat-composer.js; this file only binds the events)
 // ---------------------------------------------------------------------------
 
 el.composer.addEventListener('submit', (event) => {
@@ -879,7 +880,7 @@ if (el.context !== null && el.contextPopover !== null && el.contextWrap !== null
 el.input.addEventListener('input', () => {
   grow()
   el.send.disabled = el.input.value.trim() === '' || sending
-  // 排队按钮：回合运行中输入非空时浮现（方案 C，2026-09-11）。
+  // Queue button: appears while a turn is running and the input is not empty (option C, 2026-09-11).
   const turnRunning = state?.turns.some((t) => t.state === 'running') ?? false
   el.queue.hidden = !(turnRunning && !sending && el.input.value.trim() !== '')
 })
@@ -895,7 +896,7 @@ el.input.addEventListener('keydown', (event) => {
 
 el.stop.addEventListener('click', () => void cancel())
 
-// 排队发送：回合运行中主槽被停止方块占用，这个 ghost 箭头补上「再发一条」。
+// Queued send: while a turn runs the main slot is taken by the stop square, so this ghost arrow adds "send one more".
 el.queue.addEventListener('click', () => void send())
 
 // Queued-turn dock actions: edit (undo into the composer) and delete.
@@ -918,7 +919,7 @@ document.addEventListener('keydown', (event) => {
     el.context?.setAttribute('aria-expanded', 'false')
     return
   }
-  // Esc = 停止生成：与主槽停止方块的可见窗口一致（发送中 + 整个回合运行期）。
+  // Esc = stop generating: the same visible window as the main stop square (while sending and for the whole turn).
   const turnRunning = state?.turns.some((t) => t.state === 'running') ?? false
   if (event.key === 'Escape' && (sending || turnRunning)) void cancel()
 })
