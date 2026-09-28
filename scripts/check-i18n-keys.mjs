@@ -29,7 +29,7 @@ const IGNORED = new Set(['key', '...'])
 
 // Keys assembled in templates are invisible to static analysis (e.g. t(`runs.state.${state}`), t(`lang.${tag}`)),
 // so they are listed as dynamic prefixes: in the "unused" list they would only mislead.
-const DYNAMIC_PREFIXES = ['runs.state.', 'runs.trigger.', 'lang.', 'audit.kind.', 'chat.goal.', 'services.surface.']
+const DYNAMIC_PREFIXES = ['runs.state.', 'runs.trigger.', 'lang.', 'audit.kind.', 'chat.goal.', 'services.surface.', 'keys.surface.']
 
 const files = [...walk(join(root, 'public')), ...walk(join(root, 'src'))]
 const used = new Map() // key -> where it appears

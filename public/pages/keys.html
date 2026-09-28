@@ -1,49 +1,64 @@
 <div class="wrap">
-  <div class="page-head">
-    <h1 class="grow">{{t:keys.title}}</h1>
-    <span id="keys-refresh" class="muted small"></span>
-  </div>
-
-  <div id="keys-note" class="card muted small">{{t:keys.note}}</div>
-
-  <section class="section">
-    <div class="section-head">
-      <h2>{{t:keys.listener}}</h2>
-      <span id="keys-listener" class="muted small">{{t:common.loading}}</span>
+  <!-- ── List view ─────────────────────────────────────────────────────────── -->
+  <section id="view-list">
+    <div class="page-head">
+      <h1 class="grow">{{t:keys.title}}</h1>
+      <button id="new-key" class="btn btn-sm" type="button">
+        <svg width="14" height="14"><use href="#i-add" /></svg>
+        {{t:keys.new}}
+      </button>
+      <span id="keys-refresh" class="muted small"></span>
     </div>
-    <div id="keys-access" class="card muted small" hidden></div>
+
+    <section class="section">
+      <div class="section-head">
+        <h2>{{t:keys.all}}</h2>
+        <span id="keys-count" class="muted small"></span>
+        <span class="grow"></span>
+        <div id="keys-filter" class="filter-row"></div>
+      </div>
+      <div class="card">
+        <div id="keys-list" class="nodes-list"><p class="muted small">{{t:common.loading}}</p></div>
+      </div>
+    </section>
   </section>
 
-  <section class="section">
-    <div class="section-head">
-      <h2>{{t:keys.create}}</h2>
-      <span class="muted small">{{t:keys.createNote}}</span>
+  <!-- ── Detail view (full width) ──────────────────────────────────────────── -->
+  <section id="view-detail" hidden>
+    <div class="page-head">
+      <button id="back-list" class="btn-quiet btn-sm" type="button">← {{t:keys.all}}</button>
+      <h1 id="key-detail-title" class="grow"></h1>
+      <button id="key-detail-edit" class="btn-quiet btn-sm" type="button">{{t:keys.edit}}</button>
+      <button id="key-detail-revoke" class="btn-quiet btn-sm" type="button">{{t:keys.revoke}}</button>
     </div>
+    <div id="key-detail-body"></div>
+    <section id="key-activity" class="section" hidden>
+      <div class="section-head"><h2>{{t:keys.activity}}</h2></div>
+      <div class="card"><div id="key-activity-body" class="nodes-list"></div></div>
+    </section>
+  </section>
 
-    <form id="key-form" class="card narrow">
-      <p id="key-create-msg" class="muted" hidden></p>
+  <!-- ── Edit view (full width) ────────────────────────────────────────────── -->
+  <section id="view-form" hidden>
+    <div class="page-head">
+      <button id="back-detail" class="btn-quiet btn-sm" type="button">← {{t:keys.edit}}</button>
+      <h1 class="grow">{{t:keys.editTitle}}</h1>
+    </div>
+    <form id="key-edit-form" class="card narrow">
+      <p id="key-edit-msg" class="muted" hidden></p>
 
-      <!-- The whole basic form is three fields. Everything else lives behind "more settings":
-           a key is a credential, and the defaults are the safe ones. -->
       <label for="key-name">{{t:keys.name}}</label>
       <input id="key-name" type="text" maxlength="80" placeholder="{{t:keys.nameHint}}" />
 
       <label for="key-services">{{t:keys.services}}</label>
       <select id="key-services"></select>
-      <div id="key-services-empty" hidden>
-        <p class="muted small">{{t:keys.noServices}}</p>
-        <a class="btn" href="/services?create=1&return=keys">{{t:keys.createService}}</a>
-      </div>
 
       <div class="form-row">
         <div>
-          <label for="key-quota">{{t:keys.quota}}</label>
-          <input id="key-quota" type="number" min="1" value="200" />
+          <label for="key-quota">{{t:keys.runsPerDay}}</label>
+          <input id="key-quota" type="number" min="0" value="200" />
         </div>
-        <div class="checkbox-line align-end">
-          <input id="key-quota-unlimited" type="checkbox" />
-          <label for="key-quota-unlimited" class="inline">{{t:keys.quotaUnlimited}}</label>
-        </div>
+        <p class="muted small align-end">{{t:keys.runsUnlimited}}</p>
       </div>
 
       <details id="key-advanced">
@@ -51,7 +66,6 @@
         <div class="advanced-body">
           <label>{{t:keys.scopes}}</label>
           <div id="key-scopes" class="checks"></div>
-          <p class="muted small">{{t:keys.scopesHint}}</p>
 
           <div class="form-row">
             <div>
@@ -66,58 +80,102 @@
 
           <label for="key-expires">{{t:keys.expires}}</label>
           <input id="key-expires" type="date" />
-          <p class="muted small">{{t:keys.expiresHint}}</p>
         </div>
       </details>
 
-      <button type="submit" id="key-create">{{t:keys.createAction}}</button>
-    </form>
-
-    <div id="key-token" class="card" hidden>
-      <div class="node-title">{{t:keys.tokenOnce}}</div>
-      <div class="token-row">
-        <code class="token-value" id="key-token-value"></code>
-        <button type="button" class="btn" id="key-token-copy">{{t:keys.copy}}</button>
-      </div>
-      <p class="muted small">{{t:keys.tokenOnceNote}}</p>
-
-      <h3 class="section-label">{{t:keys.testNow}}</h3>
-      <p class="muted small">{{t:keys.testNowHint}}</p>
-      <button type="button" class="btn" id="key-probe">{{t:keys.testRun}}</button>
-      <div id="key-probe-result"></div>
-
-      <h3 class="section-label">{{t:keys.handover}}</h3>
-      <div id="key-handover" class="muted small"></div>
       <div class="form-actions">
-        <button type="button" class="btn ghost" id="key-handover-copy">{{t:keys.handoverCopy}}</button>
-        <span id="key-handover-msg" class="muted small"></span>
+        <button type="button" id="key-edit-cancel" class="btn-quiet btn-sm">{{t:common.cancel}}</button>
+        <button type="submit" id="key-edit-save" class="btn btn-sm">{{t:common.save}}</button>
       </div>
-    </div>
-  </section>
-
-  <section class="section">
-    <div class="section-head">
-      <h2>{{t:keys.existing}}</h2>
-      <button id="key-verify-open" class="btn ghost" type="button">{{t:keys.verify}}</button>
-    </div>
-    <div id="keys-filter" class="filter-row"></div>
-    <div id="keys-list" class="nodes-list"><p class="muted small">{{t:common.loading}}</p></div>
-  </section>
-
-  <!-- Verify a key whose secret this page no longer holds (the operator kept it). -->
-  <section id="key-verify" class="section" hidden>
-    <div class="section-head">
-      <h2>{{t:keys.verify}}</h2>
-    </div>
-    <form id="key-verify-form" class="card narrow">
-      <p class="muted small">{{t:keys.verifyHint}}</p>
-      <label for="key-verify-token">{{t:keys.verifyToken}}</label>
-      <input id="key-verify-token" type="password" autocomplete="off" />
-      <div class="form-actions">
-        <button type="submit" class="btn" id="key-verify-run">{{t:keys.verifyRun}}</button>
-        <button type="button" class="btn ghost" id="key-verify-cancel">{{t:common.cancel}}</button>
-      </div>
-      <div id="key-verify-result"></div>
     </form>
   </section>
+</div>
+
+<!-- ── Drawer: new key ─────────────────────────────────────────────────────── -->
+<div id="key-editor" class="panel" hidden>
+  <div class="panel-backdrop" data-close="1"></div>
+  <aside class="panel-body panel-wide" role="dialog" aria-modal="true" aria-labelledby="key-editor-title">
+    <header class="panel-head">
+      <h2 id="key-editor-title">{{t:keys.new}}</h2>
+      <button class="icon-btn" type="button" data-close="1" aria-label="{{t:common.close}}">
+        <svg width="16" height="16" aria-hidden="true"><use href="#i-close" /></svg>
+      </button>
+    </header>
+    <div class="panel-content">
+      <form id="key-create-form" novalidate>
+        <p id="key-create-msg" class="muted" hidden></p>
+
+        <label for="f-key-name">{{t:keys.name}}</label>
+        <input id="f-key-name" class="text-input" maxlength="80" placeholder="{{t:keys.nameHint}}" />
+
+        <label for="f-key-services">{{t:keys.services}}</label>
+        <select id="f-key-services" class="text-input pill-select"></select>
+        <div id="f-key-services-empty" hidden>
+          <a class="btn" href="/services?create=1&return=keys">{{t:keys.createService}}</a>
+        </div>
+        <a id="f-key-services-link" class="muted small" href="/services?create=1&return=keys">{{t:keys.newServiceLink}}</a>
+
+        <div class="field-row">
+          <label class="field">
+            <span class="field-label">{{t:keys.runsPerDay}}</span>
+            <input id="f-key-quota" class="text-input" type="number" min="0" value="200" />
+            <span class="field-hint muted small">{{t:keys.runsUnlimited}}</span>
+          </label>
+        </div>
+
+        <details class="node-advanced">
+          <summary>{{t:keys.moreSettings}}</summary>
+          <div class="node-advanced-body">
+            <label class="field">
+              <span class="field-label">{{t:keys.scopes}}</span>
+              <span id="f-key-scopes" class="checks"></span>
+            </label>
+            <div class="field-row">
+              <label class="field">
+                <span class="field-label">{{t:keys.rpm}}</span>
+                <input id="f-key-rpm" class="text-input" type="number" min="1" max="6000" value="60" />
+              </label>
+              <label class="field">
+                <span class="field-label">{{t:keys.concurrency}}</span>
+                <input id="f-key-concurrency" class="text-input" type="number" min="1" max="64" value="4" />
+              </label>
+            </div>
+            <label class="field">
+              <span class="field-label">{{t:keys.expires}}</span>
+              <input id="f-key-expires" class="text-input" type="date" />
+            </label>
+          </div>
+        </details>
+
+        <div id="f-key-warn"></div>
+        <div class="form-actions">
+          <span class="muted small">{{t:keys.tokenOnceNoteShort}}</span>
+          <button type="button" id="f-key-cancel" class="btn-quiet btn-sm" data-close="1">{{t:common.cancel}}</button>
+          <button type="submit" id="f-key-save" class="btn btn-sm">{{t:common.create}}</button>
+        </div>
+      </form>
+
+      <!-- Result step inside the drawer: the secret exists once, here. -->
+      <div id="key-issued" hidden>
+        <h3 class="section-label">{{t:keys.tokenOnce}}</h3>
+        <div class="token-row">
+          <code class="token-value" id="key-token-value"></code>
+          <button type="button" class="btn" id="key-token-copy">{{t:keys.copy}}</button>
+        </div>
+        <p class="muted small">{{t:keys.tokenOnceNote}}</p>
+
+        <h3 class="section-label">{{t:keys.testNow}}</h3>
+        <button type="button" class="btn ghost" id="key-probe">{{t:keys.testRun}}</button>
+        <div id="key-probe-result"></div>
+
+        <h3 class="section-label">{{t:keys.handover}}</h3>
+        <div id="key-handover" class="muted small"></div>
+        <div class="form-actions">
+          <button type="button" class="btn ghost" id="key-handover-copy">{{t:keys.handoverCopy}}</button>
+          <button type="button" class="btn" id="key-done">{{t:keys.done}}</button>
+          <span id="key-handover-msg" class="muted small"></span>
+        </div>
+      </div>
+    </div>
+  </aside>
 </div>

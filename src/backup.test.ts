@@ -48,7 +48,13 @@ test('Hive P6: retention keeps 24h hourly, then daily for 30d, then weekly for 1
   const backups = join(dir, 'backups')
   mkdirSync(backups, { recursive: true })
   try {
-    const now = Date.now()
+    // Anchor "now" at local noon: the fixtures use relative ages (25h, 35d), and with a live clock
+    // those cross the local-midnight day boundary when the suite runs at 00:00-01:00 -- the "same
+    // day" pair lands on two calendar days and the retention assertions stop holding. A fixed noon
+    // keeps the calendar-day grouping deterministic.
+    const anchor = new Date()
+    anchor.setHours(12, 0, 0, 0)
+    const now = anchor.getTime()
     const MIN = 60_000
     const HOUR = 60 * MIN
     const DAY = 24 * HOUR

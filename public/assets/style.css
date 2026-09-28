@@ -3262,3 +3262,51 @@ details > summary {
   font: 500 13px/1 var(--font);
   margin-top: 12px;
 }
+
+/* v2 detail view: description list + usage bar (keys/services detail pages) */
+.dl {
+  display: grid;
+  gap: 2px;
+}
+
+.dl-row {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding: 8px 2px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dl-row:last-child {
+  border-bottom: 0;
+}
+
+.dl-label {
+  flex: 0 0 140px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.dl-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.usage-bar {
+  display: inline-block;
+  vertical-align: middle;
+  width: 90px;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--surface-sunken);
+  overflow: hidden;
+}
+
+.usage-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
