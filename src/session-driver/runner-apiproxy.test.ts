@@ -38,6 +38,20 @@ const agentFor = (workspacePath: string, sandboxMode: 'read-only' | 'workspace-w
 const dummyClient = (): GatewayClient =>
   new GatewayClient({ id: 'A', url: 'http://127.0.0.1:1', driver: 'apiproxy', prefix: '/api', key: '', sandboxBase: null, sandboxKey: '', spawn: null, access: null })
 
+/**
+ * A pricing table holding only the model the host *confirmed*: the config pin (what the manager
+ * asked for) is deliberately absent, so a turn priced from the requested name instead of the
+ * confirmed one lands on null cost -- which is exactly the accounting hole under test.
+ */
+const CONFIRMED_MODEL_PRICING = {
+  rates: { 'deepseek-v4-flash-exp': { offPeak: { input: 0.22, output: 0.66 } } },
+  peakWindows: [],
+}
+
+/** The usage row this run wrote (the ledger line the whole model-resolution chain exists for). */
+const usageRowOf = (db: Db, runId: string): { provider: string | null; model: string | null; cost: number | null } | undefined =>
+  db.select().from(schema.usageRecord).where(eq(schema.usageRecord.runId, runId)).all()[0]
+
 test('apiproxy turn: create -> sandbox -> prompt -> frames -> turn_end, all through the port', async () => {
   const db = makeDb()
   const fake = new FakeSessionDriver('A', SUCCESS)
@@ -294,3 +308,101 @@ test('Debt R8: a silence timeout = the subscription must be cleaned up', async (
   assert.equal(fake.cancels, 1, 'the cancel goes out through the port')
   assert.equal(fake.activeSubscriberCount(outcome.sessionId ?? ''), 0, 'the timeout path must unsubscribe')
 })
+
+// ---------------------------------------------------------------------------
+// Outward accounting: the model the host actually runs has to be on the ledger
+// ---------------------------------------------------------------------------
+
+/**
+ * Regression (outward turn cost uncomputable, 2026-09-28): session.create is called with cwd+preset
+ * only -- the apiproxy path passes no provider/model and the create response carries none either, so
+ * `usage_record.model` was empty and pricing answered null ("cost unknown"). Pinning `model:` in the
+ * config alone would be worse, not better: the manager would bill the *pinned* name while the host
+ * kept running its own default (the "confidently wrong" failure). The fix is pin + read back --
+ * call session.selectModel and record what the **host** confirms.
+ */
+test('outward accounting: the agent pin is landed through selectModel and the turn is priced at the host-confirmed model', async () => {
+  const db = makeDb()
+  // The host confirms a dated snapshot of the pinned model -- every assertion below has to follow
+  // the confirmed name, because that is the name the provider will bill.
+  const fake = new FakeSessionDriver('A', {
+    ...SUCCESS,
+    provider: null,
+    model: null,
+    selectModelResult: { provider: 'deepseek-official', model: 'deepseek-v4-flash-exp' },
+  })
+  const outcome = await runAgent(
+    { db, pricing: CONFIRMED_MODEL_PRICING },
+    {
+      agent: { ...agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))), provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+      client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'hi', trigger: 'api',
+    },
+  )
+
+  assert.equal(outcome.state, 'done')
+  assert.deepEqual(
+    fake.selectedModels,
+    [{ sessionId: outcome.sessionId, provider: 'deepseek-official', model: 'deepseek-v4-flash' }],
+    'the pin must be landed on the host session, not merely written into the manager config',
+  )
+  assert.equal(outcome.model, 'deepseek-v4-flash-exp', 'the outcome reports the host-confirmed model, never the requested one')
+  const usage = usageRowOf(db, outcome.runId)
+  assert.equal(usage?.model, 'deepseek-v4-flash-exp', 'usage_record.model must carry the host-confirmed model')
+  assert.equal(usage?.provider, 'deepseek-official')
+  // 120 in * 0.22 + 8 out * 0.66 per million = 31.68 micro-USD, rounded.
+  assert.equal(usage?.cost, 32, 'the rate for the confirmed model was found, so the turn is not a cost gap')
+  assert.equal(outcome.costMicroUsd, 32)
+})
+
+test('outward accounting: a continued turn re-lands the pin, so the ledger keeps the host-confirmed model', async () => {
+  const db = makeDb()
+  const fake = new FakeSessionDriver('A', {
+    ...SUCCESS,
+    provider: null,
+    model: null,
+    selectModelResult: { provider: 'deepseek-official', model: 'deepseek-v4-flash-exp' },
+  })
+  const outcome = await runAgent(
+    { db, pricing: CONFIRMED_MODEL_PRICING },
+    {
+      agent: { ...agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))), provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+      client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'again', trigger: 'api',
+      sessionId: 'existing-session',
+    },
+  )
+
+  assert.equal(outcome.state, 'done')
+  assert.equal(outcome.sessionId, 'existing-session', 'a continued turn must not create a second session')
+  assert.equal(fake.created.length, 0)
+  assert.deepEqual(
+    fake.selectedModels,
+    [{ sessionId: 'existing-session', provider: 'deepseek-official', model: 'deepseek-v4-flash' }],
+    'a continued turn must re-assert the pin: the session outlives a config change, and this is the only read-back on that path',
+  )
+  const usage = usageRowOf(db, outcome.runId)
+  assert.equal(usage?.model, 'deepseek-v4-flash-exp')
+  assert.equal(usage?.cost, 32)
+})
+
+test('outward accounting: a pin the host cannot route fails the turn loudly instead of running unpriced', async () => {
+  const db = makeDb()
+  const fake = new FakeSessionDriver('A', {
+    ...SUCCESS,
+    provider: null,
+    model: null,
+    selectModelError: 'session/model-unavailable: no route for deepseek-official/typo-model',
+  })
+  const outcome = await runAgent(
+    { db, pricing: CONFIRMED_MODEL_PRICING },
+    {
+      agent: { ...agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))), provider: 'deepseek-official', model: 'typo-model' },
+      client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'hi', trigger: 'api',
+    },
+  )
+
+  assert.equal(outcome.state, 'failed', 'a turn that cannot be accounted for must not be reported as done')
+  assert.match(outcome.error ?? '', /model-unavailable/)
+  assert.deepEqual(fake.prompts, [], 'nothing is sent to the model before the pin is settled')
+  assert.equal(usageRowOf(db, outcome.runId), undefined, 'no usage row: the turn never reached the model')
+})
+

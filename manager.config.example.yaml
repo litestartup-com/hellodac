@@ -58,6 +58,14 @@ agents:
     #     - { path: weekly.logs, max: 10, archive: G01.08-2026年/0X月份 }
     #   forbid_amount_fields: true
     #   acct_flow_max_age_months: 1
+    #
+    # Model pinning: provider and model go together or not at all. Unset = this agent follows the DSH
+    # profile's own default model. **A public agent must pin both**, and the model must have a rate in
+    # pricing.models below: the apiproxy create call carries no model, so the manager lands the pin on
+    # the host session (session.selectModel) and keeps the model name the host confirms -- that name is
+    # what the cost ledger records. Without a pin there is nothing to record, and the turn's cost is null.
+    # provider: deepseek-official
+    # model: deepseek-v4-flash
 
 runner:
   timeout_minutes: 15

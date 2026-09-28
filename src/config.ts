@@ -741,6 +741,43 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
     }
   }
 
+  // Model pinning (`provider` + `model`) is the pair the apiproxy wire needs to land a selection on
+  // the host session (session.selectModel takes both, and the manager must not guess a provider).
+  // Three rules, all fail-loud, because every one of them is otherwise discovered as a **wrong or
+  // missing number on the cost ledger** -- the least traceable kind of failure there is:
+  //   1. half a pin (one of the two) is never a real intent: it silently falls back to the host's own
+  //      default, so the config would claim a model the host is not running;
+  //   2. an outward agent must be pinned at all: public traffic has to be predictable in behaviour and
+  //      in price, and an unpinned agent has nothing for the manager to read back;
+  //   3. the pinned model must have a rate in `pricing.models`, otherwise "cost unknown" is wired in
+  //      at configuration time rather than being an honest gap for some one-off run.
+  const pricedModels = new Set(Object.keys(pricing.rates))
+  for (const [agentId, agent] of Object.entries(agents)) {
+    const pinned = agent.provider !== null && agent.model !== null
+    if ((agent.provider === null) !== (agent.model === null)) {
+      throw new Error(
+        `agent "${agentId}": provider and model must be set together (got provider=${JSON.stringify(agent.provider)}, ` +
+          `model=${JSON.stringify(agent.model)}). One without the other cannot be landed on the host ` +
+          '(session.selectModel needs both), so it would silently keep the host default.',
+      )
+    }
+    if (!pinned && agent.public) {
+      throw new Error(
+        `agent "${agentId}" is public but pins no model. An outward agent must declare provider + model ` +
+          '(e.g. provider: deepseek-official, model: deepseek-v4-flash): its price and behaviour have to be ' +
+          'predictable, and the manager can only account a turn for the model the host confirms ' +
+          '(CONCEPTS-ALIGNED.md §8.5).',
+      )
+    }
+    if (pinned && agent.public && !pricedModels.has(agent.model as string) && !pricedModels.has(`${agent.provider}/${agent.model}`)) {
+      throw new Error(
+        `agent "${agentId}" is public and pins ${agent.provider}/${agent.model}, but pricing.models has no rate for it. ` +
+          `Add pricing.models.${agent.model} (or the "${agent.provider}/${agent.model}" key), otherwise every ` +
+          'outward turn is recorded with a null cost.',
+      )
+    }
+  }
+
   const password = process.env.MANAGER_INITIAL_PASSWORD ?? ''
 
   // Outward services: members must be **existing public agents**. A member left unmarked turns the

@@ -449,12 +449,21 @@ test('P0 regression: a future-version config fails loud (the config comes from a
  * A service member must be a public agent and, per the position in section 1, **each holds its own process**: a member left unmarked
  * public would silently become "a service nobody can get into", the hardest kind of fault to track down, so it fails loud.
  */
+/**
+ * The model pin an outward agent needs (provider + model, paired, and priced). A fixture for a
+ * public agent that omits it describes a config the loader rejects, so the pin belongs in the
+ * helper rather than in each test.
+ */
+const PUBLIC_PIN = { provider: 'deepseek-official', model: 'deepseek-v4-flash' }
+
 const serviceConfig = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({
   listen: { host: '127.0.0.1', port: 8080 },
   endpoints: {
     W: { url: 'http://127.0.0.1:3090', driver: 'apiproxy', prefix: '/api-gw/v1/proxy', key_ref: 'GW_KEY_TEST' },
   },
-  agents: { 'worker-1': { name: 'Support one', endpoint: 'W', workspace: '.', public: true } },
+  // The pin is part of the real shape too: an outward agent must declare provider + model (see the
+  // model-pinning rule in config.ts) so every turn can be accounted for on the cost ledger.
+  agents: { 'worker-1': { name: 'Support one', endpoint: 'W', workspace: '.', public: true, ...PUBLIC_PIN } },
   ...extra,
 })
 
@@ -484,11 +493,54 @@ test('position: an outward agent may live on an apiproxy endpoint (an exclusive 
   // no longer exists on facade 0.2.x. The real constraint is an exclusive process (the previous case already covers it).
   const cfg = loadFrom(
     baseConfig({
-      agents: { pub: { name: 'Outward', endpoint: 'A', workspace: '.', public: true } },
+      agents: { pub: { name: 'Outward', endpoint: 'A', workspace: '.', public: true, ...PUBLIC_PIN } },
     }),
   )
   assert.equal(cfg.agents['pub']?.public, true)
 })
+
+/**
+ * Model pinning (2026-09-28, outward cost was uncomputable): the apiproxy wire passes no
+ * provider/model to session.create, so the manager has to *land* a pin on the host session and read
+ * back what the host confirms. Three ways to get that wrong are refused here, at config time, rather
+ * than surfacing as a null cost on the ledger later.
+ */
+test('model pinning: an outward agent with no pin is refused (nothing to land, nothing to read back)', () => {
+  const noPin = baseConfig({
+    agents: { pub: { name: 'Outward', endpoint: 'A', workspace: '.', public: true } },
+  })
+  assert.throws(() => loadFrom(noPin), /public but pins no model/)
+})
+
+test('model pinning: half a pin is refused (session.selectModel needs both, the host would keep its default)', () => {
+  const onlyModel = baseConfig({
+    agents: { personal: { name: 'Personal', endpoint: 'A', workspace: '.', model: 'deepseek-v4-flash' } },
+  })
+  assert.throws(() => loadFrom(onlyModel), /provider and model must be set together/)
+  const onlyProvider = baseConfig({
+    agents: { personal: { name: 'Personal', endpoint: 'A', workspace: '.', provider: 'deepseek-official' } },
+  })
+  assert.throws(() => loadFrom(onlyProvider), /provider and model must be set together/)
+})
+
+test('model pinning: an unpriced model on an outward agent is refused (that would wire in a null cost)', () => {
+  const unpriced = baseConfig({
+    agents: {
+      pub: { name: 'Outward', endpoint: 'A', workspace: '.', public: true, provider: 'deepseek-official', model: 'an-unreleased-snapshot' },
+    },
+  })
+  assert.throws(() => loadFrom(unpriced), /no rate for it/)
+})
+
+test('model pinning: an internal agent may stay unpinned (the host default stands, and that is a legal choice)', () => {
+  const internal = baseConfig({
+    agents: { personal: { name: 'Personal', endpoint: 'A', workspace: '.', public: false } },
+  })
+  const cfg = loadFrom(internal)
+  assert.equal(cfg.agents['personal']?.provider, null)
+  assert.equal(cfg.agents['personal']?.model, null)
+})
+
 
 /**
  * Machine-level isolation (the third boundary in section 4.5 of the position; the user confirmed on 2026-09-27 that "the config layer blocks it hard too").
@@ -501,7 +553,18 @@ const onMachine = (ids: string[], host: string, publicIds: string[] = []): Recor
       ids.map((id) => [id, { url: `http://10.0.0.5:${3100 + ids.indexOf(id)}`, driver: 'apiproxy', spawn: { managed: true, runner: 'agent', host } }]),
     ),
     agents: Object.fromEntries(
-      ids.map((id) => [id, { name: id, endpoint: id, workspace: `/srv/ws-${id}`, public: publicIds.includes(id) }]),
+      ids.map((id) => [
+        id,
+        {
+          name: id,
+          endpoint: id,
+          workspace: `/srv/ws-${id}`,
+          public: publicIds.includes(id),
+          // An outward agent carries the model pin these tests are not about; without it the
+          // fixture is a config the loader rejects and the isolation rule under test never runs.
+          ...(publicIds.includes(id) ? PUBLIC_PIN : {}),
+        },
+      ]),
     ),
   })
 
@@ -540,7 +603,7 @@ test('machine isolation: it applies to this machine too (no spawn.host)', () => 
     },
     agents: {
       inside: { name: 'inside', endpoint: 'L1', workspace: '.' },
-      outside: { name: 'outside', endpoint: 'L2', workspace: '.', public: true },
+      outside: { name: 'outside', endpoint: 'L2', workspace: '.', public: true, ...PUBLIC_PIN },
     },
   })
   assert.throws(() => loadFrom(local), /machine "local" hosts both outward agents/)

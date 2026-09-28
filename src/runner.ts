@@ -521,14 +521,66 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
       }
     }
 
+    /**
+     * Settle which model this turn runs on, and record it on the turn state.
+     *
+     * Why this is not just `turnState.model = agent.model`: on the apiproxy wire, `session.create`
+     * carries cwd + preset only -- **no provider/model** -- and the create response reports none
+     * either, because the host picks its own default. So the manager knew nothing about the model,
+     * `usage_record.model` came out empty and pricing answered null ("cost unknown", the ledger hole
+     * first seen on the outward service, 2026-09-28). Writing the *configured* name in anyway would
+     * be worse than the gap: the host would keep running its own default while the ledger billed the
+     * pinned name -- confidently wrong. Hence pin **and read back**: land the selection with
+     * `session.selectModel` and keep what the **host** confirms (it may resolve the request to a
+     * dated snapshot or a fallback provider -- that is the name the provider will bill).
+     *
+     * Called on the continued path too, not only at creation: a session outlives a config change, and
+     * re-asserting the pin per turn is both what keeps the session on the service's model and the only
+     * read-back available there. It costs one small RPC.
+     *
+     * Failures are **not** swallowed: a pin that cannot be settled means the turn cannot be
+     * accounted for, and running it anyway would hand back a reply nobody can bill.
+     */
+    const settleTurnModel = async (hostReported: { provider: string | null; model: string | null }): Promise<void> => {
+      // What the host says it is running wins over the config; the config name is the fallback for a
+      // plug that cannot be pinned.
+      let provider = hostReported.provider ?? agent.provider
+      let model = hostReported.model ?? agent.model
+      if (agent.provider !== null || agent.model !== null) {
+        if (agent.provider === null || agent.model === null) {
+          // Written this way round on purpose: `loadConfig` rejects a half-written pair, so a
+          // half-set agent here means the caller built a ResolvedAgent by hand.
+          throw new Error(
+            `agent ${agent.id}: provider and model must be set together (got provider=${agent.provider ?? 'none'}, model=${agent.model ?? 'none'})`,
+          )
+        }
+        if (upstream.selectModel === undefined) {
+          throw new Error(
+            `agent ${agent.id} pins ${agent.provider}/${agent.model} but driver ${upstream.id} cannot select a model`,
+          )
+        }
+        // Both callers set the session id before calling this, and the pin is meaningless without it:
+        // fail loudly rather than sending a selection for an empty session id.
+        const target = turnState.sessionId
+        if (target === null) throw new Error(`run ${runId}: no session id, so the model pin cannot be landed`)
+        // The pin goes on the **session**, never on the manager's own idea of the model.
+        const confirmed = await upstream.selectModel(target, { provider: agent.provider, model: agent.model })
+        provider = confirmed.provider
+        model = confirmed.model
+      }
+      turnState.provider = provider
+      turnState.model = model
+    }
+
     try {
       // apiproxy has no adopt/resume concept; prompt is the universal entry.
       // For a new session, create first; for an existing one, just prompt.
       if (input.sessionId === undefined || input.sessionId === null) {
         const created = await upstream.createSession(agent.workspacePath, agent.preset)
         turnState.sessionId = created.sessionId
-        turnState.provider = created.provider ?? agent.provider ?? null
-        turnState.model = created.model ?? agent.model ?? null
+        // P0.5 host behaviour: the create response normally carries no model (the host has its own
+        // default); whatever it does carry is the host's own statement, so it wins over the pin below.
+        await settleTurnModel(created)
         // Hive P0: pin the sandbox mode on the session before the first prompt (a sandbox/mode log
         // event, restored by the cold-wake replay, persistent after one call). The continued path already set its mode at creation.
         if (agent.sandboxMode !== null) {
@@ -540,8 +592,7 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
         await applyAccessOverride(turnState.sessionId)
       } else {
         turnState.sessionId = input.sessionId
-        turnState.provider = agent.provider ?? null
-        turnState.model = agent.model ?? null
+        await settleTurnModel({ provider: null, model: null })
       }
 
       deps.db.update(schema.run).set({ dshSessionId: turnState.sessionId }).where(eq(schema.run.id, runId)).run()

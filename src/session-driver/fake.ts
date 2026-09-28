@@ -25,6 +25,14 @@ export interface FakeScript {
   preset?: string | null
   provider?: string | null
   model?: string | null
+  /**
+   * What the host *confirms* after selectModel: the test stand-in for "the host resolved the
+   * request to something else" (a dated snapshot, a fallback provider). Absent = echo the request,
+   * which is what a host that took the selection verbatim answers.
+   */
+  selectModelResult?: { provider: string; model: string; reasoningEffort?: string } | null
+  /** Non-empty = selectModel throws that error (simulating a model the host cannot route). */
+  selectModelError?: string
   composer?: {
     model?: { provider: string; model: string; reasoningEffort?: string } | null
     context?: { usedTokens: number; contextWindow: number; breakdown?: { systemTokens: number; toolsTokens: number; messageTokens: number } } | null
@@ -138,8 +146,10 @@ export class FakeSessionDriver implements SessionDriver {
   }
 
   async selectModel(sessionId: string, selection: { provider: string; model: string; reasoningEffort?: string }) {
+    if (this.script.selectModelError !== undefined) throw new Error(this.script.selectModelError)
     this.selectedModels.push({ sessionId, ...selection })
-    return selection
+    const confirmed = this.script.selectModelResult
+    return confirmed === undefined || confirmed === null ? selection : confirmed
   }
 
   async cancel(_sessionId: string): Promise<void> {
