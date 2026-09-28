@@ -40,8 +40,8 @@ const configFor = (): AppConfig => {
       },
     },
     agents: {
-      brain: { id: 'brain', name: '主脑', endpoint: 'brain', workspacePath: join(root, 'brain'), public: false, preset: 'standard', sandboxMode: null, gitRemote: null, provider: null, model: null, validate: null },
-      personal: { id: 'personal', name: '个人', endpoint: 'personal', workspacePath: join(root, 'personal'), public: false, preset: 'standard', sandboxMode: null, gitRemote: null, provider: null, model: null, validate: null },
+      brain: { id: 'brain', name: 'The brain', endpoint: 'brain', workspacePath: join(root, 'brain'), public: false, preset: 'standard', sandboxMode: null, gitRemote: null, provider: null, model: null, validate: null },
+      personal: { id: 'personal', name: 'Personal', endpoint: 'personal', workspacePath: join(root, 'personal'), public: false, preset: 'standard', sandboxMode: null, gitRemote: null, provider: null, model: null, validate: null },
     },
     runner: { timeoutMs: 1_000, silenceMs: 0, maxConsecutiveFailures: 3, dailyBudgetMicroUsd: null },
     databasePath: ':memory:',
@@ -52,20 +52,20 @@ const configFor = (): AppConfig => {
   }
 }
 
-test('蜂群2计划 P6: fleet.md 派生自配置——节点清单/形态/边界/环境变量引用', () => {
+test('Hive plan 2 P6: fleet.md is derived from the config -- node list / shape / boundaries / environment variable references', () => {
   const config = configFor()
   const doc = renderFleetDoc(config)
   assert.match(doc, /Fleet topology and boundaries/)
-  assert.match(doc, /\*\*brain\*\* \(主脑\): external · external · private/)
-  assert.match(doc, /\*\*personal\*\* \(个人\): container · managed · private/)
+  assert.match(doc, /\*\*brain\*\* \(The brain\): external · external · private/)
+  assert.match(doc, /\*\*personal\*\* \(Personal\): container · managed · private/)
   assert.match(doc, /\$MANAGER_URL/)
   assert.match(doc, /BRAIN_TOKEN/)
   assert.match(doc, /every cross-node action goes through a manager dispatch/)
-  // 不写死任何真实地址
+  // No real address is hardcoded
   assert.doesNotMatch(doc, /127\.0\.0\.1|172\.\d+/)
 })
 
-test('蜂群2计划 P6: 主脑令牌写入节点用户 HOME（不进工作区/git），幂等，未设置则跳过', () => {
+test('Hive plan 2 P6: the brain token goes into the node user HOME (not into the workspace or git), is idempotent, and is skipped when unset', () => {
   const saved = process.env.BRAIN_TOKEN
   const home = mkdtempSync(join(tmpdir(), 'brain-token-'))
   try {
@@ -73,10 +73,10 @@ test('蜂群2计划 P6: 主脑令牌写入节点用户 HOME（不进工作区/gi
     assert.equal(provisionBrainToken(home), true)
     assert.equal(readFileSync(join(home, BRAIN_TOKEN_FILE), 'utf8'), 'test-brain-token-123')
 
-    // 幂等：内容一致不报错不重写
+    // Idempotent: identical content neither errors nor rewrites
     assert.equal(provisionBrainToken(home), true)
 
-    // token 未设置 → 跳过，不写空文件
+    // token unset -> skip, and do not write an empty file
     delete process.env.BRAIN_TOKEN
     const empty = mkdtempSync(join(tmpdir(), 'brain-token-empty-'))
     assert.equal(provisionBrainToken(empty), false)
@@ -87,7 +87,7 @@ test('蜂群2计划 P6: 主脑令牌写入节点用户 HOME（不进工作区/gi
   }
 })
 
-test('蜂群2计划 P6: syncFleetDocs 写入每个工作区、幂等、内容变化时更新', async () => {
+test('Hive plan 2 P6: syncFleetDocs writes into every workspace, is idempotent, and updates when the content changes', async () => {
   const config = configFor()
   const updated = await syncFleetDocs(config)
   assert.deepEqual(updated.sort(), ['brain', 'personal'])
@@ -95,20 +95,20 @@ test('蜂群2计划 P6: syncFleetDocs 写入每个工作区、幂等、内容变
     assert.equal(readFileSync(join(agent.workspacePath, FLEET_FILE), 'utf8'), renderFleetDoc(config))
     assert.ok(existsSync(join(agent.workspacePath, FLEET_FILE)))
   }
-  // 幂等：内容一致不重写
+  // Idempotent: identical content is not rewritten
   assert.deepEqual(await syncFleetDocs(config), [])
-  // 拓扑变化 → 自动更新
-  config.agents['product'] = { id: 'product', name: '产品', endpoint: 'personal', workspacePath: join(config.agents['brain']!.workspacePath, '..', 'product'), public: false, preset: 'standard', sandboxMode: null, gitRemote: null, provider: null, model: null, validate: null }
+  // A topology change -> updated automatically
+  config.agents['product'] = { id: 'product', name: 'Product', endpoint: 'personal', workspacePath: join(config.agents['brain']!.workspacePath, '..', 'product'), public: false, preset: 'standard', sandboxMode: null, gitRemote: null, provider: null, model: null, validate: null }
   assert.deepEqual((await syncFleetDocs(config)).sort(), ['brain', 'personal', 'product'])
   assert.match(readFileSync(join(config.agents['product'].workspacePath, FLEET_FILE), 'utf8'), /product/)
 })
 
-test('债务 H3 回归: manager 只提交 fleet.md——用户已 staged 的其他文件绝不进它的提交', async () => {
+test('Debt H3 regression: the manager commits fleet.md only -- other files the user has staged never enter its commit', async () => {
   const root = mkdtempSync(join(tmpdir(), 'fleet-commit-'))
   execFileSync('git', ['init', '-q'], { cwd: root, stdio: 'ignore' })
   execFileSync('git', ['config', 'user.email', 't@t'], { cwd: root, stdio: 'ignore' })
   execFileSync('git', ['config', 'user.name', 't'], { cwd: root, stdio: 'ignore' })
-  // 用户自己的改动已暂存——manager 的提交不得捎带
+  // The user's own change is already staged -- the manager's commit must not sweep it in
   writeFileSync(join(root, 'user-file.txt'), 'user data', 'utf8')
   execFileSync('git', ['add', '--', 'user-file.txt'], { cwd: root, stdio: 'ignore' })
 
@@ -126,6 +126,6 @@ test('债务 H3 回归: manager 只提交 fleet.md——用户已 staged 的其�
     .trim()
     .split(/\s+/)
     .filter((f) => f !== '')
-  assert.ok(committed.includes('fleet.md'), 'fleet.md 应被提交')
-  assert.ok(!committed.includes('user-file.txt'), '用户 staged 的文件不得被捎带提交')
+  assert.ok(committed.includes('fleet.md'), 'fleet.md should be committed')
+  assert.ok(!committed.includes('user-file.txt'), 'a file the user staged must not be swept into the commit')
 })

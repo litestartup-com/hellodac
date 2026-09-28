@@ -1,12 +1,12 @@
 /**
- * 钥匙的日配额与并发计数（设计稿：内部设计库 `manager/topics/public-api.md` §5）。
+ * A key's daily quota and concurrency count (design: internal design library `manager/topics/public-api.md` §5).
  *
- * **日界线 = manager 主机本地日**，与花费页（`strftime(..., 'localtime')`、
- * `usage/store.ts` 的 `dayRangeMs`）同一口径，也与 docs/adr/0002 的"月是本地"一致：
- * 配额若另用一个时区，界面显示的"今天用了多少"就会和拦不拦你对不上。
+ * **The day boundary is the manager host's local day**, the same rule as the spend page
+ * (`strftime(..., 'localtime')`, `dayRangeMs` in `usage/store.ts`) and as docs/adr/0002's 'months are
+ * local': with a second timezone for quota, 'how much was used today' would not match the block.
  *
- * 计数不做独立累加器：`run` 行本身就是账本（`api_key_id` + `started_at`，走
- * `run_api_key` 索引），因此不存在计数器与真相漂移的问题。
+ * Counting keeps no separate accumulator: the `run` rows are the ledger (`api_key_id` + `started_at`,
+ * served by the `run_api_key` index), so a counter can never drift away from the truth.
  */
 import { and, eq, gte, inArray, sql } from 'drizzle-orm'
 import { schema, type Db } from '../db/index.js'
@@ -14,14 +14,14 @@ import type { ApiKey } from '../auth/api-key.js'
 
 const DAY_MS = 86_400_000
 
-/** 主机本地日零点（与 `new Date(y, m, d)` 同源，故与花费页分桶等价）。 */
+/** Local midnight on the host (same source as `new Date(y, m, d)`, hence the same bucketing as the spend page). */
 export const startOfLocalDay = (now: number = Date.now()): number => {
   const d = new Date(now)
   d.setHours(0, 0, 0, 0)
   return d.getTime()
 }
 
-/** 本钥匙今天已经派出去几个活（含失败/在跑的——**配额按"派出去"算，不按成功算**）。 */
+/** How many jobs this key dispatched today (failures and running ones included -- **the quota counts dispatches, not successes**). */
 export const runsUsedToday = (db: Db, apiKeyId: string, now: number = Date.now()): number => {
   const rows = db
     .select({ n: sql<number>`COUNT(*)`.as('n') })
@@ -31,7 +31,7 @@ export const runsUsedToday = (db: Db, apiKeyId: string, now: number = Date.now()
   return rows[0]?.n ?? 0
 }
 
-/** 本钥匙当前在跑的活（pending/running）——并发上限用。 */
+/** Jobs this key has running right now (pending/running) -- used for the concurrency cap. */
 export const activeRunsForKey = (db: Db, apiKeyId: string): number => {
   const rows = db
     .select({ n: sql<number>`COUNT(*)`.as('n') })
@@ -47,9 +47,9 @@ export type QuotaVerdict =
   | { ok: false; reason: 'concurrency_exceeded'; active: number; limit: number }
 
 /**
- * 派活前的准入判定。判定与真正的 run 行插入在同一进程同一 tick 内完成
- * （单进程 + 同步驱动），因此不存在检查-使用竞态；即便极端并发下略微超出，
- * 也只会多跑一个活，不会破坏账目。
+ * The admission check before a dispatch. The check and the actual run-row insert happen in one
+ * process and one tick (single process + a synchronous driver), so there is no check-then-use race;
+ * even a slight overshoot under extreme concurrency only runs one extra job, never breaks the books.
  */
 export const checkRunQuota = (db: Db, key: ApiKey, now: number = Date.now()): QuotaVerdict => {
   const used = runsUsedToday(db, key.id, now)
@@ -69,7 +69,7 @@ export const checkRunQuota = (db: Db, key: ApiKey, now: number = Date.now()): Qu
   }
 }
 
-/** 供 `GET /v1/usage` 展示：本钥匙本日用量 + 配额余量。 */
+/** For `GET /v1/usage` to display: this key's usage today plus the remaining quota. */
 export const quotaSnapshot = (
   db: Db,
   key: ApiKey,

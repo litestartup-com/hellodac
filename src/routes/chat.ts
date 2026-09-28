@@ -16,7 +16,7 @@ import { activeRunCount, runningRunId } from '../runner.js'
 import { cancelQueuedTurn, cancelQueuedTurns, enqueueTurn } from '../chat/queue.js'
 import { compactHistory } from '../chat/replay.js'
 import { HistoryCache } from '../chat/history-cache.js'
-// 债务 E2:回合编排(会话内串行/会话间并行)已下沉 chat/turn-runner.ts。
+// Debt E2: turn orchestration (serial within a chat, parallel across chats) moved down into chat/turn-runner.ts.
 import { makeChatTurnRunner, type ChatTurnRunner } from '../chat/turn-runner.js'
 import {
   chatRuns,
@@ -31,7 +31,7 @@ import {
   setTitleIfEmpty,
   touchChat,
 } from '../chat/store.js'
-// 债务 E2:relay(SSE pub-sub)已下沉 chat/relay.ts;此处 re-export 保持既有导入面。
+// Debt E2: the relay (SSE pub-sub) moved down into chat/relay.ts; the re-export here keeps the existing import surface.
 import { publish, registerRelayRoute } from '../chat/relay.js'
 export { publish, openChatRelays, closeChatRelays } from '../chat/relay.js'
 
@@ -58,7 +58,7 @@ export const registerChatRoutes = (
   clients: Map<string, GatewayClient>,
   requireUser: preHandlerHookHandler,
   upstreamClients?: Map<string, SessionDriver>,
-  /** 审计回调（全量沙箱切换留痕用；测试可不传）。 */
+  /** The audit callback (for leaving a trace of full-sandbox switches; tests may omit it). */
   audit?: (actor: string, kind: AuditKind, detail: string) => void,
 ): ChatTurnRunner => {
   const agentOf = (chatAgentId: string): ResolvedAgent | undefined => config.agents[chatAgentId]
@@ -97,13 +97,13 @@ export const registerChatRoutes = (
     }
     // For gateway mode, client is always defined here; for apiproxy, we still
     // need a GatewayClient reference for routes that haven't been branched yet.
-    // 债务 E10:占位 client 永不连通,分支逻辑保证不会被真调。
+    // Debt E10: the placeholder client never connects, and the branching guarantees it is never really called.
     return { chat, agent, client: client ?? dummyGatewayClient(), upstream, driver }
   }
 
   // ---- history cache (avoids re-reading the same session log on every page open) ----
-  // 债务 B2(半项):容量上限 LRU + 惰性 TTL——旧裸 Map 无上限,大量
-  // 「读过一次不再跑」的会话会让最贵的对象(整段历史数组)单调增长。
+  // Debt B2 (half of it): capacity-capped LRU + lazy TTL -- the old bare Map had no cap, and many chats that are
+  // read once and never run again made the most expensive object (a whole history array) grow without bound.
 
   interface CachedHistory { events: HistoryEvent[]; sessionState: string; title: string | null; composer: UpstreamComposerState; goal: UpstreamGoal | null }
   const historyCache = new HistoryCache<CachedHistory>({ max: 200, ttlMs: 30_000 }) // cold sessions don't change; 30s is safe
@@ -111,13 +111,13 @@ export const registerChatRoutes = (
   const rememberLiveFrame = (chatId: string, frame: Record<string, unknown>): void => {
     if (frame.kind === 'turn_done') {
       liveFrames.delete(chatId)
-      // 债务卡片链:turn_done 只清回合转录重放——挂起卡片(pendingCards)独立于
-      // 回合生命周期,回合死掉(重连/超时/重启)后卡片仍可重放、仍可作答
-      // (答案经 respond 直达宿主,与回合是否活着无关)。
+      // Debt card chain: turn_done clears only the turn transcript replay -- pending cards (pendingCards) are
+      // independent of the turn's lifecycle, so after the turn dies (reconnect/timeout/restart) the cards can still
+      // be replayed and answered (the answer goes straight to the host through respond, regardless of whether the turn is alive).
       return
     }
-    // 债务卡片链:已作答/已决断的卡片必须从转录重放里移除——合成 resolved 关闭
-    // 卡片后,回合未结束时刷新(GET 重放 liveFrames)不得把卡片复活。
+    // Debt card chain: an answered/decided card must be removed from the transcript replay -- once a synthesised
+    // resolved closes the card, a refresh while the turn is still running (GET replaying liveFrames) must not revive it.
     if (frame.kind === 'question_resolved') {
       const live = (liveFrames.get(chatId) ?? []).filter((l) => !(l.kind === 'question_asked' && l.questionId === frame.questionId))
       if (live.length === 0) liveFrames.delete(chatId)
@@ -143,12 +143,12 @@ export const registerChatRoutes = (
     updatePendingCard(chatId, frame)
   }
 
-  // ---- 债务卡片链(2026-09-17):挂起卡片持久化 + 重放 ----
-  // question/approval 帧是「等人作答」状态:上游只广播一次,若断线窗口/页面
-  // 刷新/回合死亡丢掉了它,卡片就永远回不来(ask_user_question 干等)。本 map
-  // 与回合无关地留存卡片帧,resolved 帧或 TTL 才清理;GET 与 SSE 重连都重放。
+  // ---- Debt card chain (2026-09-17): pending card persistence + replay ----
+  // A question/approval frame is a "waiting for a human" state: the upstream broadcasts it once, and if the outage
+  // window / a page refresh / the turn dying loses it, the card never comes back (ask_user_question waits forever).
+  // This map keeps card frames independently of the turn, clearing them only on a resolved frame or the TTL; both GET and an SSE reconnect replay them.
   const pendingCards = new Map<string, Array<Record<string, unknown>>>()
-  const CARD_TTL_MS = 15 * 60_000 // runner 总超时上限;facade 10 分钟放手,15 分钟兜底
+  const CARD_TTL_MS = 15 * 60_000 // the runner's total timeout ceiling; the facade lets go at 10 minutes, 15 is the backstop
   const freshCards = (chatId: string): Array<Record<string, unknown>> =>
     (pendingCards.get(chatId) ?? []).filter((c) => Date.now() - (typeof c.at === 'number' ? c.at : 0) < CARD_TTL_MS)
   const updatePendingCard = (chatId: string, frame: Record<string, unknown>): void => {
@@ -171,7 +171,7 @@ export const registerChatRoutes = (
       return
     }
     if (kind === 'approval_resolved') {
-      // resolved 可能只带 approvalId(新连接没见过 request)——两种 id 都扫。
+      // A resolved may carry only the approvalId (a new connection never saw the request) -- scan for both ids.
       const cards = (pendingCards.get(chatId) ?? []).filter((c) => {
         if (c.kind !== 'approval_pending') return true
         if (typeof frame.decisionId === 'string') return c.decisionId !== frame.decisionId
@@ -182,7 +182,7 @@ export const registerChatRoutes = (
       else pendingCards.set(chatId, cards)
     }
   }
-  /** GET 重放 = 回合转录(liveFrames) + 存活挂起卡片(去重)。 */
+  /** A GET replay = the turn transcript (liveFrames) plus the live pending cards (deduplicated). */
   const replayFrames = (chatId: string): Array<Record<string, unknown>> => {
     const live = liveFrames.get(chatId) ?? []
     const cards = freshCards(chatId).filter((c) => !live.some((l) =>
@@ -190,7 +190,7 @@ export const registerChatRoutes = (
       (typeof l.questionId === 'string' ? l.questionId === c.questionId : l.decisionId === c.decisionId)))
     return [...live, ...cards]
   }
-  /** SSE 重连重放 = 只重放卡片帧(转录帧不重放——reduce 非幂等,会画重块)。 */
+  /** An SSE reconnect replay = card frames only (transcript frames are not replayed -- the reduce is not idempotent and would draw duplicate blocks). */
   const pendingCardFrames = (chatId: string): Array<Record<string, unknown>> => freshCards(chatId)
 
   const invalidateHistory = (sessionId: string): void => { historyCache.delete(sessionId) }
@@ -216,7 +216,7 @@ export const registerChatRoutes = (
    * Archived chats, so archiving is reversible.
    *
    * A soft delete the user cannot see into is indistinguishable from a real
-   * delete, which would make "归档" a lie about their own data.
+   * delete, which would make "archived" a lie about their own data.
    *
    * Static segment, so it is matched ahead of `/api/chats/:id` regardless of the
    * order these are registered in.
@@ -249,10 +249,10 @@ export const registerChatRoutes = (
   })
 
   /**
-   * 蜂群 P2：主脑派工记录（delegation 帧的数据源）。
+   * Hive P2: the brain's dispatch record (the data source for delegation frames).
    *
-   * 该会话发起的每一次派工 = 一条 run（trigger='brain'、source_chat_id=本会话）。
-   * 页面首屏读这里，实时更新靠 relay 上的 delegation_done 帧。
+   * Every dispatch started from this chat = one run (trigger='brain', source_chat_id=this chat).
+   * The page's first paint reads it here, and live updates ride on the delegation_done frame over the relay.
    */
   app.get<{ Params: { id: string } }>('/api/chats/:id/delegations', { preHandler: requireUser }, async (request, reply) => {
     const chat = getChat(db, request.params.id)
@@ -296,17 +296,17 @@ export const registerChatRoutes = (
     const capabilities = {
       modelSelection: upstream?.modelCatalog !== undefined && upstream.selectModel !== undefined,
       accessMode: upstream?.canSetSandboxMode?.() === true && upstream.setSandboxMode !== undefined,
-      // 第三档权限（danger-full-access）：节点开锁才为 true；形态用于 UI 风险文案。
+      // The third access tier (danger-full-access): true only when the node is unlocked; the form feeds the UI's risk wording.
       fullAccess: await upstream?.allowsFullAccess?.().catch(() => false) ?? false,
       fullAccessForm: config.endpoints[agent.endpoint]?.spawn?.runner === 'docker' ? 'container' : 'bare-metal',
     }
     let composer: UpstreamComposerState = { model: null, context: null, accessMode: null }
 
-    // 权限展示真相源（2026-09-11）：宿主 permissions 投影的 preset 是意图标签，
-    // 沙箱旋钮漂移后推导值= custom，反推不出真实沙箱（read-only 标签 + 全量旋钮
-    // 的组合会显示成只读）。以 manager 记录的钉入值为准，退宿主推导值，再退
-    // agent 配置默认（runner 建会话时会钉它）。历史读取前后各套一次：fresh 分支
-    // 与主路径的 composer 来源不同。
+    // The source of truth for showing permissions (2026-09-11): the preset the host's permissions projection reports is an
+    // intent label, and once the sandbox knobs drift the derived value is custom and the real sandbox cannot be inferred back
+    // (a read-only label with the full knobs would display as read-only). The pinned value the manager recorded wins, then the
+    // host's derived value, then the agent config default (the runner pins it when it creates a session). Wrapped around history
+    // reads on both sides: the fresh branch and the main path get their composer from different sources.
     const withEffectiveAccess = (current: UpstreamComposerState): UpstreamComposerState => {
       const rowAccess = db.select().from(schema.chat).where(eq(schema.chat.id, chat.id)).get()?.accessMode
       const resolved = rowAccess === 'read-only' || rowAccess === 'workspace-write' || rowAccess === 'danger-full-access'
@@ -315,17 +315,17 @@ export const registerChatRoutes = (
       return resolved === null ? current : { ...current, accessMode: resolved }
     }
 
-    // 债务卡片链:向宿主要回仍挂起的问答/授权帧(manager 重启后 in-memory 全丢;
-    // question/approval 只广播一次)——刷新页面时卡片经重放恢复,用户仍可作答
-    // (respond 直达宿主,与回合是否活着无关)。失败静默,恢复通道尽力而为。
-    // 必须在 base 之前:liveFrames 重放要带上刚恢复的卡片。
+    // Debt card chain: fetch the still-pending question/approval frames back from the host (an in-memory loss on a manager
+    // restart; question/approval are broadcast once) -- on a page refresh the cards come back through the replay and the user
+    // can still answer (respond goes straight to the host, regardless of whether the turn is alive). Failures stay silent:
+    // the recovery channel is best-effort. It has to come before base: the liveFrames replay must carry the just-recovered cards.
     if (driver === 'apiproxy' && upstream !== null && chat.dshSessionId !== null) {
       try {
         for (const ask of await (upstream.pendingAsks?.(chat.dshSessionId) ?? Promise.resolve([]))) {
           rememberLiveFrame(chat.id, ask)
         }
       } catch {
-        // 旧 facade 无恢复端点 → 空。
+        // An old facade has no recovery endpoint -> empty.
       }
     }
 
@@ -492,12 +492,12 @@ export const registerChatRoutes = (
   })
 
   /**
-   * 蜂群 Q5：清掉「建了但一个字没写」的空会话。
+   * Hive Q5: clean up an empty chat, "created but not one word written".
    *
-   * 硬删除而不是归档：空会话没有 transcript、没有账单、没有网关 session，
-   * 把这样的空壳收进「可恢复的已归档」反而是对恢复承诺的谎报。有过回合
-   * 或已被网关起过标题的会话一律 409——红线：有内容的会话只能归档，
-   * 永远不许物理删除。
+   * A hard delete rather than an archive: an empty chat has no transcript, no ledger and no gateway session, and filing
+   * such a shell under "archived, recoverable" would itself misreport the promise of recovery. A chat with turns or
+   * with a title the gateway already set is always a 409 -- the red line: a chat with content may only be archived,
+   * never physically deleted.
    */
   app.post<{ Params: { id: string } }>('/api/chats/:id/vacate', { preHandler: requireUser }, async (request, reply) => {
     const chat = getChat(db, request.params.id)
@@ -543,7 +543,7 @@ export const registerChatRoutes = (
     return reply.send({ ok: true, chat: getChat(db, chat.id), detail: 'session restored' })
   })
 
-  // ---- turns（债务 E2:回合编排在 chat/turn-runner.ts） ----------------------
+  // ---- turns (Debt E2: turn orchestration lives in chat/turn-runner.ts) ----------------------
 
   const turns = makeChatTurnRunner({
     db,
@@ -589,8 +589,8 @@ export const registerChatRoutes = (
       // would hold the browser's `sending` state for the whole turn and make
       // the second message impossible to send.
       //
-      // 蜂群 P5.4 修订：同会话上一回合还在跑 → 排进本会话队列（dock 可见、
-      // 可删），完成后自动接着跑；不同会话直接并行。
+      // Hive P5.4 revision: with the previous turn in the same chat still running -> queue it in this chat's queue
+      // (visible in the dock, removable), and it runs on automatically when that finishes; different chats run in parallel directly.
       try {
         if (turns.hasRunningTurn(chat.id)) {
           const queuedId = randomUUID()
@@ -712,15 +712,15 @@ export const registerChatRoutes = (
       await found.upstream.setSandboxMode(found.chat.dshSessionId, parsed.data.mode)
       invalidateHistory(found.chat.dshSessionId)
       publish(found.chat.id, { kind: 'composer_state', accessMode: parsed.data.mode })
-      // 成功钉入：清掉可能残留的延迟覆盖（直连成功 = 已生效），并记下展示真相。
+      // Pinned successfully: clear any leftover deferred override (a direct success = already in effect) and record the display truth.
       db.update(schema.chat).set({ accessModeOverride: null, accessMode: parsed.data.mode }).where(eq(schema.chat.id, found.chat.id)).run()
-      // 全量沙箱切换留痕：用户决策 + 事后可追溯（2026-09-11 拍板）。
+      // A trace for the full-sandbox switch: the user's decision, traceable afterwards (decided 2026-09-11).
       if (parsed.data.mode === 'danger-full-access') {
         audit?.(request.currentUser?.username ?? 'unknown', 'sandbox_mode', `session ${found.chat.id} enabled the full-access sandbox (danger-full-access)`)
       }
       return reply.send({ accessMode: parsed.data.mode })
     } catch (error) {
-      // 会话转冷（回合间隙宿主已卸载）：记下覆盖，下回合创建/唤醒时由 runner 钉入。
+      // The chat went cold (the host unloaded it between turns): record the override, and the runner pins it in when the next turn creates/wakes the session.
       const detail = errorText(error)
       if (detail.includes('session_not_live')) {
         db.update(schema.chat).set({ accessModeOverride: parsed.data.mode, accessMode: parsed.data.mode }).where(eq(schema.chat.id, found.chat.id)).run()
@@ -753,9 +753,9 @@ export const registerChatRoutes = (
       const { chat, client, upstream, driver } = found
       if (chat.dshSessionId === null) return reply.code(409).send({ error: 'no_session' })
       const body = request.body ?? {}
-      // 债务卡片链:应答成功后合成 resolved 帧——上游广播可能永远到不了
-      // (runner 已死/断线窗口),不合成的话卡片在前端会一直开着。
-      // 经 rememberLiveFrame:既从转录重放(liveFrames)移除卡片,又清 pendingCards。
+      // Debt card chain: synthesise a resolved frame after a successful answer -- the upstream broadcast may never
+      // arrive (the runner is dead / the outage window), and without the synthesis the card stays open in the frontend.
+      // Through rememberLiveFrame it both removes the card from the transcript replay (liveFrames) and clears pendingCards.
       const closeQuestion = (outcome: string): void => {
         const resolved = { kind: 'question_resolved', questionId: request.params.questionId, outcome }
         rememberLiveFrame(chat.id, resolved)
@@ -810,7 +810,7 @@ export const registerChatRoutes = (
       if (chat.dshSessionId === null) return reply.code(409).send({ error: 'no_session' })
       const outcome = request.body?.outcome
       if (outcome !== 'allowed-once' && outcome !== 'rejected') return reply.code(400).send({ error: 'invalid_outcome' })
-      // 债务卡片链:同 questions 路由——合成 resolved,卡片不依赖上游广播。
+      // Debt card chain: the same as the questions route -- synthesise resolved, so the card does not depend on the upstream broadcast.
       const closeApproval = (approvalId: string | undefined): void => {
         const resolved = { kind: 'approval_resolved', decisionId: request.params.decisionId, ...(approvalId === undefined ? {} : { approvalId }), outcome }
         rememberLiveFrame(chat.id, resolved)
@@ -843,12 +843,12 @@ export const registerChatRoutes = (
     },
   )
 
-  // ---- relay（债务 E2:SSE 事件流已下沉 chat/relay.ts） --------------------
-  // 债务卡片链:SSE(重)连时重放挂起卡片帧——断流窗口丢掉的 question/approval
-  // 帧借此回来(转录帧不重放,reduce 非幂等)。
+  // ---- relay (Debt E2: the SSE event stream moved down into chat/relay.ts) --------------------
+  // Debt card chain: on an SSE (re)connect, replay the pending card frames -- that is how question/approval
+  // frames lost in the outage window come back (transcript frames are not replayed; the reduce is not idempotent).
   registerRelayRoute(app, db, requireUser, pendingCardFrames)
 
-  // 交回同一个回合执行器：对外 API 复用它（同一实例 = 同一份"本会话正在跑"状态，
-  // 否则后台与对外各算各的，同一会话可能被并发跑两轮）。
+  // Hand back the same turn runner: the public API reuses it (one instance = one copy of the "this chat is running" state;
+  // otherwise the back office and the public face would each keep their own, and the same chat could run two turns at once).
   return turns
 }

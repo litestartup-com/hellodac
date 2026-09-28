@@ -56,20 +56,20 @@ export interface PricingTable {
   /** Empty means everything is off-peak. */
   peakWindows: PeakWindow[]
   /**
-   * 2026-09-05：周六周日全天按低谷计价（DeepSeek V4 规则）——峰值窗口只在
-   * 工作日生效。缺省 false 保持老行为，DEFAULT_PRICING 显式开启。
+   * 2026-09-05: Saturday and Sunday are billed off-peak all day (the DeepSeek V4 rule) -- the peak
+   * windows apply on working days only. Defaulting to false keeps the old behaviour; DEFAULT_PRICING turns it on explicitly.
    */
   weekendsOffPeak?: boolean
-  /** 判定「周末」所用的时区（峰值窗口是 UTC 的，星期几属于人的日历）。 */
+  /** Time zone used to decide "weekend" (peak windows are UTC, but the day of the week belongs to a human calendar). */
   pricingTimeZone?: string
 }
 
-/** 星期几按哪个时区的日历算——默认北京（与峰值窗口=北京工作时段一致）。 */
+/** Which time zone's calendar the weekday is read from -- Beijing by default (matching the peak windows, which are Beijing working hours). */
 const PRICING_TIME_ZONE = 'Asia/Shanghai'
 
 /**
- * `at` 在给定时区里是否落在周六/周日。时区无效时按工作日处理——宁可照常
- * 计峰值，也不静默少记一笔钱。
+ * Whether `at` falls on a Saturday/Sunday in the given time zone. An invalid time zone is treated as a
+ * working day -- better to bill peak as usual than to silently under-record a charge.
  */
 export const isWeekend = (at: number, timeZone: string): boolean => {
   try {
@@ -169,7 +169,7 @@ export const computeCost = (
   if (pricing === null) return null
 
   const inWindow = isPeak(at, table.peakWindows)
-  // 2026-09-05：周末全天低谷——峰值窗口只在工作日生效。
+  // 2026-09-05: weekends are off-peak all day -- peak windows apply on working days only.
   const weekend = table.weekendsOffPeak === true && isWeekend(at, table.pricingTimeZone ?? PRICING_TIME_ZONE)
   const peak = pricing.peak !== undefined && inWindow && !weekend
   const rate = peak && pricing.peak !== undefined ? pricing.peak : pricing.offPeak

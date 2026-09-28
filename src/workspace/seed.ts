@@ -1,7 +1,7 @@
 /**
- * 蜂群2计划 P6：容器路径没有 setup 步骤——空工作区在 manager 启动时自动播种
- * 模板（与裸机 setup 行为对齐）。只碰「完全空」的目录：有任何文件的工作区
- * （笔记库、向导建的工作区）一律不动。
+ * Hive plan 2 P6: the container path has no setup step -- an empty workspace is seeded with templates
+ * when the manager starts (aligned with bare-metal setup). Only a completely empty directory is
+ * touched: a workspace with any file at all (a note vault, a wizard-made workspace) is left alone.
  */
 import { existsSync, readdirSync } from 'node:fs'
 import { ensureWorkspaceGit, initWorkspace, listPresets } from './init.js'

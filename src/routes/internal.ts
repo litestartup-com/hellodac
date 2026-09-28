@@ -17,17 +17,17 @@ import { USD_TO_MICRO, monthTotals, monthByAgent, monthByModel, currentMonth } f
 import { scheduleProblem, type Scheduler } from '../cron/schedule.js'
 
 /**
- * 蜂群 P2：brain 面内部 REST API。
+ * Hive P2: the brain-side internal REST API.
  *
- * 主脑（DSH 里的 skill + curl）吃这一面；第三方走北向 /api/v1。两道门缺一
- * 不可，全不过则这一面不存在（fail closed）：
+ * The brain (a skill plus curl inside DSH) consumes this side; third parties go through the northbound /api/v1.
+ * Both doors are required, and without both this side does not exist (fail closed):
  *
- * 1. 仅接受私网来源（裸机=回环；容器形态=主脑在 hive 内网，来源 172.x/10.x——
- *    token 即使外带，公网也打不进来）；
- * 2. `X-Brain-Token` 常量时间比较，值来自 `.env` 的 `BRAIN_TOKEN`。
+ * 1. Private-network sources only (bare metal = loopback; container form = the brain is on the hive's internal
+ *    network, source 172.x/10.x -- even a token carried out cannot get in from the public internet);
+ * 2. `X-Brain-Token` compared in constant time, with the value coming from `BRAIN_TOKEN` in `.env`.
  *
- * 语义对齐 BRAINSTORM §3.2 三组：看（只读）与做（manager 侧裁决）；红线
- * （写文件 / 发信 / 管理操作）在此面根本不提供路由。
+ * The semantics align with BRAINSTORM §3.2's three groups: look (read-only) and do (decided on the manager side);
+ * the red lines (writing files / sending mail / management operations) have no routes on this side at all.
  */
 
 const tokenOk = (candidate: string | null): boolean => {
@@ -39,7 +39,7 @@ const tokenOk = (candidate: string | null): boolean => {
   return timingSafeEqual(a, b)
 }
 
-/** 回环 + RFC1918 私网（docker 内网来源；公网永远不过）。 */
+/** Loopback plus RFC1918 private ranges (docker internal sources; the public internet never passes). */
 const isPrivateSource = (ip: string): boolean => {
   const raw = ip.replace(/^::ffff:/, '')
   if (raw === '127.0.0.1' || raw === '::1') return true
@@ -50,11 +50,11 @@ const isPrivateSource = (ip: string): boolean => {
   return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254)
 }
 
-// async 钩子用 fastify 的 async 专用类型：preHandlerHookHandler 的签名是 void 返回
-// （给回调式钩子用的），把 async 函数标成它会让"返回 promise 给不等待方"无法被 lint 区分。
+// An async hook uses fastify's async-specific type: preHandlerHookHandler is signed as returning void (it is for
+// callback-style hooks), and marking an async function with it hides "a promise returned to someone who does not await it" from the linter.
 const brainGate: preHandlerAsyncHookHandler = async (request, reply) => {
-  // 蜂群2计划 P6：信任「直连对端」而不是转发头——反代（nginx/Cloudflare）之后
-  // request.ip 是公网客户端 IP，会把回环/内网来源误判成公网（smoke 实测 403）。
+  // Hive plan 2 P6: trust the "directly connected peer" rather than forwarded headers -- behind a reverse proxy
+  // (nginx/Cloudflare) request.ip is the public client IP and would misjudge loopback/internal sources as public (smoke measured a 403).
   const peerIp = request.socket.remoteAddress ?? request.ip
   if (!isPrivateSource(peerIp)) {
     await reply.code(403).send({ error: 'private_network_only', hint: 'the brain API accepts private-network connections only' })
@@ -75,7 +75,7 @@ const dispatchBody = z.object({
   agentId: z.string().min(1),
   prompt: z.string().min(1).max(20_000),
   chatId: z.string().optional(),
-  /** 蜂群 P2：主脑发起本次派工所在的会话（delegation 帧归属）。 */
+  /** Hive P2: the chat this dispatch was started from (the delegation frame's origin). */
   sourceChatId: z.string().optional(),
 })
 
@@ -97,7 +97,7 @@ export const registerInternalRoutes = (
 ): void => {
   const gated = { preHandler: brainGate }
 
-  // ---- 看 ----
+  // ---- look ----
 
   app.get('/api/internal/agents', gated, async () => {
     const month = currentMonth()
@@ -105,7 +105,7 @@ export const registerInternalRoutes = (
     const cap = config.brainDailyBudgetMicroUsd ?? null
     const spent = cap === null ? 0 : brainSpendToday()
     return {
-      // 蜂群 P5.1：主脑派工前的预算预判——余量低于任务估价时主脑应如实告知。
+      // Hive P5.1: the budget forecast before a brain dispatch -- when what is left is below the task estimate the brain must say so honestly.
       brainBudget:
         cap === null
           ? null
@@ -205,17 +205,17 @@ export const registerInternalRoutes = (
     }
   })
 
-  // ---- 做（manager 侧裁决） ----
+  // ---- do (decided on the manager side) ----
 
   /**
-   * 蜂群 P5.1：主脑派工（trigger=brain）的日预算熔断。只拦主脑的派工，
-   * 人手动操作不拦——§8.3 借用第 2 条（成本失控是企业项目头号死因）。
+   * Hive P5.1: the daily budget breaker for brain dispatches (trigger=brain). It only stops brain dispatches;
+   * manual human actions are not stopped -- §8.3 borrows rule 2 (runaway cost is the number one killer of enterprise projects).
    */
   const brainSpendToday = (): number => {
     const start = new Date()
     start.setHours(0, 0, 0, 0)
-    // 债务 B5:求和下推 SQL(不再把行拉进 JS reduce),范围过滤命中
-    // usage_at + run_trigger_started 索引
+    // Debt B5: the sum is pushed down into SQL (rows are no longer pulled into a JS reduce), and the range filter
+    // hits the usage_at + run_trigger_started indexes
     const rows = db.all<{ total: number | null }>(sql`
       SELECT COALESCE(SUM(usage_record.cost), 0) AS total
       FROM usage_record
@@ -228,11 +228,11 @@ export const registerInternalRoutes = (
   const promptBody = z.object({ text: z.string().min(1, 'a prompt is required').max(20_000) })
 
   /**
-   * 蜂群 P5.3 会话复用：主脑往已有会话续一句（ask_worker）。
+   * Hive P5.3 chat reuse: the brain continues an existing chat with one more prompt (ask_worker).
    *
-   * 同步返回 outcome（技能直接读 JSON）；同会话已有回合在跑时 409——
-   * 「会话内串行」的服务端闸门；同样走主脑预算熔断。续接的帧实时推给该
-   * 会话页的 relay，用户在场时看得到主脑在续写。
+   * The outcome comes back synchronously (the skill reads the JSON directly); with a turn already running in the
+   * same chat it is a 409 -- the server-side gate for "serial within a chat"; the brain budget breaker applies here
+   * too. The continued frames are pushed live to that chat page's relay, so a present user can see the brain writing on.
    */
   app.post<{ Params: { id: string }; Body: unknown }>('/api/internal/chats/:id/prompt', { ...gated, config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (request, reply) => {
     const parsed = promptBody.safeParse(request.body)
@@ -360,8 +360,8 @@ export const registerInternalRoutes = (
           silenceMs: config.runner.silenceMs,
         },
       )
-      // 蜂群 P2：主脑会话页的 delegation 帧实时态——派工结束推一帧，页面据
-      // 此刷新该会话的派工列表。
+      // Hive P2: the live state of the delegation frame on the brain chat page -- one frame is pushed when a dispatch
+      // ends, and the page refreshes that chat's dispatch list from it.
       if (body.sourceChatId !== undefined && body.sourceChatId !== '') {
         publish(body.sourceChatId, {
           kind: 'delegation_done',
@@ -406,8 +406,8 @@ export const registerInternalRoutes = (
           schedule: body.schedule,
           timezone: body.timezone,
           prompt: body.prompt,
-          // 主脑可以起草定时任务，开关必须是人（BRAINSTORM §3.2）：默认停用，
-          // 用户在 crons 页确认后才启用。
+          // The brain may draft a scheduled task, but the switch must be human (BRAINSTORM §3.2): disabled by
+          // default, enabled only after the user confirms on the crons page.
           enabled: 0,
           consecutiveFailures: 0,
           createdAt: Date.now(),

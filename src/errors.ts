@@ -1,7 +1,7 @@
 /**
- * 债务 E6:错误 → 用户可读文本的唯一映射。
- * 原 4 处各写各的三元链(GatewayError.detail / UpstreamError.message / String),
- * 语义还不一致(runner 无 detail 兜底、status 有)。此后全项目只此一处。
+ * Debt E6: the single mapping from an error to user-readable text.
+ * Four places each had their own ternary chain (GatewayError.detail / UpstreamError.message / String),
+ * with inconsistent semantics too (the runner had no detail fallback, status did). One place from now on.
  */
 import { GatewayError } from './gateway/client.js'
 import { UpstreamError } from './upstream/rpc.js'

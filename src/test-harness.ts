@@ -1,11 +1,11 @@
-// 债务 C3:共享测试 harness——临时目录/makeDb/personalAgent 收敛。
+// Debt C3: a shared test harness -- temp dirs / makeDb / personalAgent consolidated.
 //
-// 此前 14+ 个测试文件各自抄一份 makeDb/agentFor,拼写已开始漂移
-// (有的 agent 落 DB 有的不落、字段缺 provider/model/sandboxMode)。
-// 单一实现 = 单一语义:任何 DB 形状或 ResolvedAgent 字段变化只改这里。
+// Before this, 14+ test files each carried their own copy of makeDb/agentFor and the variants had started to drift
+// (some agents were written to the DB and some were not, fields were missing provider/model/sandboxMode).
+// One implementation = one meaning: any change to the DB shape or to a ResolvedAgent field is made here only.
 //
-// configFor 不入 harness:它的端点形状随 FakeGateway/真 gateway 而变,
-// 强行统一反而把「假依赖注入」变成「隐式网络」,留在各测试里更诚实。
+// configFor stays out of the harness: its endpoint shape follows the FakeGateway/real gateway, and forcing it to be
+// uniform would turn "fake dependency injection" into "implicit network" -- leaving it in each test is more honest.
 
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -13,10 +13,10 @@ import { join } from 'node:path'
 import type { ResolvedAgent } from './config.js'
 import { openDb, schema, type Db } from './db/index.js'
 
-/** 独立临时目录,测试结束由调用方(或进程退出)清理。 */
+/** A standalone temp directory; the caller cleans it up when the test ends (or the process exits). */
 export const tempDir = (prefix: string): string => mkdtempSync(join(tmpdir(), `${prefix}-`))
 
-/** 裸开测试库文件(不落任何 agent 行)。 */
+/** Open a bare test database file (no agent rows written). */
 const openTestDb = (): { db: Db; dir: string } => {
   const dir = tempDir('harness-db')
   const { db } = openDb(join(dir, 'test.db'))
@@ -24,8 +24,8 @@ const openTestDb = (): { db: Db; dir: string } => {
 }
 
 /**
- * 开一个带 personal agent 行的文件 DB。
- * 返回目录以便测试访问 DB 文件路径(备份/迁移类用例)。
+ * Open a file DB that carries the personal agent row.
+ * The directory is returned so tests can reach the DB file path (backup/migration cases).
  */
 export const makeDb = (workspace?: string): { db: Db; dir: string; workspace: string } => {
   const { db, dir } = openTestDb()
@@ -45,13 +45,13 @@ export const makeDb = (workspace?: string): { db: Db; dir: string; workspace: st
   return { db, dir, workspace: ws }
 }
 
-/** 与 makeDb 落库的 personal 行一致的 ResolvedAgent(端点 A)。 */
+/** A ResolvedAgent matching the personal row makeDb writes (endpoint A). */
 export const personalAgent = (workspacePath: string): ResolvedAgent =>
   agentWith({ id: 'personal', name: 'Personal', workspacePath })
 
 /**
- * 带参 ResolvedAgent 构造:skills/status 等测试用不同 id/name/端点,
- * 其余字段统一给空默认——字段形状变化只改这里。
+ * ResolvedAgent construction with parameters: tests such as skills/status use a different id/name/endpoint,
+ * and every other field gets the same empty default -- a field-shape change is made here only.
  */
 export const agentWith = (over: {
   id: string
@@ -76,8 +76,8 @@ export const agentWith = (over: {
 })
 
 /**
- * 多 agent 测试库(usage/status 用 personal+company 双行)。
- * 只落给定行(不含默认 personal);workspacePath 默认同 DB 目录,endpoint 默认 'A'。
+ * A multi-agent test DB (usage/status use the personal + company rows).
+ * Only the given rows are written (no default personal); workspacePath defaults to the DB directory, endpoint to 'A'.
  */
 export const makeDbWithAgents = (agents: Array<{ id: string; name?: string; workspacePath?: string; endpoint?: string }>): Db => {
   const { db, dir } = openTestDb()

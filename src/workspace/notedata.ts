@@ -228,9 +228,9 @@ export const keysForFile = (file: NoteDataFile): string[] =>
     .map(([key]) => key)
 
 /**
- * 债务 E11:读取失败必须显性——旧实现 catch 一切返回 null,把「读不了」
- * (权限/IO/EISDIR)当成「不存在」,writer 会据此重建文件并覆盖真实数据。
- * 现在只有 ENOENT(确实不存在)返回 null;其余错误显性抛出。
+ * Debt E11: a read failure must be visible -- the old implementation caught everything and returned null, treating
+ * "cannot read" (permissions/IO/EISDIR) as "does not exist", and the writer would then rebuild the file over real
+ * data. Now only ENOENT (genuinely absent) returns null; every other error throws.
  */
 export const readRawFile = (workspacePath: string, file: NoteDataFile): string | null => {
   const path = join(dataDir(workspacePath), file)

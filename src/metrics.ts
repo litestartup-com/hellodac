@@ -6,12 +6,12 @@ import { openChatRelays } from './routes/chat.js'
 import { getMuxReconnects } from './upstream/mux.js'
 
 /**
- * 债务 B6(简化版):可观测性第一脚——/metrics 端点 + 快照纯函数。
+ * Debt B6 (simplified): the first step of observability -- a /metrics endpoint plus a pure snapshot function.
  *
- * 本简化版覆盖成本控制与排障最需要的几个数:run 状态分布、7 天失败率、
- * 当日花费(含未定价缺口)、活跃 run、SSE 连接数、mux 重连计数。
- * requestId 贯通由 fastify genReqId(index.ts 接线)负责;结构化 run/turn
- * 事件流与单回合成本上限仍是 B6 的后续。
+ * This simplified version covers the few numbers cost control and troubleshooting need most: the run state
+ * distribution, the 7-day failure rate, today's spend (unpriced gaps included), active runs, SSE connections
+ * and the mux reconnect count. Propagating requestId is fastify genReqId's job (wired in index.ts); the
+ * structured run/turn event stream and the per-turn cost ceiling are still to come under B6.
  */
 
 export interface MetricsSnapshot {
@@ -19,7 +19,7 @@ export interface MetricsSnapshot {
   runs: {
     total: number
     byState: Record<string, number>
-    /** 最近 7 天内已终局 run 的失败率(0-1,无样本 = null)。 */
+    /** Failure rate of terminal runs over the last 7 days (0-1, null when there is no sample). */
     failedRate7d: number | null
   }
   spendToday: { costMicroUsd: number; unpriced: number }

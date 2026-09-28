@@ -1,12 +1,12 @@
 /**
- * 对外 API 钥匙（设计稿：内部设计库 `manager/topics/public-api.md` §5 / §11）。
+ * Public-API keys (design doc: the internal design library's `manager/topics/public-api.md` §5 / §11).
  *
- * 与 session / agent token 同一套思路：明文**只在创建时回显一次**，库里只存 sha256。
- * 区别是钥匙属于机器调用方，因此额外带作用域、服务范围与配额——这三个在本模块只做
- * 存取与判定，真正的强制点在 public-api 层（门面）。
+ * Same idea as the session / agent tokens: the plaintext is echoed **once, at creation**, and only sha256 is stored.
+ * The difference is that a key belongs to a machine caller, so it also carries scopes, service range and quota -- this
+ * module only stores and decides on those three; the real enforcement point is the public-api layer (the facade).
  *
- * 校验结果五态分明，但刻意让「未知 keyId」与「前缀对、secret 错」返回同一个
- * reason（unknown）：否则调用方可以拿返回差异探测哪些 keyId 真实存在。
+ * The five verification outcomes stay distinct, but "unknown keyId" and "right prefix, wrong secret" deliberately
+ * return the same reason (unknown): otherwise a caller could probe which keyIds really exist from the difference.
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { desc, eq } from 'drizzle-orm'
@@ -25,7 +25,7 @@ export interface ApiKey {
   id: string
   name: string
   scopes: KeyScope[]
-  /** 允许进入的服务 id；['*'] = 全部。与服务 agent 的 public 标志取交集（双门）。 */
+  /** Service ids this key may enter; ['*'] = all. Intersected with the service agent's public flag (two doors). */
   scopeServices: string[]
   quotaRunsDay: number | null
   rateLimitRpm: number
@@ -54,16 +54,16 @@ export interface MintInput {
 
 const KEY_ID_RE = /^[0-9a-f]{12}$/
 /**
- * 明文形态：`dac_<12 hex keyId>_<43 字符 secret>`。
+ * The plaintext shape: `dac_<12 hex keyId>_<43-character secret>`.
  *
- * **secret 的字母表里没有 `_`**：`_` 是分隔符，base64url 却把它当普通字符，
- * 于是"秘密里带下划线"会让任何按 `_` 切分的解析（客户自己写的集成、日志脱敏脚本、
- * 我们的测试）拿到错误的片段——2026-09-27 就是它让一条"列表不得含明文"的断言
- * 偶发误报：`split('_')[2]` 取到的是被截断的短串，恰好出现在别处就判成泄漏。
- * 现在签发时跳过含 `_` 的编码（约一半会被跳过，成本可忽略），长度与熵不变。
+ * **The secret's alphabet has no `_` in it**: `_` is the separator, yet base64url treats it as an ordinary
+ * character, so "a secret with an underscore in it" makes any parsing that splits on `_` (a customer's own
+ * integration, a log-scrubbing script, our tests) pick up the wrong fragment -- on 2026-09-27 that is what made a
+ * "the list must not contain plaintext" assertion flake: `split('_')[2]` returned a truncated short string that
+ * happened to appear elsewhere and was judged a leak. Minting now skips any encoding containing `_` (about half are skipped, a negligible cost), and the length and entropy are unchanged.
  */
 const TOKEN_RE = /^dac_([0-9a-f]{12})_([A-Za-z0-9-]{43})$/
-/** 每次调用都写 lastUsedAt = 白烧写入；一分钟一次足够界面显示"最近使用"。 */
+/** Writing lastUsedAt on every call = a wasted write; once a minute is enough for the UI to show "last used". */
 const LAST_USED_THROTTLE_MS = 60_000
 const MAX_RPM = 6_000
 const MAX_CONCURRENCY = 64
@@ -79,7 +79,7 @@ const parseList = (raw: string): string[] => {
   }
 }
 
-/** 未知 scope 一律丢弃：库里被手改出奇怪值时，宁可不授权也不放宽。 */
+/** Drop any unknown scope: when the database has been hand-edited into odd values, denying is better than loosening. */
 const parseScopes = (raw: string): KeyScope[] =>
   parseList(raw).filter((v): v is KeyScope => (KEY_SCOPES as readonly string[]).includes(v))
 
@@ -121,13 +121,13 @@ const assertMintInput = (input: MintInput, now: number): void => {
 }
 
 /**
- * 签发一把钥匙。返回的 `token` 是**唯一一次**拿到明文的机会（UI/CLI 必须当场展示）。
+ * Mint a key. The returned `token` is the **only** chance to get the plaintext (the UI/CLI must show it on the spot).
  */
 export const mintApiKey = (db: Db, input: MintInput): { token: string; key: ApiKey } => {
   const now = Date.now()
   assertMintInput(input, now)
 
-  // keyId 撞车概率 2^-48；真撞上时重试，而不是把主键冲突抛给调用方。
+  // A keyId collision has probability 2^-48; on a real collision retry rather than throwing the primary-key conflict at the caller.
   let keyId = ''
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const candidate = randomBytes(6).toString('hex')
@@ -139,8 +139,8 @@ export const mintApiKey = (db: Db, input: MintInput): { token: string; key: ApiK
   }
   if (keyId === '') throw new Error('key_id_collision')
 
-  // secret 里不出现 `_`（它是分隔符，见 TOKEN_RE 上方注释）：base64url 有一半概率
-  // 带 `_`，所以这里重抽到干净为止——长度仍是 43、熵仍是 256 位附近，代价可忽略。
+  // No `_` in the secret (it is the separator, see the comment above TOKEN_RE): base64url carries `_` about
+  // half the time, so redraw until it is clean -- the length stays 43 and the entropy stays around 256 bits, a negligible cost.
   let secret = randomBytes(32).toString('base64url')
   while (secret.includes('_')) secret = randomBytes(32).toString('base64url')
   db.insert(schema.apiKey)
@@ -166,7 +166,7 @@ export const mintApiKey = (db: Db, input: MintInput): { token: string; key: ApiK
   return { token: `dac_${keyId}_${secret}`, key: toApiKey(row) }
 }
 
-/** 校验钥匙串。成功时顺带（节流地）刷新 lastUsedAt。 */
+/** Verify a key string. On success, refresh lastUsedAt along the way (throttled). */
 export const verifyApiKey = (db: Db, token: string | undefined): VerifyResult => {
   if (token === undefined) return { ok: false, reason: 'malformed' }
   const matched = TOKEN_RE.exec(token)
@@ -180,7 +180,7 @@ export const verifyApiKey = (db: Db, token: string | undefined): VerifyResult =>
   const expected = Buffer.from(row.keyHash, 'hex')
   const actual = Buffer.from(digest(secret), 'hex')
   if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
-    // 前缀存在但 secret 错：与「前缀不存在」同一原因，不留探测口。
+    // The prefix exists but the secret is wrong: the same reason as "the prefix does not exist", leaving no probe.
     return { ok: false, reason: 'unknown' }
   }
 
@@ -195,7 +195,7 @@ export const verifyApiKey = (db: Db, token: string | undefined): VerifyResult =>
   return { ok: true, key: toApiKey(row) }
 }
 
-/** 吊销是幂等的：已吊销再吊销仍返回 true（界面按钮重试不该报错）。 */
+/** Revoking is idempotent: revoking an already-revoked key still returns true (a UI button retry should not error). */
 export const revokeApiKey = (db: Db, id: string): boolean => {
   if (!KEY_ID_RE.test(id)) return false
   const row = db.select().from(schema.apiKey).where(eq(schema.apiKey.id, id)).all()[0]
@@ -206,7 +206,7 @@ export const revokeApiKey = (db: Db, id: string): boolean => {
   return true
 }
 
-/** 列表永不返回明文（结构上就没有这个字段）。 */
+/** The list never returns plaintext (there is structurally no such field). */
 export const listApiKeys = (db: Db): ApiKey[] =>
   db.select().from(schema.apiKey).orderBy(desc(schema.apiKey.createdAt)).all().map(toApiKey)
 

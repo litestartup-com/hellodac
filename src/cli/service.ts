@@ -4,17 +4,17 @@ import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 /**
- * 蜂群 P6：manager 服务化——开机自启 + 用户级服务。
+ * Hive P6: running the manager as a service -- start on boot + a user-level service.
  *
- * 零额外二进制：Windows 用任务计划（schtasks，登录时拉起），Linux 用
- * systemd user unit。全部用户级，不需要管理员。
+ * Zero extra binaries: Windows uses Task Scheduler (schtasks, started at logon), Linux uses a
+ * systemd user unit. Everything is user-level, no administrator needed.
  *
  *   npm run service -- install | uninstall | status
  */
 
-const here = join(dirname(fileURLToPath(import.meta.url)), '..', '..') // 仓库根
+const here = join(dirname(fileURLToPath(import.meta.url)), '..', '..') // repository root
 
-/** Windows 启动包装：切到仓库根、带环境变量、npm start。 */
+/** Windows launch wrapper: switch to the repository root, carry the environment variables, npm start. */
 export const windowsLauncher = (rootDir: string): string => [
   '@echo off',
   `cd /d "${rootDir}"`,
@@ -23,7 +23,7 @@ export const windowsLauncher = (rootDir: string): string => [
   '',
 ].join('\r\n')
 
-/** Linux systemd user unit。 */
+/** Linux systemd user unit. */
 export const systemdUnit = (rootDir: string, node: string): string => [
   '[Unit]',
   'Description=DAC (dsh agents manager)',
@@ -125,8 +125,8 @@ const main = (): void => {
   else console.log(installLinux(root, node).detail)
 }
 
-// 只在被直接执行时运行：被测试/其它模块 import 时绝不能有副作用
-// （2026-09-05 实测踩坑——测试导入直接把真实计划任务装到了机器上）。
+// Only run when executed directly: importing this from a test or another module must have no side effects
+// (hit for real on 2026-09-05 -- a test import installed a real scheduled task on the machine).
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main()
 }

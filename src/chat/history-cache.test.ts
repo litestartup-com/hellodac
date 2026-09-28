@@ -3,50 +3,50 @@ import assert from 'node:assert/strict'
 import { HistoryCache } from './history-cache.js'
 
 /**
- * 债务 B2(半项):会话历史缓存从裸 Map 升级为「容量上限 LRU + 惰性 TTL」。
- * 旧实现只惰性过期、无上限——大量「读过一次、不再跑回合」的会话让缓存
- * 单调增长,值恰好是全项目最贵的对象(整段历史事件数组)。
- * 红证:旧代码无本模块(加载失败);以下断言锁定驱逐/LRU/TTL 语义。
+ * Debt B2 (half of it): the chat history cache goes from a bare Map to "capacity-capped LRU + lazy TTL".
+ * The old implementation only expired lazily and had no cap -- many "read once, never runs again" chats
+ * made it grow without bound, and its value is the most expensive object in the project (a whole history
+ * event array). Red proof: the old code had no such module (import fails); the assertions below lock the semantics.
  */
 
 const entry = (n: number): { id: number } => ({ id: n })
 
-test('债务 B2 回归: 容量上限驱逐最旧条目', () => {
+test('Debt B2 regression: the capacity cap evicts the oldest entry', () => {
   const cache = new HistoryCache<{ id: number }>({ max: 3 })
   cache.set('a', entry(1), 1_000)
   cache.set('b', entry(2), 1_000)
   cache.set('c', entry(3), 1_000)
   cache.set('d', entry(4), 1_000)
-  assert.equal(cache.size, 3, '容量封顶')
-  assert.equal(cache.get('a', 1_000), null, '最旧的 a 被驱逐')
+  assert.equal(cache.size, 3, 'capacity is capped')
+  assert.equal(cache.get('a', 1_000), null, 'the oldest entry, a, was evicted')
   assert.ok(cache.get('b', 1_000) !== null && cache.get('c', 1_000) !== null && cache.get('d', 1_000) !== null)
 })
 
-test('债务 B2 回归: get 命中 = LRU 提升,不被后续驱逐', () => {
+test('Debt B2 regression: a get hit promotes in the LRU, so it is not evicted later', () => {
   const cache = new HistoryCache<{ id: number }>({ max: 3 })
   cache.set('a', entry(1), 1_000)
   cache.set('b', entry(2), 1_000)
   cache.set('c', entry(3), 1_000)
-  cache.get('a', 1_000) // 提升 a
-  cache.set('d', entry(4), 1_000) // 驱逐最旧 = b
-  assert.ok(cache.get('a', 1_000) !== null, '被访问过的 a 免于驱逐')
-  assert.equal(cache.get('b', 1_000), null, '未访问的 b 被驱逐')
+  cache.get('a', 1_000) // promote a
+  cache.set('d', entry(4), 1_000) // evict the oldest = b
+  assert.ok(cache.get('a', 1_000) !== null, 'the entry that was touched, a, survives eviction')
+  assert.equal(cache.get('b', 1_000), null, 'the untouched b is evicted')
 })
 
-test('债务 B2 回归: TTL 过期返回 null 并删除(惰性清扫)', () => {
+test('Debt B2 regression: an expired TTL returns null and deletes the entry (lazy sweep)', () => {
   const cache = new HistoryCache<{ id: number }>({ max: 10, ttlMs: 100 })
   cache.set('a', entry(1), 500)
   assert.ok(cache.get('a', 500) !== null)
-  assert.equal(cache.get('a', 700), null, '超 TTL 必须视为未命中')
-  assert.equal(cache.size, 0, '过期条目被删除,不留垃圾')
+  assert.equal(cache.get('a', 700), null, 'past the TTL it must count as a miss')
+  assert.equal(cache.size, 0, 'the expired entry is deleted, no garbage left behind')
 })
 
-test('债务 B2 回归: set 同键重设提升序位;delete 生效', () => {
+test('Debt B2 regression: setting the same key again promotes it; delete takes effect', () => {
   const cache = new HistoryCache<{ id: number }>({ max: 2 })
   cache.set('a', entry(1), 1_000)
   cache.set('b', entry(2), 1_000)
-  cache.set('a', entry(3), 1_000) // 重设 a → a 变最新
-  cache.set('c', entry(4), 1_000) // 驱逐最旧 = b
+  cache.set('a', entry(3), 1_000) // set a again -> a becomes the newest
+  cache.set('c', entry(4), 1_000) // evict the oldest = b
   assert.equal(cache.get('a', 1_000)?.id, 3)
   assert.equal(cache.get('b', 1_000), null)
   cache.delete('a')

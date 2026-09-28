@@ -4,7 +4,7 @@ import { cancelQueuedTurn, cancelQueuedTurns, closeQueues, drainChatQueue, enque
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 5))
 
-describe('chat queue (蜂群 P5.4: per-chat, sessions run in parallel)', () => {
+describe('chat queue (Hive P5.4: per chat, sessions run in parallel)', () => {
   it('enqueues FIFO per chat and reports positions', () => {
     closeQueues()
     assert.equal(enqueueTurn('c1', { chatId: 'c1', id: 't-1', execute: async () => {} }), 1)

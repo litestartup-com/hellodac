@@ -4,35 +4,35 @@ import { openDb } from '../db/index.js'
 import { createKey, parseKeyArgs, renderKeyList, unknownServices } from './apikey.js'
 
 /**
- * 钥匙 CLI 的契约（验收步骤靠它发钥匙）：
- * - 危险默认值要向安全侧倒：只读 scope、必须显式指定服务、默认带日配额；
- * - 明文只在创建时打印一次；列表永不打印明文。
+ * The contract of the key CLI (the acceptance steps hand out keys through it):
+ * - dangerous defaults lean to the safe side: a read-only scope, services that must be given explicitly, and a daily quota by default;
+ * - the plaintext is printed once at creation; the list never prints plaintext.
  */
-test('CLI 参数: create 必填 name 与 services（不给"什么都通"的默认）', () => {
+test('CLI arguments: create requires name and services (no "passes everything" default)', () => {
   const missing = parseKeyArgs(['create'])
-  assert.ok('error' in missing, '缺参数要报错')
+  assert.ok('error' in missing, 'missing arguments must be an error')
   assert.match(String(missing.error), /name/)
 
   const noServices = parseKeyArgs(['create', '--name', 'x'])
   assert.ok('error' in noServices)
   assert.match(String(noServices.error), /services/)
 
-  const ok = parseKeyArgs(['create', '--name', '公司后端', '--services', 'support,report', '--scopes', 'services:read,tasks:write'])
+  const ok = parseKeyArgs(['create', '--name', 'Company backend', '--services', 'support,report', '--scopes', 'services:read,tasks:write'])
   assert.ok(!('error' in ok))
   if (!('error' in ok) && ok.command === 'create') {
     assert.deepEqual(ok.options.scopeServices, ['support', 'report'])
     assert.deepEqual(ok.options.scopes, ['services:read', 'tasks:write'])
-    assert.equal(ok.options.quotaRunsDay, 200, '默认带日配额（写清楚、可 --quota none 解除）')
+    assert.equal(ok.options.quotaRunsDay, 200, 'a daily quota by default (stated plainly, and --quota none lifts it)')
     assert.equal(ok.options.rateLimitRpm, 60)
     assert.equal(ok.options.maxConcurrency, 4)
   }
 })
 
-test('CLI 参数: 只读默认 scope / --all-services / --quota none / 未知 scope 报错', () => {
+test('CLI arguments: a read-only default scope / --all-services / --quota none / an unknown scope errors', () => {
   const readOnly = parseKeyArgs(['create', '--name', 'x', '--services', 'support'])
   assert.ok(!('error' in readOnly))
   if (!('error' in readOnly) && readOnly.command === 'create') {
-    assert.deepEqual(readOnly.options.scopes, ['services:read', 'usage:read'], '默认只读')
+    assert.deepEqual(readOnly.options.scopes, ['services:read', 'usage:read'], 'read-only by default')
     assert.equal(readOnly.options.expiresAt, null)
   }
 
@@ -48,7 +48,7 @@ test('CLI 参数: 只读默认 scope / --all-services / --quota none / 未知 sc
   assert.match(String(badScope.error), /unknown scope/)
 })
 
-test('CLI 参数: revoke 要带 id；list/help 无参', () => {
+test('CLI arguments: revoke needs an id; list/help take none', () => {
   assert.ok('error' in parseKeyArgs(['revoke']))
   const revoke = parseKeyArgs(['revoke', 'abcdef123456'])
   assert.ok(!('error' in revoke) && revoke.command === 'revoke' && revoke.id === 'abcdef123456')
@@ -57,9 +57,9 @@ test('CLI 参数: revoke 要带 id；list/help 无参', () => {
   assert.ok('error' in parseKeyArgs(['frobnicate']))
 })
 
-test('CLI 创建: 明文只回一次，库里只有哈希；列表不含明文', () => {
+test('CLI create: the plaintext comes back once and only a hash lands in the database; the list carries no plaintext', () => {
   const { db } = openDb(':memory:')
-  const parsed = parseKeyArgs(['create', '--name', '公司后端', '--services', 'support', '--scopes', 'services:read,tasks:write', '--quota', '50'])
+  const parsed = parseKeyArgs(['create', '--name', 'Company backend', '--services', 'support', '--scopes', 'services:read,tasks:write', '--quota', '50'])
   assert.ok(!('error' in parsed) && parsed.command === 'create')
   if ('error' in parsed || parsed.command !== 'create') return
 
@@ -69,19 +69,19 @@ test('CLI 创建: 明文只回一次，库里只有哈希；列表不含明文',
 
   const listing = renderKeyList([key], Date.now())
   assert.ok(listing.includes(key.id))
-  assert.ok(listing.includes('公司后端'))
-  assert.ok(!listing.includes(token.split('_')[2] ?? 'x'), '列表永不打印明文')
+  assert.ok(listing.includes('Company backend'))
+  assert.ok(!listing.includes(token.split('_')[2] ?? 'x'), 'the list never prints plaintext')
   assert.match(listing, /50\/day/)
 })
 
-test('CLI 服务名校验: 与 UI 同一规则（给错名字的钥匙"看起来正常却进不去任何服务"）', () => {
+test('CLI service-name validation: the same rule as the UI (a key given a wrong name "looks normal yet gets into no service")', () => {
   const parsed = parseKeyArgs(['create', '--name', 'x', '--services', 'suport,support'])
   assert.ok(!('error' in parsed) && parsed.command === 'create')
   if ('error' in parsed || parsed.command !== 'create') return
-  assert.deepEqual(unknownServices(parsed.options, ['support']), ['suport'], '只报错的那些')
+  assert.deepEqual(unknownServices(parsed.options, ['support']), ['suport'], 'only the wrong ones are reported')
 
   const wild = parseKeyArgs(['create', '--name', 'x', '--all-services'])
   assert.ok(!('error' in wild) && wild.command === 'create')
   if ('error' in wild || wild.command !== 'create') return
-  assert.deepEqual(unknownServices(wild.options, []), [], '通配钥匙不校验具体服务名')
+  assert.deepEqual(unknownServices(wild.options, []), [], 'a wildcard key is not checked against concrete service names')
 })

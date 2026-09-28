@@ -1,9 +1,9 @@
 /**
- * 债务 E2:relay(SSE pub-sub)从 routes/chat.ts 抽为独立模块——三层拆分
- * (relay / 回合编排 / CRUD 路由壳)的第一层。
+ * Debt E2: relay (SSE pub-sub) extracted from routes/chat.ts into its own module -- the first layer of the
+ * three-layer split (relay / turn orchestration / the CRUD route shell).
  *
- * 一个 chat 一个 relay:浏览器不直连 gateway 流(gateway 需要端点 API key,
- * 密钥绝不进浏览器),N 个开着的标签页只花一个上游订阅,不是 N 个。
+ * One relay per chat: the browser does not connect to the gateway stream directly (the gateway needs the endpoint API key,
+ * and a secret never goes into a browser), and N open tabs cost one upstream subscription rather than N.
  */
 import type { FastifyInstance, FastifyReply, preHandlerHookHandler } from 'fastify'
 import type { Db } from '../db/index.js'
@@ -30,7 +30,7 @@ const relayFor = (chatId: string): Relay => {
   return created
 }
 
-/** 蜂群 P2：给任意会话推一帧（internal 派工完成时用它推 delegation 帧）。 */
+/** Hive P2: push one frame to an arbitrary chat (internal uses it to push a delegation frame when a dispatch completes). */
 export const publish = (chatId: string, payload: unknown): void => {
   const relay = relays.get(chatId)
   if (relay === undefined) return
@@ -71,7 +71,7 @@ export const closeChatRelays = (): void => {
   relays.clear()
 }
 
-/** SSE 事件流路由：live 帧只经 relay,历史由 GET /api/chats/:id 提供。 */
+/** The SSE event-stream route: live frames go through the relay alone, and history comes from GET /api/chats/:id. */
 export const registerRelayRoute = (
   app: FastifyInstance,
   db: Db,
@@ -107,8 +107,8 @@ export const registerRelayRoute = (
     })
     reply.raw.write('retry: 3000\n')
     reply.raw.write(`data: ${JSON.stringify({ kind: 'hello', chatId: chat.id, at: Date.now() })}\n\n`)
-    // 债务卡片链(2026-09-17):hello 之后重放挂起卡片帧——断流窗口/页面恢复时
-    // question/approval 卡片必须回来(卡片帧不进 transcript,重放不会画重块)。
+    // The card chain (2026-09-17): after hello, replay the pending card frames -- when the stream drops or the page recovers,
+    // the question/approval cards have to come back (card frames never enter the transcript, so a replay draws no duplicate blocks).
     for (const frame of replayCards(chat.id)) {
       reply.raw.write(`data: ${JSON.stringify(frame)}\n\n`)
     }

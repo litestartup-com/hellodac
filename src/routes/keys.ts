@@ -1,8 +1,8 @@
 /**
- * 钥匙管理面（后台 8080，`requireUser` 门内）——设计稿 §5。
+ * The key-management surface (the admin port 8080, behind the `requireUser` gate) -- design doc section 5.
  *
- * 与 `/v1`（客户面）严格分开：这里用会话 cookie 给**你**用，那里用钥匙给**客户程序**用。
- * 明文只在这条 POST 的响应里出现一次；列表响应里结构上就没有 secret 字段。
+ * Strictly separate from `/v1` (the customer surface): this one uses the session cookie and is for **you**, that one uses a key and is for a **client program**.
+ * The plaintext appears exactly once, in this POST's response; the list response has no secret field at all by construction.
  */
 import type { FastifyInstance, preHandlerHookHandler } from 'fastify'
 import { z } from 'zod'
@@ -14,7 +14,7 @@ import { getPublicApiState } from '../public-api/listener.js'
 
 const createBody = z.object({
   name: z.string().min(1).max(80),
-  /** '*' = 全部服务；数组 = 指定服务 id。 */
+  /** '*' = every service; an array = the given service ids. */
   services: z.union([z.literal('*'), z.array(z.string().min(1)).min(1)]),
   scopes: z.array(z.enum(KEY_SCOPES)).min(1).default(['services:read', 'usage:read']),
   quotaRunsDay: z.number().int().positive().nullable().default(200),
@@ -31,7 +31,7 @@ export const registerApiKeyRoutes = (
   db: Db,
   requireUser: preHandlerHookHandler,
 ): void => {
-  /** 列表 + 门面状态 + 可分配的服务（供创建表单）——都不含明文。 */
+  /** The list plus the surface state plus the assignable services (for the create form) -- none of them carries plaintext. */
   app.get('/api/keys', { preHandler: requireUser }, async (_request, reply) =>
     reply.header('cache-control', 'no-store').send({
       keys: listApiKeys(db),
@@ -47,8 +47,8 @@ export const registerApiKeyRoutes = (
     }
     const body = parsed.data
 
-    // 服务 id 必须真的存在：手打错一个字母 = 一把"进不去任何服务"的钥匙，
-    // 而它看起来完全正常，是最难查的一类故障。
+    // The service ids must really exist: one mistyped letter makes a key that "gets into no service"
+    // while looking perfectly normal, which is the hardest kind of fault to track down.
     const known = new Set((config.services ?? []).map((service) => service.id))
     const wanted = body.services === '*' ? ['*'] : body.services
     const unknown = wanted.filter((id) => id !== '*' && !known.has(id))

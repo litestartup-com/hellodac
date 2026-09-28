@@ -178,19 +178,19 @@ const MIGRATIONS: readonly string[][] = [
     // the missed-occurrence count at boot is measured from.
     `ALTER TABLE cron ADD COLUMN last_state TEXT`,
   ],
-  // 7 -- 蜂群 P2：主脑派工的来源会话（delegation 帧按它归属到主脑会话页）
+  // 7 -- Hive P2: the source chat of a brain dispatch (a delegation frame is attributed to the brain chat page by it)
   [
     `ALTER TABLE run ADD COLUMN source_chat_id TEXT REFERENCES chat(id) ON DELETE SET NULL`,
     `CREATE INDEX IF NOT EXISTS run_source_chat ON run(source_chat_id, started_at)`,
   ],
-  // 8 -- 蜂群 P5.4：同 agent 多会话并发。
-  // 「每 agent 一活 run」的唯一索引退役：DSH 自身的会话名额（maxSessions）
-  // 是天然上限，manager 不再人为串行。conflict 列记录并发写冲突的显性化。
+  // 8 -- Hive P5.4: several chats of the same agent run concurrently.
+  // The unique index for "one live run per agent" is retired: DSH's own session seats (maxSessions)
+  // are the natural ceiling, and the manager no longer serializes by hand. The conflict column records concurrent write conflicts explicitly.
   [
     `DROP INDEX IF EXISTS run_one_live_per_agent`,
     `ALTER TABLE run ADD COLUMN conflict TEXT`,
   ],
-  // 9 -- 蜂群 P5.3：站内通知（铃铛）
+  // 9 -- Hive P5.3: in-app notifications (the bell)
   [
     `CREATE TABLE IF NOT EXISTS notification (
        id TEXT PRIMARY KEY,
@@ -203,11 +203,11 @@ const MIGRATIONS: readonly string[][] = [
      )`,
     `CREATE INDEX IF NOT EXISTS notification_at ON notification(at)`,
   ],
-  // 10 -- 蜂群2计划 P3：首登强制改密（既有账号也转正一次：初始/随机密码都得换）
+  // 10 -- Hive plan 2 P3: forced password change on first login (existing accounts are converted once too: an initial or random password has to be changed)
   [
     `ALTER TABLE user ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 1`,
   ],
-  // 11 -- 蜂群2计划 P3：审计留痕（登录/改密/节点操作/备份）
+  // 11 -- Hive plan 2 P3: the audit trail (login / password change / node operations / backups)
   [
     `CREATE TABLE IF NOT EXISTS audit_log (
        id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -218,32 +218,32 @@ const MIGRATIONS: readonly string[][] = [
      )`,
     `CREATE INDEX IF NOT EXISTS audit_at ON audit_log(at)`,
   ],
-  // 12 -- 债务 B5：brain 派工日账单与按 trigger 的 run 列表走索引
+  // 12 -- Debt B5: daily brain dispatch billing and the run list by trigger go through an index
   [
     `CREATE INDEX IF NOT EXISTS run_trigger_started ON run(trigger, started_at)`,
   ],
-  // 13 -- 债务 D1：api_key 表与 run.api_key_id 列全链路无读写(死代码)——删除。
-  // 北向对外 API 属 M6 路线图,届时按真实契约重新设计(迁移只进不退,不复用旧表)。
+  // 13 -- Debt D1: the api_key table and the run.api_key_id column had no reads or writes anywhere (dead code) -- dropped.
+  // The northbound outward API belongs to the M6 roadmap, and will be redesigned against the real contract then (migrations only move forward, so the old tables are not reused).
   [
     `ALTER TABLE run DROP COLUMN api_key_id`,
     `DROP TABLE IF EXISTS api_key`,
   ],
-  // 14 -- 沙箱覆盖延迟生效（2026-09-11）：宿主的 sandbox-mode 只能钉 live 会话，
-  // 回合间隙会话转冷 → 用户切权限记在 chat 行，下回合创建/唤醒时由 runner 钉入。
+  // 14 -- Sandbox overrides take effect late (2026-09-11): the host's sandbox-mode can only pin a live chat,
+  // and a chat goes cold between turns -> a permission switch is recorded on the chat row, and the runner pins it when the next turn creates or wakes the chat.
   [
     `ALTER TABLE chat ADD COLUMN access_mode_override TEXT`,
   ],
-  // 15 -- 权限展示真相源（2026-09-11）：chat 行记 manager 最后一次钉入的沙箱模式。
-  // 宿主的 permissions 投影里 preset 是「最后选择预置」的意图标签，旋钮漂移后
-  // （preset=read-only + sandbox=danger-full-access）推导值= custom，反推不出真实
-  // 沙箱。用户拍板的权限真相以 manager 为准：钉入成功或延迟时落此列，composer
-  // 展示用它覆盖宿主推导值，再退 agent 配置默认。
+  // 15 -- The truth source for the permission display (2026-09-11): the chat row records the sandbox mode the manager pinned last.
+  // In the host's permissions projection, preset is the intent label of "the preset chosen last", and once the knobs drift
+  // (preset=read-only + sandbox=danger-full-access) the derived value is custom, which cannot be inverted back to the real
+  // sandbox. The permission truth the user settled on is the manager's: this column is written when the pin succeeds or is
+  // deferred, the composer shows it in place of the host's derived value, and only then falls back to the agent config default.
   [
     `ALTER TABLE chat ADD COLUMN access_mode TEXT`,
   ],
-  // 16 -- 能力四（舰队）：node-agent 目录与一次性 join token（M1-2）。
-  // agent_machine = 每台服务器的 agent 身份；token 只存哈希；revoked_at 吊销。
-  // agent_join_token = 一次性注册 token（15 分钟过期，manager UI 签发）。
+  // 16 -- Capability four (Fleet): the node-agent directory and the one-shot join token (M1-2).
+  // agent_machine = one agent identity per server; only the token hash is stored; revoked_at revokes it.
+  // agent_join_token = a one-shot registration token (expires in 15 minutes, issued from the manager UI).
   [
     `CREATE TABLE IF NOT EXISTS agent_machine (
        id TEXT PRIMARY KEY,
@@ -264,9 +264,9 @@ const MIGRATIONS: readonly string[][] = [
        created_at INTEGER NOT NULL
      )`,
   ],
-  // 17 -- 能力四（舰队）：agent 指令队列（M1-3）。
-  // manager 入队 → agent 长轮询领取（delivered）→ 结果回报（done/failed）。
-  // 持久化队列：manager 重启不丢指令；payload/result 均 JSON 文本。
+  // 17 -- Capability four (Fleet): the agent command queue (M1-3).
+  // The manager enqueues -> the agent claims it by long polling (delivered) -> the result is reported back (done/failed).
+  // A durable queue: a manager restart loses no command; payload and result are both JSON text.
   [
     `CREATE TABLE IF NOT EXISTS agent_command (
        id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -281,20 +281,20 @@ const MIGRATIONS: readonly string[][] = [
      )`,
     `CREATE INDEX IF NOT EXISTS agent_command_pending ON agent_command(agent_id, state)`,
   ],
-  // 18 -- 能力四（舰队 M4-1）：agent token 轮换宽限位。
-  // 轮换 = 主 token 换新 + 旧 token 进 prev 位（30 分钟宽限，防 ack 丢失把机器
-  // 打砖）；agent 报 config.deliver 成功 → 清 prev；报失败 → 回滚主 token。
+  // 18 -- Capability four (Fleet M4-1): the grace slot for agent token rotation.
+  // A rotation = the main token is replaced and the old one moves into the prev slot (a 30-minute grace period, so a lost
+  // ack does not brick the machine); the agent reports config.deliver success -> prev is cleared; a failure -> the main token is rolled back.
   [
     `ALTER TABLE agent_machine ADD COLUMN prev_token_hash TEXT`,
     `ALTER TABLE agent_machine ADD COLUMN prev_set_at INTEGER`,
   ],
-  // 19 -- 能力四（舰队 M4-3）：agent 运行时版本（自更新协商告警用）。
-  // 注册/心跳上报 agentVersion；机器页据此显示「待更新」徽标。
+  // 19 -- Capability four (Fleet M4-3): the agent runtime version (used for the self-update negotiation warning).
+  // Registration and heartbeat report agentVersion; the machines page shows the "update pending" badge from it.
   [
     `ALTER TABLE agent_machine ADD COLUMN agent_version TEXT`,
   ],
-  // 20 -- 能力四（舰队 M4-4）：主机指标趋势（CPU/内存/磁盘随心跳上报）。
-  // 60s 采样；manager 侧保留 7 天自动清理。cpu_percent 为 ×10 整数（125 = 12.5%）。
+  // 20 -- Capability four (Fleet M4-4): host metric trends (CPU / memory / disk reported with the heartbeat).
+  // Sampled every 60s; the manager keeps 7 days and cleans up automatically. cpu_percent is an integer x10 (125 = 12.5%).
   [
     `CREATE TABLE IF NOT EXISTS agent_metric (
        id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -310,19 +310,19 @@ const MIGRATIONS: readonly string[][] = [
      )`,
     `CREATE INDEX IF NOT EXISTS agent_metric_agent_at ON agent_metric(agent_id, at)`,
   ],
-  // 21 -- 发布前优化（2026-09-26）：清掉存量指令的 payload。
-  // `agent_command.payload` 是 DB 体积唯一的大头：生产实测 126 行占 32.8 MB /
-  // 全库 34 MB，其中 99 条 node.spawn 平均 273 KB（整份 DSH profile bundle 塞在
-  // payload.profile 里）。领取路径只读 state='pending'，终态行再也没人读 payload，
-  // 但行永久保留，并同步放大每一次加密备份（备份是全库快照）。
-  // 新写入由 routes/agents.ts 的终态更新就地清空；这条只处理存量，幂等可重跑。
+  // 21 -- Pre-release optimization (2026-09-26): clear the payload of the commands already stored.
+  // `agent_command.payload` is the one big contributor to database size: in production 126 rows took 32.8 MB of the
+  // 34 MB database, of which 99 node.spawn rows averaged 273 KB each (a whole DSH profile bundle stuffed into
+  // payload.profile). The claim path only reads state='pending', so no one reads the payload of a terminal row again,
+  // yet the rows are kept forever and every encrypted backup grows with them (a backup is a snapshot of the whole database).
+  // New writes are cleared in place by the terminal update in routes/agents.ts; this one only handles what is already stored, and is idempotent and re-runnable.
   [
     `UPDATE agent_command SET payload = '{}' WHERE state IN ('done', 'failed')`,
   ],
-  // 22 -- 对外 API：钥匙表 + 分账归属键（设计稿 manager/topics/public-api.md）。
-  // 钥匙只注销不删除（revoked_at）：账目与审计要能追到已吊销的调用方；run 侧仍用
-  // ON DELETE SET NULL 兜底，真删钥匙也不会让历史账目变成孤儿行。
-  // quota_runs_day 允许 NULL = 不限；日界线按 config.pricing.timezone 算（见 auth/api-key.ts）。
+  // 22 -- The outward API: the keys table + the attribution key (design doc manager/topics/public-api.md).
+  // A key is revoked rather than deleted (revoked_at): the accounts and the audit have to reach a caller that was revoked; the run side still
+  // uses ON DELETE SET NULL as a backstop, so really deleting a key does not turn the historical accounts into orphan rows.
+  // quota_runs_day allows NULL = unlimited; the day boundary follows config.pricing.timezone (see auth/api-key.ts).
   [
     `CREATE TABLE IF NOT EXISTS api_key (
        id TEXT PRIMARY KEY,
@@ -340,21 +340,21 @@ const MIGRATIONS: readonly string[][] = [
        created_at INTEGER NOT NULL
      )`,
     `ALTER TABLE run ADD COLUMN api_key_id TEXT REFERENCES api_key(id) ON DELETE SET NULL`,
-    // 按钥匙聚合用量（花费页的调用方维度）+ 日配额计数，都走这条索引。
+    // Both aggregating usage by key (the caller dimension of the spend page) and counting the daily quota go through this index.
     `CREATE INDEX IF NOT EXISTS run_api_key ON run(api_key_id, started_at)`,
   ],
-  // 23 -- 对外会话归属（口径 CONCEPTS-ALIGNED.md §6）：会话要记住"哪把钥匙、
-  // 调用方的哪个用户、哪个服务"，粘性才有锚点，配额/计费/审计才有归属。
-  // 三列全 null = 对内会话，所以对既有数据是纯增量（没有回填、不会误解老行）。
+  // 23 -- Outward chat ownership (the position in CONCEPTS-ALIGNED.md section 6): a chat has to remember "which key,
+  // which user of the caller, which service" for stickiness to have an anchor, and for quota, billing and audit to have an owner.
+  // All three columns null = an internal chat, so this is purely additive for existing data (no backfill, and old rows are not misread).
   [
     `ALTER TABLE chat ADD COLUMN api_key_id TEXT REFERENCES api_key(id) ON DELETE SET NULL`,
     `ALTER TABLE chat ADD COLUMN external_user_id TEXT`,
     `ALTER TABLE chat ADD COLUMN service_id TEXT`,
-    // 粘性查询：按 (钥匙, 外部用户) 找还活着的会话。
+    // The stickiness lookup: find the chats still alive by (key, external user).
     `CREATE INDEX IF NOT EXISTS chat_api_key_user ON chat(api_key_id, external_user_id)`,
-    // 同一把钥匙下的同一个外部用户，同时只能有一个活会话——并发重复创建
-    // （调用方重试、双开）靠这条唯一索引挡住，而不是靠"查一下再插"的竞态。
-    // 部分索引：归档/移除的会话（removed_at 非空）不参与唯一性。
+    // One and the same external user under one key can have only one live chat at a time -- a concurrent duplicate create
+    // (a caller retry, or two open clients) is stopped by this unique index rather than by the race in "look it up, then insert".
+    // A partial index: archived or removed chats (removed_at not null) take no part in uniqueness.
     `CREATE UNIQUE INDEX IF NOT EXISTS chat_api_key_user_live ON chat(api_key_id, external_user_id) WHERE removed_at IS NULL AND external_user_id IS NOT NULL`,
   ],
 ]

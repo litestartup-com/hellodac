@@ -23,30 +23,30 @@ const register = async (app: Fastify.FastifyInstance, hostname = 'srv-a'): Promi
 
 const bearer = (token: string): Record<string, string> => ({ authorization: `Bearer ${token}` })
 
-test('能力四 M1-3: 指令队列——入队→长轮询领取→确认，一次领取不重复', async () => {
+test('Capability four M1-3: command queue -- enqueue -> claim by long poll -> ack; a command is never handed out twice', async () => {
   const { db } = openDb(':memory:')
   const app = buildApp(db)
   const { agentId, agentToken } = await register(app)
 
-  // 空队列：短等待返回空
+  // Empty queue: a short wait returns nothing
   const empty = await app.inject({ method: 'GET', url: `/api/internal/agents/${agentId}/commands?wait=100`, headers: bearer(agentToken) })
   assert.equal(empty.statusCode, 200)
   assert.deepEqual(empty.json(), { commands: [] })
 
-  // 入队两条
+  // Enqueue two
   await enqueueAgentCommand(db, agentId, 'node.spawn', { nodeId: 'ops01' })
   await enqueueAgentCommand(db, agentId, 'node.stop', { nodeId: 'ops01' })
 
   const claimed = await app.inject({ method: 'GET', url: `/api/internal/agents/${agentId}/commands?wait=100`, headers: bearer(agentToken) })
   const body = claimed.json() as { commands: Array<{ id: number; type: string; payload: unknown }> }
-  assert.equal(body.commands.length, 2, '一次领走全部 pending')
+  assert.equal(body.commands.length, 2, 'one claim takes every pending command')
   assert.equal(body.commands[0]?.type, 'node.spawn')
   assert.deepEqual(body.commands[0]?.payload, { nodeId: 'ops01' })
 
   const again = await app.inject({ method: 'GET', url: `/api/internal/agents/${agentId}/commands?wait=100`, headers: bearer(agentToken) })
-  assert.deepEqual((again.json() as { commands: unknown[] }).commands, [], '已领取的不再下发')
+  assert.deepEqual((again.json() as { commands: unknown[] }).commands, [], 'already claimed commands are not handed out again')
 
-  // 确认：command_result ok → done
+  // Ack: command_result ok -> done
   const ack = await app.inject({
     method: 'POST',
     url: `/api/internal/agents/${agentId}/events`,
@@ -58,7 +58,7 @@ test('能力四 M1-3: 指令队列——入队→长轮询领取→确认，一�
   assert.equal(row?.state, 'done')
   assert.deepEqual(JSON.parse(row?.result ?? 'null'), { pid: 42 })
 
-  // 失败结果 → failed
+  // A failed result -> failed
   const fail = await app.inject({
     method: 'POST',
     url: `/api/internal/agents/${agentId}/events`,
@@ -71,20 +71,21 @@ test('能力四 M1-3: 指令队列——入队→长轮询领取→确认，一�
 })
 
 /**
- * 发布前优化（2026-09-26）：`agent_command.payload` 是 DB 体积唯一的大头——生产实测
- * 126 行占 32.8 MB / 34 MB，其中 99 条 node.spawn 平均 273 KB（`payload.profile`
- * 就是整份 DSH profile bundle）。领取路径只读 `state='pending'`（claimCommands），
- * 所以**终态行的 payload 再也不会被读**，但行会永久保留，同步放大每一次加密备份。
+ * Pre-release optimization (2026-09-26): `agent_command.payload` is the one big contributor to DB
+ * size -- production measured 126 rows at 32.8 MB / 34 MB, of which 99 node.spawn rows average
+ * 273 KB (`payload.profile` is an entire DSH profile bundle). The claim path only reads
+ * `state='pending'` (claimCommands), so **a terminal row's payload is never read again** -- yet the
+ * rows stay forever and amplify every encrypted backup in step.
  *
- * 规则：**进终态即清 payload**；在途（pending/delivered）原样保留——agent 崩在投递
- * 中间时还要靠它排查；历史（type/state/result/doneAt）一律不动。
+ * Rule: **clear the payload on entering a terminal state**; in-flight (pending/delivered) rows keep
+ * theirs -- an agent that crashed mid-delivery still needs it to debug; history (type/state/result/doneAt) never moves.
  */
-test('发布前优化: 指令进终态即清空 payload，在途保留、历史字段不动', async () => {
+test('Pre-release optimization: a command clears its payload once terminal, in-flight ones and history fields stay', async () => {
   const { db } = openDb(':memory:')
   const app = buildApp(db)
   const { agentId, agentToken } = await register(app)
 
-  const bundle = 'x'.repeat(200_000) // 模拟真实 node.spawn 的 profile bundle
+  const bundle = 'x'.repeat(200_000) // stand-in for a real node.spawn profile bundle
   const read = (id: number) => db.select().from(schema.agentCommand).where(eq(schema.agentCommand.id, id)).all()[0]
   const ack = async (id: number, ok: boolean, result: unknown) =>
     app.inject({
@@ -95,35 +96,35 @@ test('发布前优化: 指令进终态即清空 payload，在途保留、历史�
     })
   const claim = () => app.inject({ method: 'GET', url: `/api/internal/agents/${agentId}/commands?wait=100`, headers: bearer(agentToken) })
 
-  // pending：还没送达，payload 必须原样在
+  // pending: not delivered yet, the payload must still be there untouched
   const id = await enqueueAgentCommand(db, agentId, 'node.spawn', { nodeId: 'ops01', profile: bundle })
   assert.equal(read(id)?.state, 'pending')
-  assert.ok((read(id)?.payload ?? '').length > 200_000, 'pending 的 payload 不能被清')
+  assert.ok((read(id)?.payload ?? '').length > 200_000, 'a pending payload must not be cleared')
 
-  // delivered（已领取、尚未回报）：同样保留
+  // delivered (claimed, not reported back yet): kept as well
   assert.equal((await claim()).statusCode, 200)
   assert.equal(read(id)?.state, 'delivered')
-  assert.ok((read(id)?.payload ?? '').length > 200_000, 'delivered 的 payload 不能被清')
+  assert.ok((read(id)?.payload ?? '').length > 200_000, 'a delivered payload must not be cleared')
 
-  // done：payload 清空，历史字段保留
+  // done: payload cleared, history fields kept
   await ack(id, true, { pid: 7 })
   const done = read(id)
   assert.equal(done?.state, 'done')
-  assert.equal(done?.payload, '{}', '终态后 payload 必须是空 JSON（列为 notNull，保契约）')
-  assert.deepEqual(JSON.parse(done?.result ?? 'null'), { pid: 7 }, 'result 历史保留')
-  assert.ok((done?.doneAt ?? 0) > 0, 'doneAt 历史保留')
+  assert.equal(done?.payload, '{}', 'a terminal payload must be empty JSON (the column is notNull, keep the contract)')
+  assert.deepEqual(JSON.parse(done?.result ?? 'null'), { pid: 7 }, 'the result history is kept')
+  assert.ok((done?.doneAt ?? 0) > 0, 'the doneAt history is kept')
 
-  // failed 走同一条路
+  // failed goes down the same path
   const id2 = await enqueueAgentCommand(db, agentId, 'node.spawn', { nodeId: 'ops02', profile: bundle })
   await claim()
   await ack(id2, false, { message: 'boom' })
   const failed = read(id2)
   assert.equal(failed?.state, 'failed')
-  assert.equal(failed?.payload, '{}', '失败终态同样清 payload')
+  assert.equal(failed?.payload, '{}', 'a failed terminal state clears the payload too')
   assert.deepEqual(JSON.parse(failed?.result ?? 'null'), { message: 'boom' })
 })
 
-test('能力四 M1-3: 长轮询被入队唤醒——不等满 wait 即返回', async () => {
+test('Capability four M1-3: an enqueue wakes the long poll -- it returns before the wait cap expires', async () => {
   const { db } = openDb(':memory:')
   const app = buildApp(db)
   const { agentId, agentToken } = await register(app)
@@ -134,34 +135,34 @@ test('能力四 M1-3: 长轮询被入队唤醒——不等满 wait 即返回', a
   const res = await pending
   const elapsed = Date.now() - t0
   const body = res.json() as { commands: Array<{ type: string }> }
-  assert.equal(body.commands.length, 1, '被唤醒并领到指令')
+  assert.equal(body.commands.length, 1, 'woken up and claimed the command')
   assert.equal(body.commands[0]?.type, 'node.restart')
-  assert.ok(elapsed < 1_500, `唤醒应远快于 wait 上限（实际 ${elapsed}ms）`)
+  assert.ok(elapsed < 1_500, `the wake-up must be far faster than the wait cap (took ${elapsed}ms)`)
 })
 
-test('能力四 M1-3: 心跳与在线判定——任何鉴权请求刷 lastSeenAt，超时算离线', async () => {
+test('Capability four M1-3: heartbeat and online check -- any authenticated request refreshes lastSeenAt; past the timeout it is offline', async () => {
   const { db } = openDb(':memory:')
   const app = buildApp(db)
   const { agentId, agentToken } = await register(app)
 
   const list = await app.inject({ method: 'GET', url: '/api/agents' })
   const onlineRow = (list.json() as { agents: Array<{ id: string; online: boolean }> }).agents.find((a) => a.id === agentId)
-  assert.equal(onlineRow?.online, true, '刚注册 = 在线')
+  assert.equal(onlineRow?.online, true, 'just registered = online')
 
-  // 把 lastSeenAt 拨回超时窗口外 → 离线
+  // Push lastSeenAt back beyond the timeout window -> offline
   db.update(schema.agentMachine).set({ lastSeenAt: Date.now() - AGENT_OFFLINE_MS - 1_000 }).where(eq(schema.agentMachine.id, agentId)).run()
   const list2 = await app.inject({ method: 'GET', url: '/api/agents' })
   const offlineRow = (list2.json() as { agents: Array<{ id: string; online: boolean }> }).agents.find((a) => a.id === agentId)
-  assert.equal(offlineRow?.online, false, '心跳超时 = 离线')
+  assert.equal(offlineRow?.online, false, 'heartbeat timed out = offline')
 
-  // 心跳事件（空 events 数组也算一次鉴权）→ 回在线
+  // A heartbeat event (an empty events array still counts as one authenticated request) -> back online
   await app.inject({ method: 'POST', url: `/api/internal/agents/${agentId}/events`, headers: { ...bearer(agentToken), 'content-type': 'application/json' }, payload: { events: [] } })
   const list3 = await app.inject({ method: 'GET', url: '/api/agents' })
   const backRow = (list3.json() as { agents: Array<{ id: string; online: boolean }> }).agents.find((a) => a.id === agentId)
-  assert.equal(backRow?.online, true, '心跳刷新后回在线')
+  assert.equal(backRow?.online, true, 'back online after the heartbeat refresh')
 })
 
-test('能力四 M1-3: 鉴权——坏 token 401；token 与 :id 不匹配 404；吊销后 401', async () => {
+test('Capability four M1-3: auth -- a bad token is 401; a token that does not match :id is 404; revoked is 401', async () => {
   const { db } = openDb(':memory:')
   const app = buildApp(db)
   const a = await register(app, 'srv-a')
@@ -171,14 +172,14 @@ test('能力四 M1-3: 鉴权——坏 token 401；token 与 :id 不匹配 404；
   assert.equal(bad.statusCode, 401)
 
   const cross = await app.inject({ method: 'GET', url: `/api/internal/agents/${a.agentId}/commands?wait=100`, headers: bearer(b.agentToken) })
-  assert.equal(cross.statusCode, 404, '别的 agent 的 token 不匹配本 id（不泄露存在性）')
+  assert.equal(cross.statusCode, 404, 'a token from another agent does not match this id (no existence leak)')
 
   await app.inject({ method: 'POST', url: `/api/agents/${b.agentId}/revoke` })
   const revoked = await app.inject({ method: 'GET', url: `/api/internal/agents/${b.agentId}/commands?wait=100`, headers: bearer(b.agentToken) })
-  assert.equal(revoked.statusCode, 401, '吊销后 token 失效')
+  assert.equal(revoked.statusCode, 401, 'the token stops working after revocation')
 })
 
-test('能力四 M1-4: 指令结果订阅——events 回报触发订阅者，退订后不再收到', async () => {
+test('Capability four M1-4: command result subscription -- an events report fires the subscriber, nothing arrives after unsubscribe', async () => {
   const { db } = openDb(':memory:')
   const app = buildApp(db)
   const { agentId, agentToken } = await register(app)
@@ -194,7 +195,7 @@ test('能力四 M1-4: 指令结果订阅——events 回报触发订阅者，退
     headers: { ...bearer(agentToken), 'content-type': 'application/json' },
     payload: { events: [{ type: 'command_result', commandId: id, ok: true }] },
   })
-  assert.deepEqual(seen, [{ id, ok: true }], '回报即通知订阅者')
+  assert.deepEqual(seen, [{ id, ok: true }], 'a report notifies the subscriber right away')
 
   unsub()
   const id2 = await enqueueAgentCommand(db, agentId, 'node.stop', { nodeId: 'x' })
@@ -205,5 +206,5 @@ test('能力四 M1-4: 指令结果订阅——events 回报触发订阅者，退
     headers: { ...bearer(agentToken), 'content-type': 'application/json' },
     payload: { events: [{ type: 'command_result', commandId: id2, ok: false }] },
   })
-  assert.equal(seen.length, 1, '退订后不再收到')
+  assert.equal(seen.length, 1, 'nothing arrives after unsubscribe')
 })

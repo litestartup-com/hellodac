@@ -10,7 +10,7 @@ const boot = async () => {
   return app
 }
 
-test('DAC v1.0.0: /api/i18n 吐出品牌与字典（CSP 禁内联脚本，客户端只能这样取）', async () => {
+test('DAC v1.0.0: /api/i18n serves the brand and the dictionary (CSP forbids inline scripts, so this is the only way in)', async () => {
   const app = await boot()
   const res = await app.inject({ method: 'GET', url: '/api/i18n/en' })
   assert.equal(res.statusCode, 200)
@@ -20,11 +20,11 @@ test('DAC v1.0.0: /api/i18n 吐出品牌与字典（CSP 禁内联脚本，客户
   assert.equal(body.brand.name, 'DAC')
   assert.match(body.brand.repoUrl, /^https:\/\//)
   assert.equal(body.dict['nav.nodes'], 'Nodes')
-  assert.ok(Object.keys(body.dict).length > 50, '字典不能是空壳')
+  assert.ok(Object.keys(body.dict).length > 50, 'the dictionary cannot be a hollow shell')
   await app.close()
 })
 
-test('DAC v1.0.0: 未知语言回退基准语言（不 404、不回显输入）', async () => {
+test('DAC v1.0.0: an unknown language falls back to the base language (no 404, no echoing the input)', async () => {
   const app = await boot()
   const res = await app.inject({ method: 'GET', url: '/api/i18n/klingon' })
   assert.equal(res.statusCode, 200)

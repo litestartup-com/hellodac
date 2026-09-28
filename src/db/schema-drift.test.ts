@@ -4,9 +4,10 @@ import { getTableColumns, getTableName } from 'drizzle-orm'
 import { openDb, schema } from './index.js'
 
 /**
- * 债务 B3:手写 SQL 迁移与 drizzle schema 是两份平行定义,只有注释约束同步。
- * 本测试 = 空库跑完全部迁移后,与 drizzle schema 逐表逐列比对——
- * 任何一侧漏同步即红(先红验证:临时给 schema.user 加假列,本测试必红)。
+ * Debt B3: the hand-written SQL migrations and the drizzle schema are two parallel definitions that
+ * only comments keep in sync. This test runs all migrations on an empty database and compares it
+ * table by table, column by column against the drizzle schema; either side out of sync turns it red
+ * (seen red first: a temporary fake column on schema.user makes it fail).
  */
 
 const SQLITE_TYPES: Record<string, string> = {
@@ -18,7 +19,7 @@ const SQLITE_TYPES: Record<string, string> = {
   bigint: 'INTEGER',
 }
 
-test('债务 B3 回归: 迁移产物与 drizzle schema 逐表逐列一致', () => {
+test('Debt B3 regression: migration output and the drizzle schema agree table by table, column by column', () => {
   const { sqlite } = openDb(':memory:')
 
   const tables = sqlite
@@ -28,27 +29,27 @@ test('债务 B3 回归: 迁移产物与 drizzle schema 逐表逐列一致', () =
 
   for (const table of Object.values(schema)) {
     const tableName = getTableName(table)
-    assert.ok(tableNames.has(tableName), `drizzle schema 表 ${tableName} 未在迁移中创建(迁移漏表)`)
+    assert.ok(tableNames.has(tableName), `drizzle schema table ${tableName} was never created by the migrations (missing table)`)
     const actual = new Map<string, string>()
     for (const row of sqlite.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string; type: string }>) {
       actual.set(row.name, row.type.toUpperCase())
     }
     for (const column of Object.values(getTableColumns(table))) {
       const expected = SQLITE_TYPES[column.dataType] ?? 'TEXT'
-      assert.ok(actual.has(column.name), `表 ${tableName} 缺列 ${column.name}(迁移漏列)`)
+      assert.ok(actual.has(column.name), `table ${tableName} is missing column ${column.name} (missing column)`)
       assert.equal(
         actual.get(column.name),
         expected,
-        `表 ${tableName}.${column.name} 类型漂移:迁移=${actual.get(column.name)} schema=${expected}`,
+        `type drift on ${tableName}.${column.name}: migration=${actual.get(column.name)} schema=${expected}`,
       )
     }
-    // 反向:迁移多出的列也要报(drizzle schema 漏列 = 查询拿不到该列)
+    // The other direction too: an extra migrated column must be reported (absent from the drizzle schema = queries never see it)
     const expectedCols = new Set(Object.values(getTableColumns(table)).map((c) => c.name))
     for (const [col] of actual) {
-      if (!expectedCols.has(col)) assert.fail(`表 ${tableName} 迁移多出列 ${col},drizzle schema 未声明(未来查询会漏掉它)`)
+      if (!expectedCols.has(col)) assert.fail(`table ${tableName} has an extra migrated column ${col} that the drizzle schema does not declare (future queries will miss it)`)
     }
   }
 
-  // 迁移系统自身的 schema_version 表不算业务表,但必须存在
-  assert.ok(tableNames.has('schema_version'), 'schema_version 表缺失')
+  // The migration system's own schema_version table is not a business table, but it must exist
+  assert.ok(tableNames.has('schema_version'), 'the schema_version table is missing')
 })

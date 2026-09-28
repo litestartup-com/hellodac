@@ -6,15 +6,15 @@ import { openDb, schema, type Db } from '../db/index.js'
 import { registerApiKeyRoutes } from './keys.js'
 
 /**
- * 钥匙管理面（后台）：会话鉴权 + 明文只回一次 + 服务名校验 + 全量审计。
- * 客户面（8081 的 /v1）在 public-api/routes.test.ts 里另有一套，两者不共用鉴权。
+ * The key-management surface (the admin side): session auth + plaintext returned once + service-name validation + full auditing.
+ * The customer surface (port 8081, /v1) has its own set in public-api/routes.test.ts; the two do not share authentication.
  */
 const config: AppConfig = {
   listen: { host: '127.0.0.1', port: 8080 },
   endpoints: {},
   agents: {},
   services: [
-    { id: 'support', label: '企业智能客服', workers: ['worker-1'], surfaces: ['tasks', 'conversations'], knowledge: [] },
+    { id: 'support', label: 'Support', workers: ['worker-1'], surfaces: ['tasks', 'conversations'], knowledge: [] },
   ],
   runner: { timeoutMs: 1000, silenceMs: 0, maxConsecutiveFailures: 3, dailyBudgetMicroUsd: null },
   databasePath: ':memory:',
@@ -38,39 +38,40 @@ const build = (db: Db, requireUser: preHandlerHookHandler = noAuth) => {
 const create = (app: ReturnType<typeof build>, body: Record<string, unknown>) =>
   app.inject({ method: 'POST', url: '/api/keys', payload: body })
 
-test('钥匙管理面: 未登录被 requireUser 拦（后台身份，不是钥匙）', async () => {
+test('the key-management surface: an unauthenticated call is stopped by requireUser (admin identity, not a key)', async () => {
   const { db } = openDb(':memory:')
   const res = await build(db, denyAuth).inject({ method: 'GET', url: '/api/keys' })
   assert.equal(res.statusCode, 401)
 })
 
-test('钥匙管理面: 创建返回明文一次 + 落审计；列表不含明文', async () => {
+test('the key-management surface: create returns the plaintext once + lands an audit entry; the list carries no plaintext', async () => {
   const { db } = openDb(':memory:')
   const app = build(db)
 
-  const created = await create(app, { name: '计费服务', services: ['support'], scopes: ['services:read', 'tasks:write'], quotaRunsDay: 50 })
+  const created = await create(app, { name: 'Billing service', services: ['support'], scopes: ['services:read', 'tasks:write'], quotaRunsDay: 50 })
   assert.equal(created.statusCode, 201, created.body)
   const body = created.json() as { token: string; key: { id: string; name: string; quotaRunsDay: number | null } }
   assert.match(body.token, /^dac_[0-9a-f]{12}_/)
-  assert.equal(body.key.name, '计费服务')
+  assert.equal(body.key.name, 'Billing service')
   assert.equal(body.key.quotaRunsDay, 50)
 
   const listed = await app.inject({ method: 'GET', url: '/api/keys' })
   const list = listed.json() as { keys: Array<Record<string, unknown>>; services: Array<{ id: string }>; publicApi: { status: string } }
   assert.equal(list.keys.length, 1)
-  // secret 字母表里没有 `_`（见 src/auth/api-key.ts 的 TOKEN_RE 注释），所以按分隔符切分
-  // 是确定的：切出来的是完整 43 字符 secret，不会像 2026-09-27 那样截短后偶然命中。
-  assert.ok(!JSON.stringify(list).includes(body.token.split('_')[2] ?? 'x'), '列表不得含明文')
-  assert.deepEqual(list.services.map((s) => s.id), ['support'], '创建表单的服务来源 = 配置里的服务')
-  assert.equal(typeof list.publicApi.status, 'string', '门面状态随列表返回（起没起要看得见）')
+  // The secret alphabet has no `_` in it (see the TOKEN_RE comment in src/auth/api-key.ts), so splitting on the
+  // delimiter is exact: what comes out is the full 43-character secret, rather than the shortened one that
+  // happened to match by accident on 2026-09-27.
+  assert.ok(!JSON.stringify(list).includes(body.token.split('_')[2] ?? 'x'), 'the list must not carry plaintext')
+  assert.deepEqual(list.services.map((s) => s.id), ['support'], 'the create form draws its services from the config')
+  assert.equal(typeof list.publicApi.status, 'string', 'the surface state comes back with the list (whether it is up has to be visible)')
 
   const audits = db.select().from(schema.auditLog).all()
   assert.equal(audits.length, 1)
   assert.equal(audits[0]?.kind, 'api_key_created')
-  assert.match(audits[0]?.detail ?? '', /计费服务/)
+  assert.match(audits[0]?.detail ?? '', /Billing service/)
 })
 
-test('钥匙管理面: 服务名写错 = 400（否则发出去的是一把进不去任何服务的钥匙）', async () => {
+test('the key-management surface: a mistyped service name = 400 (otherwise what goes out is a key that gets into no service)', async () => {
   const { db } = openDb(':memory:')
   const res = await create(build(db), { name: 'x', services: ['suport'] })
   assert.equal(res.statusCode, 400)
@@ -78,7 +79,7 @@ test('钥匙管理面: 服务名写错 = 400（否则发出去的是一把进不
   assert.match(String(res.json().detail), /suport/)
 })
 
-test('钥匙管理面: 缺名字/非法 scope = 400；未知 id 吊销 = 404，重复吊销幂等', async () => {
+test('the key-management surface: a missing name or an illegal scope = 400; revoking an unknown id = 404, and revoking twice is idempotent', async () => {
   const { db } = openDb(':memory:')
   const app = build(db)
 
@@ -88,7 +89,7 @@ test('钥匙管理面: 缺名字/非法 scope = 400；未知 id 吊销 = 404，�
   const created = await create(app, { name: 'y', services: ['support'] })
   const id = (created.json() as { key: { id: string } }).key.id
   assert.equal((await app.inject({ method: 'POST', url: `/api/keys/${id}/revoke` })).statusCode, 200)
-  assert.equal((await app.inject({ method: 'POST', url: `/api/keys/${id}/revoke` })).statusCode, 200, '重复吊销幂等')
+  assert.equal((await app.inject({ method: 'POST', url: `/api/keys/${id}/revoke` })).statusCode, 200, 'revoking twice is idempotent')
   assert.equal((await app.inject({ method: 'POST', url: '/api/keys/ffffffffffff/revoke' })).statusCode, 404)
 
   const kinds = db.select().from(schema.auditLog).all().map((r) => r.kind)

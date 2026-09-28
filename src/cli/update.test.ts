@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { updateManager, type UpdateDeps } from './update.js'
 
-/** 状态化 git 桩 + 调用序列记录，覆盖 update 的全部分支。 */
+/** A stateful git stub plus a call-sequence record, covering every branch of update. */
 const harness = (options: {
   dirty?: boolean
   heads?: [string, string]
@@ -51,44 +51,44 @@ const harness = (options: {
   return { deps, calls }
 }
 
-test('蜂群 P6 update: a dirty tree refuses before anything else', async () => {
+test('Hive P6 update: a dirty tree refuses before anything else', async () => {
   const { deps, calls } = harness({ dirty: true })
   const result = await updateManager(deps, '/repo')
   assert.equal(result.ok, false)
   assert.match(result.detail, /uncommitted changes/)
-  assert.ok(!calls.includes('backup'), '脏工作树不做备份就中止')
+  assert.ok(!calls.includes('backup'), 'a dirty worktree aborts before any backup')
 })
 
-test('蜂群 P6 update: already latest short-circuits', async () => {
+test('Hive P6 update: already latest short-circuits', async () => {
   const { deps, calls } = harness({ heads: ['same0000', 'same0000'] })
   const result = await updateManager(deps, '/repo')
   assert.equal(result.ok, true)
   assert.match(result.detail, /already up to date/)
-  assert.ok(!calls.some((c) => c.startsWith('npm')), '无变更不重建')
+  assert.ok(!calls.some((c) => c.startsWith('npm')), 'no change, no rebuild')
 })
 
-test('蜂群 P6 update: clean pull + build + probe ok reports success', async () => {
+test('Hive P6 update: clean pull + build + probe ok reports success', async () => {
   const { deps, calls } = harness({ probe: true })
   const result = await updateManager(deps, '/repo')
   assert.equal(result.ok, true)
   assert.match(result.detail, /update complete/)
-  assert.ok(calls.includes('backup'), '更新前必备份')
-  assert.ok(calls.some((c) => c === 'npm install'), '重新安装依赖')
-  assert.ok(calls.some((c) => c === 'npm run build'), '重新构建')
-  assert.ok(calls.includes('probe-stop'), '探活实例被回收')
+  assert.ok(calls.includes('backup'), 'a backup is mandatory before updating')
+  assert.ok(calls.some((c) => c === 'npm install'), 'dependencies are reinstalled')
+  assert.ok(calls.some((c) => c === 'npm run build'), 'the build is rerun')
+  assert.ok(calls.includes('probe-stop'), 'the probe instance is reclaimed')
 })
 
-test('蜂群 P6 update: probe failure rolls back and rebuilds', async () => {
+test('Hive P6 update: probe failure rolls back and rebuilds', async () => {
   const { deps, calls } = harness({ probe: false })
   const result = await updateManager(deps, '/repo')
   assert.equal(result.ok, false)
   assert.match(result.detail, /rolled back/)
-  assert.ok(calls.some((c) => c === 'git reset --hard aaaa1111'), '回滚到旧提交')
+  assert.ok(calls.some((c) => c === 'git reset --hard aaaa1111'), 'rolls back to the previous commit')
   const buildCalls = calls.filter((c) => c === 'npm run build')
-  assert.equal(buildCalls.length, 2, '新版本一次 + 回滚后一次')
+  assert.equal(buildCalls.length, 2, 'one for the new version + one after the rollback')
 })
 
-test('蜂群 P6 update: build failure also rolls back', async () => {
+test('Hive P6 update: build failure also rolls back', async () => {
   const { deps, calls } = harness({ buildFail: true })
   const result = await updateManager(deps, '/repo')
   assert.equal(result.ok, false)
@@ -96,7 +96,7 @@ test('蜂群 P6 update: build failure also rolls back', async () => {
   assert.ok(calls.some((c) => c === 'git reset --hard aaaa1111'))
 })
 
-test('蜂群 P6 update: unreachable remote and diverged pull refuse cleanly', async () => {
+test('Hive P6 update: unreachable remote and diverged pull refuse cleanly', async () => {
   const fetchFail = harness({ fetchFail: true })
   const r1 = await updateManager(fetchFail.deps, '/repo')
   assert.equal(r1.ok, false)

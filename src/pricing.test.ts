@@ -99,12 +99,12 @@ test('a malformed peak window is rejected at load rather than mispricing silentl
 })
 
 test('2026-09-05 rule: weekends bill off-peak all day, even inside peak windows', () => {
-  // 周六/周日 09:00 北京（= 01:00 UTC，落在峰值窗口内）→ 低谷价
+  // Saturday/Sunday 09:00 Beijing (= 01:00 UTC, inside the peak window) -> off-peak price
   const sat = computeCost(MILLION, 'deepseek-official', 'deepseek-v4-pro', at('2026-08-29T01:00:00Z'))
   assert.deepEqual(sat, { microUsd: 2_640_000, peak: false })
   const sun = computeCost(MILLION, 'deepseek-official', 'deepseek-v4-pro', at('2026-08-30T02:00:00Z'))
   assert.equal(sun?.peak, false)
-  // 周一 09:00 北京（= 01:00 UTC）→ 峰值恢复
+  // Monday 09:00 Beijing (= 01:00 UTC) -> peak pricing resumes
   const mon = computeCost(MILLION, 'deepseek-official', 'deepseek-v4-pro', at('2026-08-31T01:00:00Z'))
   assert.equal(mon?.peak, true)
   assert.equal(mon?.microUsd, 5_280_000)

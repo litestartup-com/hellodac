@@ -48,15 +48,15 @@ window.NOTE_DATA.trade = {
 };
 `
 
-test('债务 E11 回归: readRawFile——文件不存在返回 null;存在但读不了必须显性抛出', () => {
+test('Debt E11 regression: readRawFile -- a missing file returns null; a file that exists but cannot be read must throw', () => {
   const dir = mkdtempSync(join(tmpdir(), 'notedata-raw-'))
   mkdirSync(join(dir, NOTE_DATA_DIR), { recursive: true })
-  assert.equal(readRawFile(dir, 'core.js'), null, '不存在 = null(旧语义)')
+  assert.equal(readRawFile(dir, 'core.js'), null, 'missing = null (the old semantics)')
 
-  // 文件位置是目录:readFileSync 抛 EISDIR(非 ENOENT)——绝不能静默返回 null,
-  // 否则 writer 会把它当「不存在」重建,覆盖掉无法读取的真实数据。
+  // The file's location is a directory: readFileSync throws EISDIR (not ENOENT) -- this must never silently
+  // return null, or the writer would treat it as "missing" and rebuild it, overwriting real data it cannot read.
   mkdirSync(join(dir, NOTE_DATA_DIR, 'weekly.js'), { recursive: true })
-  assert.throws(() => readRawFile(dir, 'weekly.js'), /reading .* failed|EISDIR/i, '读取失败必须显性抛出')
+  assert.throws(() => readRawFile(dir, 'weekly.js'), /reading .* failed|EISDIR/i, 'a failed read must throw')
 })
 
 test('reads window.NOTE_DATA the way the browser accumulates it', () => {
@@ -147,8 +147,8 @@ test('unquoted keys are only used where they are valid identifiers', () => {
   assert.ok(out.includes('"中文键"'))
 })
 
-// 债务 E12:note-kaka 的业务规则已外置为 per-agent 配置(manager.config.yaml
-// → agent.validate)。本测试文件里的规则断言显式传入同一套规则。
+// Debt E12: note-kaka's business rules were externalized into per-agent config (manager.config.yaml
+// -> agent.validate). The rule assertions in this test file pass the same rule set in explicitly.
 const NOTE_KAKA_RULES: ValidateRules = {
   windows: [
     { path: 'trade.history', max: 8, archive: 'E03.10.01-交易大盘（持仓·任务·快照）.md' },
@@ -159,14 +159,14 @@ const NOTE_KAKA_RULES: ValidateRules = {
   acctFlowMaxAgeMonths: 1,
 }
 
-test('债务 E12 回归: 无规则(新用户)不继承任何业务规则——窗口/金额/acct 全不拦', () => {
+test('Debt E12 regression: no rules (a new user) inherits no business rules -- window/amount/acct all pass', () => {
   const overflow = {
     trade: { history: Array.from({ length: 99 }, (_, i) => ({ d: `08-0${i}`, pos: 60 })) },
     acct: { flow: [{ d: '03-15', c: '旧账', a: 99 }] },
   }
   const violations = validateNoteData(overflow, { now: new Date(2026, 7, 30) })
-  assert.equal(violations.filter((v) => v.rule === 'governance-window').length, 0, '窗口规则必须由配置显式开启')
-  assert.equal(violations.filter((v) => v.rule === 'no-amounts').length, 0, '金额规则必须由配置显式开启')
+  assert.equal(violations.filter((v) => v.rule === 'governance-window').length, 0, 'the window rule must be switched on explicitly by config')
+  assert.equal(violations.filter((v) => v.rule === 'no-amounts').length, 0, 'the amount rule must be switched on explicitly by config')
 })
 
 test('governance windows are enforced against the documented caps', () => {

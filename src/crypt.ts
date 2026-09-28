@@ -1,17 +1,17 @@
 /**
- * 蜂群2计划 P4 + 债务 A1:备份加密。
+ * Hive plan 2 P4 + Debt A1: backup encryption.
  *
- * 格式 v2(当前):`OHDSH-BAK2`(8B magic)+ 12B 随机 IV + AES-256-GCM 密文 +
- * 16B authTag。GCM 自带认证——篡改任意字节(IV/密文/tag)都会解密失败,
- * 静默损坏的备份在恢复时被显性拒绝(灾恢最后一道,静默损坏最致命)。
+ * Format v2 (current): `OHDSH-BAK2` (8B magic) + 12B random IV + AES-256-GCM ciphertext + 16B
+ * authTag. GCM authenticates on its own -- tampering with any byte (IV/ciphertext/tag) fails to
+ * decrypt, so a silently damaged backup is refused loudly at restore (the last line of DR).
  *
- * 格式 v1(历史,只读兼容):16B IV + AES-256-CBC 密文,无认证。密钥 =
- * `sha256("ohdsh-backup:" + SESSION_SECRET)`。升级不打断恢复链:
- * decryptFile 按 magic 自动分流,旧归档仍可解。
+ * Format v1 (historical, read-only compatibility): 16B IV + AES-256-CBC ciphertext, no auth. Key =
+ * `sha256("ohdsh-backup:" + SESSION_SECRET)`. The upgrade does not break the restore chain:
+ * decryptFile branches on the magic, so old archives still decrypt.
  *
- * 密钥:优先 `BACKUP_KEY`(64 hex = 32B,独立于会话密钥——轮换 SESSION_SECRET
- * 不再让历史备份不可解);未设置时回退 `deriveBackupKey`(HKDF 派生自
- * SESSION_SECRET,与旧版单轮 sha256 不同,仅用于 v2)。
+ * Key: `BACKUP_KEY` first (64 hex = 32B, independent of the session secret, so rotating
+ * SESSION_SECRET no longer makes old backups undecryptable); when unset it falls back to
+ * `deriveBackupKey` (HKDF from SESSION_SECRET, unlike the old single-round sha256, v2 only).
  */
 import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes } from 'node:crypto'
 import { appendFileSync, closeSync, createReadStream, createWriteStream, openSync, readSync, renameSync, rmSync, statSync } from 'node:fs'
@@ -22,11 +22,11 @@ const V2_IV_LEN = 12
 const V2_TAG_LEN = 16
 const HEADER_LEN = V2_MAGIC.length + V2_IV_LEN
 
-/** v2 密钥派生(HKDF:SHA-256,域分离 salt/info 与 v1 的单轮 sha256 完全不同)。 */
+/** v2 key derivation (HKDF: SHA-256 with domain-separated salt/info, nothing like v1's single-round sha256). */
 export const deriveBackupKey = (sessionSecret: string): Buffer =>
   Buffer.from(hkdfSync('sha256', Buffer.from(sessionSecret, 'utf8'), Buffer.from('ohdsh-backup-v2', 'utf8'), Buffer.from('backup-key', 'utf8'), 32))
 
-/** v1 密钥派生(旧算法,只用于解 v1 归档)。 */
+/** v1 key derivation (the old algorithm, used only to decrypt v1 archives). */
 export const deriveLegacyBackupKey = (sessionSecret: string): Buffer =>
   createHash('sha256').update(`ohdsh-backup:${sessionSecret}`).digest()
 
@@ -40,12 +40,13 @@ const envKey = (): Buffer | null => {
   return buf
 }
 
-/** 加密/解密 v2 时实际使用的密钥:BACKUP_KEY 优先,否则 HKDF 派生。 */
+/** The key actually used to encrypt/decrypt v2: BACKUP_KEY when set, otherwise the HKDF derivation. */
 const v2Key = (sessionSecret: string): Buffer => envKey() ?? deriveBackupKey(sessionSecret)
 
 /**
- * 明文文件 → v2 加密文件(格式:magic + 12B IV + GCM 密文 + 16B tag)。
- * 先写 <out>.tmp 再改名:失败绝不留下会被当成最新归档的半成品(评审 B4 中危)。
+ * A plaintext file -> a v2 encrypted file (format: magic + 12B IV + GCM ciphertext + 16B tag).
+ * <out>.tmp is written first and then renamed: a failure never leaves a half-made file that would be
+ * taken for the newest archive (review B4, medium severity).
  */
 export const encryptFile = async (plainPath: string, outPath: string, sessionSecret: string): Promise<void> => {
   const tmpPath = `${outPath}.tmp`
@@ -64,7 +65,7 @@ export const encryptFile = async (plainPath: string, outPath: string, sessionSec
   }
 }
 
-/** 读文件头判断归档版本(无 magic = v1 历史格式)。 */
+/** Read the file header to tell the archive version (no magic = the v1 historical format). */
 const versionOf = (encPath: string): 'v1' | 'v2' => {
   const fd = openSync(encPath, 'r')
   const head = Buffer.alloc(V2_MAGIC.length)
@@ -74,11 +75,11 @@ const versionOf = (encPath: string): 'v1' | 'v2' => {
 }
 
 /**
- * 加密文件 → 明文文件。按 magic 自动分流:
- * - v2:密钥 = BACKUP_KEY 或 HKDF 派生;GCM 认证,篡改/密钥错一律抛错;
- * - v1:密钥 = legacy 派生,兼容线上既有归档。
- * 先写 `<out>.tmp` 再改名:解密中途失败(篡改/密钥错)绝不留下会被当成
- * 恢复成功的半成品目标文件(债务 R2 复查发现)。
+ * An encrypted file -> a plaintext file. Branching on the magic:
+ * - v2: key = BACKUP_KEY or the HKDF derivation; GCM auth throws on tampering or a wrong key;
+ * - v1: key = the legacy derivation, compatible with the archives already in production.
+ * `<out>.tmp` is written first and then renamed: a failure mid-decryption (tampering/wrong key)
+ * never leaves a half-made target file that would count as a successful restore (Debt R2 review).
  */
 export const decryptFile = async (encPath: string, outPath: string, sessionSecret: string): Promise<void> => {
   const tmpPath = `${outPath}.tmp`
@@ -96,7 +97,7 @@ export const decryptFile = async (encPath: string, outPath: string, sessionSecre
       decipher.setAuthTag(tag)
       await pipeline(createReadStream(encPath, { start: HEADER_LEN, end: size - V2_TAG_LEN - 1 }), decipher, createWriteStream(tmpPath))
     } else {
-      // v1(历史 CBC,无认证):密钥 = legacy 派生;密钥错/截断由 padding 抛错兜底
+      // v1 (historical CBC, no auth): key = the legacy derivation; a wrong key or truncation trips the padding
       const fd = openSync(encPath, 'r')
       const iv = Buffer.alloc(16)
       readSync(fd, iv, 0, 16, 0)

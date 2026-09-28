@@ -9,7 +9,7 @@ import { BOARD_DIR } from '../board/store.js'
 import { DEFAULT_PRICING } from '../pricing.js'
 import { initWorkspace } from '../workspace/init.js'
 import { closeBoardWatchers, registerBoardRoutes } from './board.js'
-// 债务 C3:agent 构造收敛进 test-harness。
+// Debt C3: the agent builder moved into the test harness.
 import { agentWith } from '../test-harness.js'
 
 const agentFor = (workspacePath: string): ResolvedAgent =>
@@ -56,7 +56,7 @@ test('returns the rendered board model for an initialised workspace', async () =
   const body = response.json()
   assert.equal(body.initialized, true)
   assert.equal(body.agent.preset, 'personal')
-  assert.equal(body.board.title, '个人大盘')
+  assert.equal(body.board.title, 'Personal dashboard')
   assert.deepEqual(body.board.problems, [])
   assert.ok(body.board.pages.length >= 3)
 })
@@ -139,7 +139,7 @@ test('the event stream opens with a hello frame and reports a data change', asyn
 
   await new Promise((r) => setTimeout(r, 150))
   mkdirSync(join(root, BOARD_DIR), { recursive: true })
-  writeFileSync(join(root, BOARD_DIR, 'overview.json'), JSON.stringify({ label: '总览', blocks: [] }), 'utf8')
+  writeFileSync(join(root, BOARD_DIR, 'overview.json'), JSON.stringify({ label: 'Overview', blocks: [] }), 'utf8')
 
   assert.equal(await changed, true, 'the open board was told the data changed')
 

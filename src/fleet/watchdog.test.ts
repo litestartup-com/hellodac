@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 const unreadOf = (db: ReturnType<typeof openDb>['db'], kind: string) =>
   db.select().from(schema.notification).all().filter((n) => n.kind === kind && n.read === 0)
 
-test('舰队 M3-3: agent 掉线边沿触发进铃铛——online 基线静默、掉线一报、恢复一报、重复不掉线不重报', () => {
+test('Fleet M3-3: an agent going offline is edge-triggered into the bell -- the online baseline is silent, one report on going offline, one on recovery, and no repeat while it stays down', () => {
   const dir = mkdtempSync(join(tmpdir(), 'watchdog-'))
   const opened = openDb(join(dir, 'test.db'))
   try {
@@ -20,63 +20,63 @@ test('舰队 M3-3: agent 掉线边沿触发进铃铛——online 基线静默、
     const tick = createFleetWatchdog({ db, agents: () => agents, nodeStates: () => [] })
 
     tick()
-    assert.equal(unreadOf(db, 'agent_offline').length, 0, '在线基线不报')
+    assert.equal(unreadOf(db, 'agent_offline').length, 0, 'the online baseline reports nothing')
 
     agents[0]!.online = false
     tick()
-    assert.equal(unreadOf(db, 'agent_offline').length, 1, '掉线只报一次')
-    assert.match(unreadOf(db, 'agent_offline')[0]!.body, /box-1/, '正文带主机名')
+    assert.equal(unreadOf(db, 'agent_offline').length, 1, 'going offline is reported once')
+    assert.match(unreadOf(db, 'agent_offline')[0]!.body, /box-1/, 'the body carries the hostname')
 
     tick()
-    assert.equal(unreadOf(db, 'agent_offline').length, 1, '持续掉线不重复报')
+    assert.equal(unreadOf(db, 'agent_offline').length, 1, 'staying offline is not reported again')
 
     agents[0]!.online = true
     tick()
-    assert.equal(unreadOf(db, 'agent_recovered').length, 1, '恢复上报')
+    assert.equal(unreadOf(db, 'agent_recovered').length, 1, 'recovery is reported')
   } finally {
     opened.sqlite.close()
     rmSync(dir, { recursive: true, force: true })
   }
 })
 
-test('舰队 M3-3: agent 节点异常进铃铛——仅 agent runner 的 offline 触发，process runner 不越界', () => {
+test('Fleet M3-3: an abnormal agent node goes into the bell -- only an agent runner going offline triggers it; a process runner stays out of it', () => {
   const dir = mkdtempSync(join(tmpdir(), 'watchdog-'))
   const opened = openDb(join(dir, 'test.db'))
   try {
     const { db } = opened
     const nodes = [
-      { id: 'ops01', state: 'offline', runner: 'agent', host: 'agent-a1', lastError: 'agent 报告 spawn 失败（指令 #3）' },
+      { id: 'ops01', state: 'offline', runner: 'agent', host: 'agent-a1', lastError: 'the agent reported a spawn failure (command #3)' },
       { id: 'personal', state: 'offline', runner: 'process', host: null, lastError: 'boom' },
     ]
     const tick = createFleetWatchdog({ db, agents: () => [], nodeStates: () => nodes })
 
     tick()
-    assert.equal(unreadOf(db, 'node_offline').length, 1, 'agent 节点掉线只报一次')
-    assert.match(unreadOf(db, 'node_offline')[0]!.body, /ops01/, '正文带节点名')
-    assert.match(unreadOf(db, 'node_offline')[0]!.body, /spawn 失败/, '正文带原因')
+    assert.equal(unreadOf(db, 'node_offline').length, 1, 'an offline agent node is reported once')
+    assert.match(unreadOf(db, 'node_offline')[0]!.body, /ops01/, 'the body carries the node name')
+    assert.match(unreadOf(db, 'node_offline')[0]!.body, /spawn failure/, 'the body carries the reason')
 
     tick()
-    assert.equal(unreadOf(db, 'node_offline').length, 1, '持续异常不重复报')
+    assert.equal(unreadOf(db, 'node_offline').length, 1, 'a continuing fault is not reported again')
 
     nodes[0]!.state = 'live'
     tick()
-    assert.equal(unreadOf(db, 'node_recovered').length, 1, '节点恢复上报')
+    assert.equal(unreadOf(db, 'node_recovered').length, 1, 'node recovery is reported')
   } finally {
     opened.sqlite.close()
     rmSync(dir, { recursive: true, force: true })
   }
 })
 
-test('舰队 M3-3: manager 重启不刷屏——铃铛已有同 agent 未读告警时不再重复插入', () => {
+test('Fleet M3-3: a manager restart does not flood the bell -- with an unread alert for the same agent already there, nothing more is inserted', () => {
   const dir = mkdtempSync(join(tmpdir(), 'watchdog-'))
   const opened = openDb(join(dir, 'test.db'))
   try {
     const { db } = opened
-    notify(db, { kind: 'agent_offline', title: '机器 box-1 掉线', body: '机器 box-1（agent-a1）超过 90 秒未上报心跳', link: '/nodes' })
+    notify(db, { kind: 'agent_offline', title: 'machine box-1 went offline', body: 'machine box-1（agent-a1）has not sent a heartbeat for over 90s', link: '/nodes' })
     const agents = [{ id: 'agent-a1', hostname: 'box-1', online: false }]
     const tick = createFleetWatchdog({ db, agents: () => agents, nodeStates: () => [] })
     tick()
-    assert.equal(unreadOf(db, 'agent_offline').length, 1, '已有未读告警 = 不再插入（重启场景）')
+    assert.equal(unreadOf(db, 'agent_offline').length, 1, 'an unread alert already there = insert nothing more (the restart case)')
   } finally {
     opened.sqlite.close()
     rmSync(dir, { recursive: true, force: true })

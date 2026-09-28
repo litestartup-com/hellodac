@@ -5,11 +5,12 @@ import rateLimit from '@fastify/rate-limit'
 import { parseTrustProxy } from '../config.js'
 
 /**
- * P0-4 回归：登录限流不得被 X-Forwarded-For 绕过。
+ * P0-4 regression: login rate limiting must not be bypassable through X-Forwarded-For.
  *
- * 现场：`trustProxy: true` 让 `request.ip` 直接取转发头，而 @fastify/rate-limit
- * 默认以 `request.ip` 为键 —— 攻击者每次换一个 XFF 就等于没有限流，而这是
- * 暴破口令的唯一防线（无失败锁定、无验证码）。
+ * The scene: `trustProxy: true` makes `request.ip` read the forwarded header directly, while
+ * @fastify/rate-limit keys on `request.ip` by default -- an attacker who rotates the XFF header on every
+ * request has no rate limit at all, and that limit is the only defence against password brute force
+ * (no failure lockout, no captcha).
  */
 
 const build = async (trustProxy: boolean | string) => {
@@ -26,7 +27,7 @@ const hammer = async (trustProxy: boolean | string): Promise<number[]> => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/login',
-      // 每次换一个转发头：这正是绕过手法
+      // A different forwarded header every time: exactly the bypass technique
       headers: { 'x-forwarded-for': `203.0.113.${i}` },
       payload: { username: 'admin', password: 'x' },
     })
@@ -36,29 +37,30 @@ const hammer = async (trustProxy: boolean | string): Promise<number[]> => {
   return codes
 }
 
-test('P0-4: 轮换 X-Forwarded-For 不能绕过登录限流（默认配置）', async () => {
+test('P0-4: rotating X-Forwarded-For cannot bypass the login rate limit (default configuration)', async () => {
   const codes = await hammer(parseTrustProxy(undefined))
-  assert.deepEqual(codes.slice(0, 2), [200, 200], '窗口内前两次应放行')
-  assert.equal(codes[2], 429, '第三次必须被限流——键必须落在不可伪造的直连对端上')
+  assert.deepEqual(codes.slice(0, 2), [200, 200], 'the first two inside the window should be allowed')
+  assert.equal(codes[2], 429, 'the third must be rate limited -- the key has to land on the unforgeable direct peer')
   assert.equal(codes[3], 429)
 })
 
-test('P0-4: trustProxy=true 的旧行为确实可被绕过（这就是被修掉的缺陷）', async () => {
+test('P0-4: the old trustProxy=true behaviour really can be bypassed (that is the defect that was fixed)', async () => {
   const codes = await hammer(true)
-  assert.deepEqual(codes, [200, 200, 200, 200], '全信任转发头时限流形同不存在')
+  assert.deepEqual(codes, [200, 200, 200, 200], 'trusting every forwarded header makes the rate limit not exist')
 })
 
-test('P0-4: TRUST_PROXY 解析——默认不信任，显式配置才信任', () => {
-  assert.equal(parseTrustProxy(undefined), false, '未配置时必须安全默认（不信任转发头）')
+test('P0-4: TRUST_PROXY parsing -- untrusted by default, trusted only when configured explicitly', () => {
+  assert.equal(parseTrustProxy(undefined), false, 'an unset value must default safely (forwarded headers not trusted)')
   assert.equal(parseTrustProxy(''), false)
   assert.equal(parseTrustProxy('false'), false)
   assert.equal(parseTrustProxy('0'), false)
   assert.equal(parseTrustProxy('true'), true)
-  // 纯数字（“跳数”写法）不受支持：fastify 会把 '1' 当 IP 字串，静默误读
-  // 比不支持更危险 —— 因此回落为不信任，并由 loadConfig 推一条启动警告
+  // A plain number (the "hop count" spelling) is not supported: fastify would read '1' as an IP string, and
+  // a silent misreading is more dangerous than not supporting it -- so it falls back to untrusted, and
+  // loadConfig raises a startup warning
   assert.equal(parseTrustProxy('1'), false)
   assert.equal(parseTrustProxy('2'), false)
-  // 具体地址/网段：只信任这一跳
+  // A concrete address or subnet: trust that hop only
   assert.equal(parseTrustProxy('127.0.0.1'), '127.0.0.1')
   assert.equal(parseTrustProxy('172.16.0.0/12, 127.0.0.1'), '172.16.0.0/12, 127.0.0.1')
 })

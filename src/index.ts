@@ -58,7 +58,7 @@ const main = async (): Promise<void> => {
   const { db, applied } = openDb(config.databasePath)
 
   const app = Fastify({
-    // 债务 B6:每请求一枚 requestId,日志与排障按请求贯通
+    // Debt B6: one requestId per request, so logs and debugging run through by request
     genReqId: (request) =>
       (request.headers['x-request-id'] as string | undefined) ?? randomUUID().slice(0, 8),
     logger: {
@@ -67,9 +67,9 @@ const main = async (): Promise<void> => {
         ? {}
         : { transport: { target: 'pino-pretty', options: { translateTime: 'HH:MM:ss', ignore: 'pid,hostname' } } }),
     },
-    // P0-4：反代信任边界由 TRUST_PROXY 决定，默认不信任转发头 —— 登录限流以
-    // request.ip 为键，全信任等于让攻击者换个 X-Forwarded-For 就绕过唯一的暴破防线。
-    // 反代后想要真实客户端 IP：在 .env 里写可信的那一跳（如 TRUST_PROXY=127.0.0.1）。
+    // P0-4: the reverse-proxy trust boundary is decided by TRUST_PROXY, and by default forwarded headers are not
+    // trusted -- login rate limiting keys on request.ip, and trusting everything would let an attacker bypass the only
+    // brute-force defence by changing X-Forwarded-For. To get the real client IP behind a proxy, name the trusted hop in .env (e.g. TRUST_PROXY=127.0.0.1).
     trustProxy: config.trustProxy ?? false,
   })
 
@@ -101,15 +101,15 @@ const main = async (): Promise<void> => {
 
   // Mirror configured agents into the registry so later stages (bootstrap,
   // runner) read one source of truth at runtime.
-  // ↓ 已收敛进 src/reconcile（A 清单 #2 单一化）：DB 镜像 / 遗留 run / 孤儿会话
-  //   / fleet 下发 / 节点认领统一走 reconcileAll，见下方调用点。
+  // ↓ Converged into src/reconcile (A list #2, the single entry): the DB mirror / stale runs / orphan chats
+  //   / the fleet push / node claiming all go through reconcileAll, see the call site below.
 
   const clients = buildClients(config.endpoints)
   const upstreamClients = buildUpstreamClients(config.endpoints)
-  // 债务卡片链(2026-09-17):mux 帧丢弃/断线重连的诊断日志进 app.log——
-  // question/approval 帧被判别拒掉或断线窗口丢失时,卡片不显示有迹可循。
+  // Debt card chain (2026-09-17): the diagnostic log for dropped mux frames and reconnects goes into app.log --
+  // when a question/approval frame is rejected by the discrimination or lost in the outage window, the missing card leaves a trace.
   setMuxLogger((line) => app.log.warn(line))
-  // 蜂群2计划 P2b：只有存在 runner=docker 的节点才连 docker.sock（裸机路径零依赖）
+  // Hive plan 2 P2b: connect docker.sock only when some node uses runner=docker (the bare-metal path has zero dependencies)
   const needsDocker = Object.values(config.endpoints).some((e) => e.spawn?.runner === 'docker')
   const dockerRunner = needsDocker ? new DockerRunner({}) : null
   const nodeSupervisors = buildNodeSupervisors(config, {
@@ -117,37 +117,37 @@ const main = async (): Promise<void> => {
     upstream: (id) => upstreamClients.get(id),
     log: (line) => app.log.info(line),
     ...(dockerRunner === null ? {} : { docker: dockerRunner }),
-    // 能力四（M1-4）：agent runner 三件套——指令入队/结果订阅/回传日志
+    // Capability four (M1-4): the agent runner trio -- enqueue a command / subscribe to results / read the returned log
     agentCommand: (agentId, type, payload) => enqueueAgentCommand(db, agentId, type as import('./routes/agents.js').AgentCommandType, payload),
     agentResult: (commandId, cb) => subscribeAgentCommandResults((cid, ok) => {
       if (cid === commandId) cb(ok)
     }),
     agentLog: (agentId, nodeId) => readAgentLog(agentId, nodeId),
-    // 能力四（M1-6）：fleet.md 派生下发（与裸机路径同源生成器）
+    // Capability four (M1-6): the fleet.md derived push (the same generator as the bare-metal path)
     fleetDoc: () => renderFleetDoc(config),
   })
-  // 蜂群2计划 P6：容器路径没有 setup 步骤——空工作区启动即播种模板
-  // （主脑的 AGENTS.md/技能手册、个人的模板页），任何已有文件的工作区绝不触碰。
+  // Hive plan 2 P6: the container path has no setup step -- an empty workspace is seeded with the templates at boot
+  // (the brain's AGENTS.md/skill manual, the personal agent's template pages), and a workspace with any existing file is never touched.
   const seededWorkspaces = seedEmptyWorkspaces(
     Object.values(config.agents).map((a) => ({ id: a.id, workspacePath: a.workspacePath })),
     (line) => app.log.info(line),
   )
   if (seededWorkspaces.length > 0) app.log.info(`workspaces seeded: ${seededWorkspaces.join(', ')}`)
-  // 裸机形态：主脑令牌写入节点用户 HOME（容器形态由节点 entrypoint 自己派生）。
-  // DSH 工具沙箱洗 TOKEN 字样 env（DSH-FACTS §2），技能手册读 $HOME/.brain-auth。
+  // Bare-metal form: the brain token is written into the node user's HOME (the container form derives it in the node entrypoint).
+  // The DSH tool sandbox strips env vars containing TOKEN (DSH-FACTS §2), so the skill manual reads $HOME/.brain-auth.
   const brainAgent = config.agents['brain']
   const brainSpawn = brainAgent === undefined ? undefined : config.endpoints[brainAgent.endpoint]?.spawn
   if (brainSpawn !== undefined && brainSpawn !== null && brainSpawn.runner === 'process') {
     provisionBrainToken(undefined, (line) => app.log.info(line))
   }
 
-  // 对账单一化（A 清单 #2）：DB 注册表镜像、遗留 run 收敛、孤儿会话归档、
-  // fleet.md 派生下发、托管节点认领（docker 对账 / process 拉起）——
-  // boot 与配置变更（provision 路由）共用这一个入口，runHygiene 仅 boot 打开。
+  // One reconcile entry (A list #2): the DB registry mirror, stale-run convergence, orphan-chat archiving,
+  // the fleet.md derived push and managed-node claiming (docker reconcile / process spawn) --
+  // boot and config changes (the provision route) share this one entry, and runHygiene is on for boot only.
   const reconcileDeps = { db, config, supervisors: nodeSupervisors, docker: dockerRunner, log: (line: string) => app.log.info(line) }
   await reconcileAll(reconcileDeps, { runHygiene: true })
-  // 修路 A2：周期对账（间隔配置 reconcile_interval_minutes，0 = 关）。
-  // healOnly：人手动停的冷态节点不动，失败落 offline 的节点自愈。
+  // Road work A2: periodic reconcile (the interval is reconcile_interval_minutes, 0 = off).
+  // healOnly: a cold node a person stopped by hand is left alone, and a node that fell offline on failure heals itself.
   const stopPeriodicReconcile = startPeriodicReconcile(
     reconcileDeps,
     config.reconcileIntervalMs ?? 10 * 60_000,
@@ -159,14 +159,14 @@ const main = async (): Promise<void> => {
   // never be sent back, making login appear broken.
   const secureCookies = process.env.NODE_ENV === 'production'
 
-  // P1-1：安全响应头（CSP 等）——在任何路由之前注册，页面与 API 一并覆盖。
-  // secure 同时决定 HSTS 是否下发：明文 HTTP 形态下发 HSTS 会把站点钉死。
+  // P1-1: security response headers (CSP and friends) -- registered before any route, covering pages and APIs alike.
+  // secure also decides whether HSTS goes out: sending HSTS over plain HTTP would pin the site shut.
   await registerSecurityHeaders(app, secureCookies)
   await app.register(cookie, { secret: config.sessionSecret })
   await app.register(rateLimit, { global: false })
-  // 蜂群2计划 P3：CSRF —— 非 GET 的 API 请求必须带与 cookie 一致的 X-CSRF-Token
-  // （双提交）。豁免：/api/login（尚无会话）与 /api/internal/*（主脑令牌认证）。
-  // P6 自愈：升级前的老会话缺 csrf cookie → 服务端补发，前端 403 重试一次。
+  // Hive plan 2 P3: CSRF -- a non-GET API request must carry an X-CSRF-Token matching the cookie
+  // (double submit). Exempt: /api/login (no chat yet) and /api/internal/* (brain-token auth).
+  // P6 self-heal: an old chat from before the upgrade lacks the csrf cookie -> the server reissues it and the frontend retries the 403 once.
   app.addHook('onRequest', makeCsrfHook(secureCookies))
   // `no-cache` means "you may keep it, but ask before using it" -- a conditional
   // request answered by a 304, not a re-download. The page URLs carry a content
@@ -182,9 +182,9 @@ const main = async (): Promise<void> => {
   })
 
   // Composed once at boot, so a missing fragment (or a missing i18n key) fails
-  // here rather than in somebody's browser. 每种语言一套 HTML。
+  // here rather than in somebody's browser. One set of HTML per locale.
   const pages = buildAllPages(publicDir, LOCALES)
-  // 登录页在壳之外，单独预渲染每种语言（见 pages.ts 的 buildStandalonePage）。
+  // The login page sits outside the shell and is pre-rendered per locale on its own (see buildStandalonePage in pages.ts).
   const loginPages = new Map(LOCALES.map((locale) => [locale, buildStandalonePage(publicDir, 'login.html', locale)]))
   // HTML documents carry no version of their own: stale-proofing them is one
   // header. (Assets are the opposite -- hash-versioned URLs plus must-revalidate
@@ -192,8 +192,8 @@ const main = async (): Promise<void> => {
   const noCache = (reply: FastifyReply): FastifyReply => reply.header('cache-control', 'no-store')
 
   /**
-   * 语言判定与切换：`?lang=` 命中时写 cookie 并 302 回干净 URL（去掉 lang），
-   * 这样语言偏好可分享、可书签，也不会让 lang 参数留在地址栏里。
+   * Locale resolution and switching: when `?lang=` matches, write the cookie and 302 back to the clean URL (lang removed),
+   * so the language preference is shareable and bookmarkable and the lang parameter never stays in the address bar.
    */
   const localeOf = (request: {
     query?: unknown
@@ -207,14 +207,14 @@ const main = async (): Promise<void> => {
     })
 
   /**
-   * 语言切换挂在**全局 onRequest**：先于所有 preHandler / 路由处理函数。
+   * The locale switch hangs on the **global onRequest**: ahead of every preHandler / route handler.
    *
-   * 实测现场（2026-09-25 用户报「语言选择切换点了没反应」）：
-   *   GET /login?lang=zh-CN  → 302 /login 且 Set-Cookie: dac_lang=zh-CN  ✅
-   *   GET /nodes?lang=zh-CN  → 302 /login 且**无 cookie**                ❌
-   * 受保护页面挂 `{ preHandler: requirePage }`，preHandler 跑在路由处理函数之前，
-   * 于是会话缺失时守卫先 302，写在处理函数里的 switchLocale 根本没机会执行。
-   * 挂成钩子后任何页面（公开/受保护/将来新增）都自动具备切换能力。
+   * The measured scene (2026-09-25, a user reported "clicking the language switch does nothing"):
+   *   GET /login?lang=zh-CN  -> 302 /login with Set-Cookie: dac_lang=zh-CN  OK
+   *   GET /nodes?lang=zh-CN  -> 302 /login with **no cookie**              FAIL
+   * Protected pages hang `{ preHandler: requirePage }`, and preHandler runs before the route handler, so with no chat the
+   * guard 302s first and the switchLocale written inside the handler never gets a chance to run.
+   * Hung on a hook instead, every page (public/protected/added later) gets the switch for free.
    */
   app.addHook('onRequest', async (request, reply) => {
     const switched = switchLocale(request, reply)
@@ -224,15 +224,15 @@ const main = async (): Promise<void> => {
   const page =
     (name: string) =>
     async (request: { cookies?: Record<string, string | undefined>; headers?: Record<string, unknown> }, reply: FastifyReply): Promise<FastifyReply> => {
-      // `?lang=` 已由上面的 onRequest 钩子统一处理（那边先于认证守卫），
-      // 这里只负责按 cookie/Accept-Language 取对应语言的预渲染页面。
+      // `?lang=` is already handled by the onRequest hook above (it runs ahead of the auth guard);
+      // this only picks the pre-rendered page for the locale from the cookie/Accept-Language.
       const html = pages.get(localeOf(request))?.get(name)
       return noCache(reply.type('text/html').send(html))
     }
 
-  // 蜂群 Q5：首页已删。/ 与 /app 都直达最近会话——首页最后剩下的职能就
-  // 是重定向，那就让它只是重定向。一条会话都没有时落在 /chat 空态
-  // （chat.js 会提示从侧栏选会话），绝不在 GET 上做创建副作用。
+  // Hive Q5: the home page is gone. / and /app both go straight to the most recent chat -- redirecting was all the home
+  // page had left to do, so let it be nothing but a redirect. With no chat at all it lands on the /chat empty state
+  // (chat.js prompts you to pick a chat in the sidebar), and a GET never has a creation side effect.
   const landing = async (_request: unknown, reply: FastifyReply): Promise<FastifyReply> => {
     const rows = db
       .select()
@@ -246,12 +246,12 @@ const main = async (): Promise<void> => {
   app.get('/', landing)
   app.get('/app', landing)
   // The only page outside the shell, on purpose: the sidebar is agent data, and
-  // there is no session yet to fetch it with. 语言同样按 cookie/Accept-Language
-  // 判定（登录页也要能选语言，DAC v1.0.0）。
+  // there is no session yet to fetch it with. The locale is resolved from the cookie/Accept-Language the same way
+  // (the login page has to offer a language choice too, DAC v1.0.0).
   app.get(
     '/login',
     async (request: { cookies?: Record<string, string | undefined>; headers?: Record<string, unknown> }, reply: FastifyReply) => {
-      // `?lang=` 同样由 onRequest 钩子处理；这里按 cookie/Accept-Language 取页面。
+      // `?lang=` is handled by the onRequest hook here too; this picks the page from the cookie/Accept-Language.
       return noCache(reply.type('text/html').send(loginPages.get(localeOf(request))))
     },
   )
@@ -259,9 +259,9 @@ const main = async (): Promise<void> => {
   // path. `/chat` without an id is the empty state, which is what the "new
   // conversation" action navigates to before a chat row exists.
   //
-  // 公开版精简（DAC v1.0.0）：/board/:id 页面与 /crons 页面已下线；两者的
-  // 后端 API（/api/board/*、/api/crons/*、/api/internal/*）全部保留——主脑
-  // 按大盘文件产出、调度引擎仍在跑，删的只是对外页面。
+  // Public-edition trim (DAC v1.0.0): the /board/:id and /crons pages are retired; both of their
+  // backend APIs (/api/board/*, /api/crons/*, /api/internal/*) are all kept -- the brain still produces from
+  // the dashboard files and the scheduler engine still runs, so only the outward pages went.
   app.get('/chat', { preHandler: requirePage }, page('chat'))
   app.get<{ Params: { id: string } }>('/chat/:id', { preHandler: requirePage }, page('chat'))
   app.get('/archive', { preHandler: requirePage }, page('archive'))
@@ -269,27 +269,27 @@ const main = async (): Promise<void> => {
   app.get('/nodes', { preHandler: requirePage }, page('nodes'))
   app.get('/runs', { preHandler: requirePage }, page('runs'))
   app.get('/skills', { preHandler: requirePage }, page('skills'))
-  // 蜂群2计划 P3：改密页（强制改密期间的落点）与审计页
+  // Hive plan 2 P3: the password-change page (where a forced change lands) and the audit page
   app.get('/password', { preHandler: requirePage }, page('password'))
   app.get('/audit', { preHandler: requirePage }, page('audit'))
-  // 对外 API：钥匙管理页（后台面；客户面是 8081 的 /v1，两扇门不互认）。
-  // 漏了这一行 = /keys 404 而 /api/keys 正常——pages-routes.test.ts 现在守着这条。
+  // Public API: the key management page (the back-office face; the customer face is /v1 on 8081, and the two doors do
+  // not recognise each other). Miss this line and /keys 404s while /api/keys works -- pages-routes.test.ts now guards that.
   app.get('/keys', { preHandler: requirePage }, page('keys'))
 
-  // P1-5：改密成功后抹掉 .env 里的初始口令。
-  // 债务 R6:路径改用 config.envPath(真相源单一推导;旧代码 dist/../.env 在
-  // 非默认部署布局下会摸错文件)。
-  // 客户端字典/品牌接口（CSP 禁内联脚本，客户端启动时取一次）。
+  // P1-5: wipe the initial password from .env once the password change succeeds.
+  // Debt R6: the path now comes from config.envPath (derived from the single source of truth; the old dist/../.env
+  // reached the wrong file under a non-default deployment layout).
+  // The client dictionary/brand endpoint (the CSP forbids inline scripts, so the client fetches it once at start).
   registerI18nRoutes(app)
   registerAuthRoutes(app, db, secureCookies, config.envPath ?? join(here, '..', '.env'))
   registerAuditRoutes(app, db, requireUser)
-  // 对外 API 的钥匙管理面（后台；客户面见 public-api/）
+  // The key management face of the public API (back office; the customer face is in public-api/)
   registerApiKeyRoutes(app, config, db, requireUser)
   registerStatusRoutes(app, config, db, clients, requireUser, upstreamClients, nodeSupervisors)
   registerWorkspaceRoutes(app, config, requireUser)
   registerRunRoutes(app, config, db, clients, requireUser, upstreamClients)
   registerBoardRoutes(app, config, requireUser)
-  // 对外会话面复用后台的同一个回合执行器（同一实例 = 同一份"本会话正在跑"状态）。
+  // The public chat face reuses the same turn runner as the back office (one instance = one copy of the "this chat is running" state).
   const chatTurns = registerChatRoutes(app, config, db, clients, requireUser, upstreamClients, (actor, kind, detail) =>
     recordAudit(db, { actor, kind, detail }))
   registerUsageRoutes(app, config, db, requireUser)
@@ -305,9 +305,9 @@ const main = async (): Promise<void> => {
     },
   })
   registerCronRoutes(app, config, db, scheduler, requireUser)
-  // 蜂群 P2：主脑面内部 API（仅 127.0.0.1 + X-Brain-Token）。
+  // Hive P2: the brain-side internal API (127.0.0.1 only, plus X-Brain-Token).
   registerInternalRoutes(app, config, db, clients, upstreamClients, scheduler)
-  // 蜂群 P3：节点（fleet）视图。审计回调：节点操作全留痕。
+  // Hive P3: the node (fleet) view. Audit callback: every node operation leaves a trace.
   registerNodesRoutes(app, config, nodeSupervisors, clients, upstreamClients, requireUser, (actor, kind, detail) =>
     recordAudit(db, { actor, kind, detail }),
   )
@@ -317,7 +317,7 @@ const main = async (): Promise<void> => {
     clients,
     upstreamClients,
     ...(dockerRunner === null ? {} : { docker: dockerRunner }),
-    // 能力四（M1-7）：agent 节点创建需要（makeSupervisor agent 三件套 + fleet）
+    // Capability four (M1-7): needed to create an agent node (makeSupervisor's agent trio plus fleet)
     agentCommand: (agentId, type, payload) => enqueueAgentCommand(db, agentId, type as import('./routes/agents.js').AgentCommandType, payload),
     agentResult: (commandId, cb) => subscribeAgentCommandResults((cid, ok) => {
       if (cid === commandId) cb(ok)
@@ -325,17 +325,17 @@ const main = async (): Promise<void> => {
     agentLog: (agentId, nodeId) => readAgentLog(agentId, nodeId),
     fleetDoc: () => renderFleetDoc(config),
   })
-  // 能力四（舰队 M1-2）：node-agent 注册链（join 签发 / register 换发 / 吊销）。
+  // Capability four (Fleet M1-2): the node-agent registration chain (join issuance / register exchange / revocation).
   registerAgentsRoutes(
     app,
     db,
     requireUser,
     (actor, kind, detail) => recordAudit(db, { actor, kind, detail }),
-    // 事故回归（2026-09-25 ubuntu-focal 失联）：机器重新上线 = 该机节点大概率
-    // 需要重拉（重启后 agent 先回来、节点还没起）。这里走 supervisor.resume 而
-    // 不是 healOnly 对账——重启后节点是 cold，而 healOnly 故意跳过 cold（保护
-    // 人手动停的节点），照它会永远不起。resume 的语义：cold 拉起、live 不打扰、
-    // 手动停过的不动。
+    // Incident regression (2026-09-25, ubuntu-focal went missing): a machine coming back online = its nodes most
+    // likely need pulling up again (after a restart the agent returns first and the nodes are not up yet). This goes
+    // through supervisor.resume rather than a healOnly reconcile -- after a restart the nodes are cold, and healOnly
+    // deliberately skips cold (to protect nodes a person stopped by hand), so following it they would never come up.
+    // resume's semantics: start a cold one, leave a live one alone, and do not touch one stopped by hand.
     (agentId) => {
       const hosted = Object.entries(config.endpoints)
         .filter(([, ep]) => ep.spawn?.runner === 'agent' && ep.spawn.host === agentId)
@@ -350,16 +350,16 @@ const main = async (): Promise<void> => {
   )
   registerSkillsRoutes(app, config, requireUser)
   registerNotificationRoutes(app, db, requireUser)
-  // 债务 B6:/metrics 快照端点(受保护)
+  // Debt B6: the /metrics snapshot endpoint (protected)
   registerMetricsRoutes(app, db, requireUser)
 
-  // 对外门面（设计稿 manager/topics/public-api.md §3）：独立监听、独立鉴权。
-  // 起不来不拖垮主服务（listener 内部记状态 + error 日志），故这里只留一个可空句柄。
+  // The public facade (design doc manager/topics/public-api.md §3): its own listener, its own auth.
+  // Failing to start does not drag the main service down (the listener records state + an error log internally), so only a nullable handle is kept here.
   let publicApiHandle: { close: () => Promise<void> } | null = null
 
   const close = async (signal: string): Promise<void> => {
     app.log.info(`${signal} received, shutting down`)
-    // 先关对外面：正在处理的客户请求不该在主服务收摊之后还挂在半空。
+    // Close the public face first: a customer request still being handled should not be left hanging after the main service packs up.
     await publicApiHandle?.close().catch((error: unknown) => app.log.warn(`public API close failed: ${String(error)}`))
     // Open SSE streams and filesystem watchers would otherwise keep the event
     // loop alive and turn a clean stop into a hang.
@@ -367,7 +367,7 @@ const main = async (): Promise<void> => {
     closeChatRelays()
     closeAllMux()
     scheduler.stop()
-    // 蜂群 P1：manager 退场时带走它拉起的节点（taskkill /T 同步发出，不留孤儿）。
+    // Hive P1: the manager takes the nodes it started with it when it exits (taskkill /T is issued synchronously, leaving no orphans).
     for (const supervisor of nodeSupervisors.values()) supervisor.stop()
     await app.close()
     process.exit(0)
@@ -376,15 +376,15 @@ const main = async (): Promise<void> => {
   process.on('SIGTERM', () => void close('SIGTERM'))
 
   await app.listen({ host: config.listen.host, port: config.listen.port })
-  // 后台起来之后再开对外面：客户拿到的是"能用的 API"，而不是"API 在、后台还没好"。
-  // 这里刻意放在 listen 之后、scheduler 之前——门面失败不影响任何后续启动步骤。
+  // The public face opens only after the back office is up: what customers get is "an API that works", not "the API is
+  // there but the back office is not ready". It deliberately sits after listen and before scheduler -- a facade failure affects no later startup step.
   publicApiHandle = await startPublicApi({
     config,
     db,
     log: (line, level) => (level === 'error' ? app.log.error(line) : app.log.info(line)),
     ports: {
-      // 判活口径与后台一致：读 supervisor 的状态机，而不是另发一次探活请求
-      // （两套判活 = 两个真相，界面说在线、分发说离线这种事最难查）。
+      // The liveness rule matches the back office: read the supervisor's state machine rather than sending another liveness
+      // request (two liveness rules = two truths, and "the UI says online while dispatch says offline" is the hardest kind to debug).
       isOnline: (agentId) => {
         const agent = config.agents[agentId]
         if (agent === undefined) return false
@@ -412,14 +412,14 @@ const main = async (): Promise<void> => {
     `agents: ${Object.keys(config.agents).join(', ') || '(none)'} | endpoints: ${Object.keys(config.endpoints).join(', ')}`,
   )
 
-  // 蜂群 P6：15 分钟级数据库快照（RPO），保留策略在 backup.ts。备份失败只
-  // 打日志不退出——manager 的价值高于备份，但失败必须看得见。
-  // 线上磁盘教训（2026-09-20）：小盘线上被快照+家目录打包吃满——默认关闭，
-  // backup.auto: true 显式开启；手动 npm run backup 与更新前备份不受影响。
+  // Hive P6: a 15-minute database snapshot (RPO), with the retention policy in backup.ts. A failed backup only logs
+  // and does not exit -- the manager is worth more than the backup, but a failure has to be visible.
+  // A production disk lesson (2026-09-20): a small production disk was eaten up by snapshots plus home-directory packing --
+  // off by default, turned on explicitly with backup.auto: true; a manual npm run backup and the pre-update backup are unaffected.
   const backupDir = join(dirname(config.databasePath), 'backups')
   const autoBackup = async (): Promise<void> => {
     try {
-      // 债务 A5:真相源路径只从 loadConfig 解析结果取(单一来源,不再用 dist/../ 推导)
+      // Debt A5: source-of-truth paths come only from what loadConfig resolved (a single source, no more dist/../ derivation)
       const result = await backupNow(
         config.databasePath,
         config.configPath ?? join(dirname(fileURLToPath(import.meta.url)), '..', 'manager.config.yaml'),
@@ -428,9 +428,9 @@ const main = async (): Promise<void> => {
         config.sessionSecret,
       )
       app.log.info(`backup: ${result.snapshot.file} (${result.snapshot.bytes} bytes)${result.pruned.length > 0 ? `, pruned ${result.pruned.length}` : ''}`)
-      // 蜂群2计划 P3：审计留痕（自动备份，actor = system）
+      // Hive plan 2 P3: audit trace (the automatic backup, actor = system)
       recordAudit(db, { actor: 'system', kind: 'backup', detail: `snapshot ${result.snapshot.file}` })
-      // 蜂群2计划 P4：节点 home 一并打包加密（6 小时内已有归档则跳过）
+      // Hive plan 2 P4: pack and encrypt the node homes as well (skipped when an archive from the last 6 hours already exists)
       const nodeEntries = collectNodeHomes(config)
       if (nodeEntries.length > 0) {
         try {
@@ -452,8 +452,8 @@ const main = async (): Promise<void> => {
     app.log.info('auto backup: off (backup.auto=false) — run npm run backup by hand, or turn it on via backup.auto in manager.config.yaml')
   }
 
-  // 能力四（舰队 M3-3，§13 补丁提前）：fleet 看门狗——agent 掉线 / agent 节点
-  // 异常边沿触发进铃铛（30s 一轮，未读去重防重启刷屏）。失败只留痕不退出。
+  // Capability four (Fleet M3-3, the §13 patch brought forward): the fleet watchdog -- an agent going offline / an
+  // abnormal agent node is edge-triggered into the bell (one sweep every 30s, unread dedupe keeps restarts from flooding it). A failure only leaves a trace, never exits.
   const fleetWatchdog = createFleetWatchdog({
     db,
     nodeStates: () =>

@@ -1,9 +1,9 @@
 /**
- * 蜂群2计划 P6：fleet.md —— manager 生成的拓扑/边界共享文档（唯一派生真相）。
+ * Hive plan 2 P6: fleet.md -- the manager-generated shared topology/boundary document (the one derived truth).
  *
- * 每个节点工作区一份，随 config 变化自动同步；节点 AGENTS.md 引用它，
- * 主脑的派工判据读它而不是背死名单。文件是生成物：内容变了就覆盖，
- * 用户永远不手改它（改拓扑 = 改 manager.config.yaml / 用向导）。
+ * One copy per node workspace, synced automatically as the config changes; node AGENTS.md files
+ * reference it, and the brain's dispatch criteria read it instead of memorising a roster. It is a generated
+ * file: a content change overwrites it, and users never hand-edit it (change the topology = change manager.config.yaml / use the wizard).
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
@@ -13,7 +13,7 @@ import type { AppConfig } from '../config.js'
 import { withCommitLock } from './commit-lock.js'
 
 export const FLEET_FILE = 'fleet.md'
-/** 主脑令牌文件（节点用户 HOME 下；0600；不进工作区/git）。 */
+/** The brain token file (under the node user's HOME; 0600; never in the workspace or git). */
 export const BRAIN_TOKEN_FILE = '.brain-auth'
 
 export const renderFleetDoc = (config: AppConfig): string => {
@@ -52,7 +52,7 @@ export const renderFleetDoc = (config: AppConfig): string => {
   return lines.join('\n')
 }
 
-/** 把 fleet.md 同步进每个 agent 工作区；返回被写入/更新的 agent id。 */
+/** Syncs fleet.md into every agent workspace; returns the agent ids written or updated. */
 export const syncFleetDocs = async (config: AppConfig, log?: (line: string) => void): Promise<string[]> => {
   const updated: string[] = []
   const doc = renderFleetDoc(config)
@@ -60,14 +60,14 @@ export const syncFleetDocs = async (config: AppConfig, log?: (line: string) => v
     const path = join(agent.workspacePath, FLEET_FILE)
     try {
       if (readFileSync(path, 'utf8') === doc) {
-        // 内容没变也继续走 commitFleetDoc：文件可能已存在但未提交（历史遗留 dirty）
+        // Even when the content is unchanged, keep going into commitFleetDoc: the file may already exist but never have been committed (dirty from history)
       } else {
         mkdirSync(agent.workspacePath, { recursive: true })
         writeFileSync(path, doc, 'utf8')
         updated.push(agent.id)
       }
     } catch {
-      // 文件不存在 → 写
+      // The file does not exist -> write it
       try {
         mkdirSync(agent.workspacePath, { recursive: true })
         writeFileSync(path, doc, 'utf8')
@@ -77,21 +77,21 @@ export const syncFleetDocs = async (config: AppConfig, log?: (line: string) => v
         continue
       }
     }
-    // 蜂群2计划 P6：fleet.md 是 manager 生成物——同步即提交，工作区保持 clean。
-    // 债务 H3：提交走每 agent 提交锁（与 run 快照提交互斥），且只提交 fleet.md 一个路径。
+    // Hive plan 2 P6: fleet.md is a manager-generated file -- syncing it commits it, so the workspace stays clean.
+    // Debt H3: the commit takes the per-agent commit lock (mutually exclusive with run snapshots) and names only fleet.md.
     await commitFleetDoc(agent.workspacePath, agent.id)
   }
   return updated
 }
 
 /**
- * 只提交 fleet.md（manager 生成物）；无 git 仓或提交失败不阻断。
+ * Commits fleet.md only (a manager-generated file); no git repo or a failed commit does not block.
  *
- * 债务 H3 两处修复：
- * 1. `git commit -- fleet.md` 路径限定——用户工作区里已 stage 的其它改动
- *    绝不能被捎带进 manager 的提交（旧实现无 pathspec，会整仓提交）。
- * 2. 走 `withCommitLock(agentId)`——与 runner 的快照提交同一把锁，
- *    两个 git 进程不再互相踩 index.lock。
+ * Debt H3, two fixes:
+ * 1. `git commit -- fleet.md` is path-limited -- other staged changes in the user's workspace must
+ *    never ride along into the manager's commit (the old implementation had no pathspec and committed the whole repo).
+ * 2. It goes through `withCommitLock(agentId)` -- the same lock as the runner's snapshot commits, so
+ *    two git processes no longer step on each other's index.lock.
  */
 const commitFleetDoc = async (workspacePath: string, agentId: string): Promise<void> => {
   await withCommitLock(agentId, async () => {
@@ -108,16 +108,16 @@ const commitFleetDoc = async (workspacePath: string, agentId: string): Promise<v
         stdio: 'ignore',
       })
     } catch {
-      // 不是 git 仓（或提交失败）：工作区脏由 smoke 显性报告，不在这里硬处理
+      // Not a git repo (or the commit failed): the smoke check reports a dirty workspace explicitly, so no forcing it here
     }
   })
 }
 
 /**
- * 主脑令牌文件（2026-09-06 拍板：落点 = 节点用户 HOME，不进工作区/git）。
- * DSH 工具沙箱会洗掉 TOKEN/KEY 字样环境变量（DSH-FACTS §2），env 通路走不通；
- * HOME 不在清洗名单，技能手册读 `$HOME/.brain-auth`。
- * 容器形态由节点 entrypoint 从环境变量派生写入；裸机由 manager 启动时调本函数。
+ * The brain token file (decided 2026-09-06: it lands in the node user's HOME, never in the workspace or git).
+ * The DSH tool sandbox scrubs environment variables containing TOKEN/KEY (DSH-FACTS §2), so the env route is out;
+ * HOME is not on the scrub list, and skill manuals read `$HOME/.brain-auth`.
+ * In container form the node entrypoint derives and writes it from an environment variable; on bare metal the manager calls this function at boot.
  */
 export const provisionBrainToken = (homeDir: string = homedir(), log?: (line: string) => void): boolean => {
   const token = process.env.BRAIN_TOKEN ?? ''
@@ -132,7 +132,7 @@ export const provisionBrainToken = (homeDir: string = homedir(), log?: (line: st
     try {
       current = readFileSync(path, 'utf8')
     } catch {
-      // 文件不存在 → 首次写入
+      // The file does not exist -> first write
     }
     if (current !== token) writeFileSync(path, token, { encoding: 'utf8', mode: 0o600 })
     return true

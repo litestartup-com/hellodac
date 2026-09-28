@@ -3,14 +3,14 @@ import type { Db } from './db/index.js'
 import { schema } from './db/index.js'
 
 /**
- * 蜂群 P5.3：站内通知。事件源（cron 成败、预算熔断、主脑任务完成…）各自
- * 调用，本模块只管落库。节流/去重是下一轮的事（§3.7 第 11 条已记）。
+ * Hive P5.3: in-app notifications. Event sources (cron success/failure, budget breaker, brain task done, ...)
+ * call in; this module only writes rows. Throttling/dedup is a later round (noted as §3.7 item 11).
  */
 export interface NotificationInput {
   kind: string
   title: string
   body: string
-  /** 站内路径，如 /chat/<id>；null = 纯告知，不跳转。 */
+  /** In-app path, e.g. /chat/<id>; null = informational only, nothing to open. */
   link?: string | null
 }
 

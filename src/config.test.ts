@@ -14,7 +14,7 @@ if (process.env.SESSION_SECRET === undefined) process.env.SESSION_SECRET = 'x'.r
 const baseConfig = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({
   listen: { host: '127.0.0.1', port: 8080 },
   endpoints: { A: { url: 'http://127.0.0.1:3080', driver: 'apiproxy' } },
-  agents: { personal: { name: '个人', endpoint: 'A', workspace: '.' } },
+  agents: { personal: { name: 'Personal', endpoint: 'A', workspace: '.' } },
   ...extra,
 })
 
@@ -45,25 +45,25 @@ const withEnv = (vars: Record<string, string>, fn: () => void): void => {
   }
 }
 
-test('债务 A5 回归: loadConfig 返回解析后的真相源路径——全项目单一来源', () => {
+test('Debt A5 regression: loadConfig returns the resolved truth-source paths -- one source for the whole project', () => {
   const dir = mkdtempSync(join(tmpdir(), 'manager-config-test-'))
   try {
     const file = join(dir, 'config.yaml')
     writeFileSync(file, stringify(baseConfig()), 'utf8')
     const cfg = loadConfig(file)
-    assert.equal(cfg.configPath, resolve(file), 'configPath 必须是解析后的绝对路径')
-    assert.equal(cfg.envPath, resolve('.env'), 'envPath 必须是绝对路径(.env 的规范位置)')
+    assert.equal(cfg.configPath, resolve(file), 'configPath must be the resolved absolute path')
+    assert.equal(cfg.envPath, resolve('.env'), 'envPath must be an absolute path (the canonical location of .env)')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
 })
 
-test('债务 E12 回归: agent.validate 治理规则解析与缺省', () => {
+test('Debt E12 regression: the agent.validate governance rules parse, and their defaults', () => {
   withEnv({}, () => {
     const withRules = loadFrom(baseConfig({
       agents: {
         personal: {
-          name: '个人',
+          name: 'Personal',
           endpoint: 'A',
           workspace: '.',
           validate: {
@@ -80,7 +80,7 @@ test('债务 E12 回归: agent.validate 治理规则解析与缺省', () => {
     assert.equal(rules?.forbidAmountFields, true)
     assert.equal(rules?.acctFlowMaxAgeMonths, 1)
 
-    // 缺省 = null(调用方走 DEFAULT_RULES:只做通用凭证检查,不继承业务规则)
+    // The default = null (the caller goes through DEFAULT_RULES: the generic credential check only, inheriting no business rules)
     const without = loadFrom(baseConfig())
     assert.equal(without.agents['personal']?.validate, null)
   })
@@ -97,7 +97,7 @@ test('parses the P0 fields: agent preset/sandbox_mode and endpoint sandbox surfa
         },
       },
       agents: {
-        personal: { name: '个人', endpoint: 'A', workspace: '.', preset: 'standard', sandbox_mode: 'workspace-write' },
+        personal: { name: 'Personal', endpoint: 'A', workspace: '.', preset: 'standard', sandbox_mode: 'workspace-write' },
       },
     }))
     const ep = cfg.endpoints['A']
@@ -123,7 +123,7 @@ test('defaults: no sandbox surface, no preset, no mode', () => {
   assert.equal(agent.sandboxMode, null)
 })
 
-test('债务 P1 回归: endpoint.access 隧道元数据解析与缺省(未配置 = 无能力)', () => {
+test('Debt P1 regression: the endpoint.access tunnel metadata parses, and its defaults (unconfigured = no capability)', () => {
   const cfg = loadFrom(baseConfig({
     endpoints: {
       A: {
@@ -144,12 +144,12 @@ test('债务 P1 回归: endpoint.access 隧道元数据解析与缺省(未配置
   assert.ok(ep !== undefined)
   assert.deepEqual(ep.access, { sshUser: 'ubuntu', sshHost: '10.0.0.5', sshPort: 2222, guiPort: 3082, localPort: 3088, sshKey: 'C:\\Users\\you\\.ssh\\id_ed25519' })
 
-  // 未配置 access = null(节点页不显示「打开原生 GUI」)
+  // access unconfigured = null (the nodes page shows no "open the native GUI")
   const bare = loadFrom(baseConfig())
   assert.equal(bare.endpoints['A']?.access, null)
 })
 
-test('债务 P1 回归: access 缺省端口(ssh 22 / gui 3080)与非法值拒绝', () => {
+test('Debt P1 regression: the access default ports (ssh 22 / gui 3080) and the rejection of illegal values', () => {
   const cfg = loadFrom(baseConfig({
     endpoints: {
       A: {
@@ -168,7 +168,7 @@ test('债务 P1 回归: access 缺省端口(ssh 22 / gui 3080)与非法值拒绝
         A: {
           url: 'http://127.0.0.1:3080',
           driver: 'apiproxy',
-          access: { ssh_user: 'ubuntu', ssh_host: '10.0.0.5' }, // 缺 local_port
+          access: { ssh_user: 'ubuntu', ssh_host: '10.0.0.5' }, // local_port missing
         },
       },
     })),
@@ -176,7 +176,7 @@ test('债务 P1 回归: access 缺省端口(ssh 22 / gui 3080)与非法值拒绝
   )
 })
 
-test('债务 P3 回归: spawn.dsh_version / gateway_ref 按节点钉版解析（缺省 = null 跟随全局默认）', () => {
+test('Debt P3 regression: spawn.dsh_version / gateway_ref resolve as per-node pins (the default = null, following the global default)', () => {
   const pinned = loadFrom(baseConfig({
     endpoints: {
       A: {
@@ -204,11 +204,11 @@ test('债务 P3 回归: spawn.dsh_version / gateway_ref 按节点钉版解析（
       },
     },
   }))
-  assert.equal(defaults.endpoints['A']?.spawn?.dshVersion ?? null, null, '缺省 null = 跟随全局默认')
+  assert.equal(defaults.endpoints['A']?.spawn?.dshVersion ?? null, null, 'a null default = follow the global default')
   assert.equal(defaults.endpoints['A']?.spawn?.gatewayRef ?? null, null)
 })
 
-test('能力四回归: runner=agent + host 解析——舰队远端节点形态（无本地 command，agent 侧用自己 prefix 的 bin）', () => {
+test('Capability four regression: runner=agent + host resolve -- the Fleet remote node shape (no local command; the agent side uses the bin from its own prefix)', () => {
   const cfg = loadFrom(baseConfig({
     endpoints: {
       A: {
@@ -217,36 +217,36 @@ test('能力四回归: runner=agent + host 解析——舰队远端节点形态�
         spawn: { managed: true, runner: 'agent', host: 'agent-abc123', env: { DSH_HOME: '/home/dac-node/.dac/ops01' } },
       },
     },
-    agents: { personal: { name: '个人', endpoint: 'A', workspace: '/home/dac-node/ws' } },
+    agents: { personal: { name: 'Personal', endpoint: 'A', workspace: '/home/dac-node/ws' } },
   }))
   const spawn = cfg.endpoints['A']?.spawn
   assert.equal(spawn?.runner, 'agent')
-  assert.equal(spawn?.host, 'agent-abc123', 'host = 执行该节点的 agent id')
-  assert.equal(spawn?.command, '', 'agent 形态不要求本地 command')
-  assert.equal(spawn?.docker, null, 'agent 形态无 docker 段')
+  assert.equal(spawn?.host, 'agent-abc123', 'host = the agent id that runs this node')
+  assert.equal(spawn?.command, '', 'the agent shape does not require a local command')
+  assert.equal(spawn?.docker, null, 'the agent shape has no docker section')
 })
 
-test('能力四回归: runner=agent 缺 host 拒绝；非 agent 形态写 host 拒绝（执行地与形态必须一致）', () => {
+test('Capability four regression: runner=agent without host is rejected; host on a non-agent shape is rejected (where it runs and its shape have to agree)', () => {
   assert.throws(
     () => loadFrom(baseConfig({
       endpoints: { A: { url: 'http://10.0.0.7:3081', driver: 'apiproxy', spawn: { managed: true, runner: 'agent' } } },
     })),
     /host/,
-    'agent 无 host = fail-loud',
+    'agent without host = fail-loud',
   )
   assert.throws(
     () => loadFrom(baseConfig({
       endpoints: { A: { url: 'http://127.0.0.1:3080', driver: 'apiproxy', spawn: { managed: true, command: 'node', host: 'agent-x' } } },
     })),
     /host/,
-    'process 写 host = 拒绝（防接线漂移）',
+    'process with host = rejected (against wiring drift)',
   )
 })
 
 test('agent sandbox_mode without endpoint sandbox_base fails loud at boot', () => {
   assert.throws(
     () => loadFrom(baseConfig({
-      agents: { personal: { name: '个人', endpoint: 'A', workspace: '.', sandbox_mode: 'read-only' } },
+      agents: { personal: { name: 'Personal', endpoint: 'A', workspace: '.', sandbox_mode: 'read-only' } },
     })),
     /no sandbox_base/,
   )
@@ -298,26 +298,26 @@ test('parses a managed spawn spec with defaults and resolved cwd', () => {
   assert.deepEqual(ep.spawn.restart, { maxAttempts: 3, baseDelayMs: 1_000, maxDelayMs: 30_000 })
 })
 
-test('蜂群 P5.1: brain daily budget defaults off and parses when set', () => {
+test('Hive P5.1: brain daily budget defaults off and parses when set', () => {
   assert.equal(loadFrom(baseConfig()).brainDailyBudgetMicroUsd, null)
   const capped = loadFrom(baseConfig({ brain: { daily_budget_usd: 1.5 } }))
   assert.equal(capped.brainDailyBudgetMicroUsd, 1_500_000)
 })
 
 test('v1.0.3: apiproxy prefix — explicit config wins, legacy default only when omitted', () => {
-  // 老配置（显式 /api）与省略 prefix 的配置行为不变。
+  // An old config (an explicit /api) and one that omits prefix behave unchanged.
   const legacyExplicit = loadFrom(baseConfig({
     endpoints: { A: { url: 'http://127.0.0.1:3080', driver: 'apiproxy', prefix: '/api' } },
   }))
   assert.equal(legacyExplicit.endpoints['A']?.prefix, '/api')
   const legacyOmitted = loadFrom(baseConfig())
-  assert.equal(legacyOmitted.endpoints['A']?.prefix, '/api', '省略 prefix 沿用 0.1.1 旧默认')
-  // 0.1.2 新线：显式指向网关 facade 的 prefix 不再被钉死覆盖。
+  assert.equal(legacyOmitted.endpoints['A']?.prefix, '/api', 'an omitted prefix keeps the old 0.1.1 default')
+  // The new 0.1.2 line: a prefix pointing explicitly at the gateway facade is no longer overridden by the pin.
   const facade = loadFrom(baseConfig({
     endpoints: { A: { url: 'http://127.0.0.1:3091', driver: 'apiproxy', prefix: '/api-gw/v1/proxy' } },
   }))
   assert.equal(facade.endpoints['A']?.prefix, '/api-gw/v1/proxy')
-  // gateway 驱动的 prefix 行为保持原样（显式优先）。
+  // The gateway driver's prefix behaves as before (explicit wins).
   withEnv({ GW_KEY_A: 'test-gw-key' }, () => {
     const gw = loadFrom(baseConfig({
       endpoints: { A: { url: 'http://127.0.0.1:3080', driver: 'gateway', prefix: '/api-gw/v1', key_ref: 'GW_KEY_A' } },
@@ -330,7 +330,7 @@ test('no spawn block resolves to null (externally managed node)', () => {  const
   assert.equal(cfg.endpoints['A']?.spawn, null)
 })
 
-test('蜂群2计划 P2: spawn.runner defaults to process; docker runner resolves its spec', () => {
+test('Hive plan 2 P2: spawn.runner defaults to process; the docker runner resolves its spec', () => {
   const cfg = loadFrom(baseConfig({
     endpoints: {
       A: {
@@ -353,7 +353,7 @@ test('蜂群2计划 P2: spawn.runner defaults to process; docker runner resolves
   const spawn = cfg.endpoints['A']?.spawn
   assert.ok(spawn !== null && spawn !== undefined)
   assert.equal(spawn.runner, 'docker')
-  assert.equal(spawn.command, '', 'docker runner 不需要 command')
+  assert.equal(spawn.command, '', 'the docker runner needs no command')
   assert.equal(spawn.docker?.image, 'hellodac/dac-node:0.1.1-rc.2')
   assert.equal(spawn.docker?.containerName, null)
   assert.equal(spawn.docker?.network, 'hive')
@@ -362,7 +362,7 @@ test('蜂群2计划 P2: spawn.runner defaults to process; docker runner resolves
   assert.deepEqual(spawn.docker?.namedVolumes, { 'dac-personal': '/data' })
 })
 
-test('蜂群2计划 P2: runner=docker without docker block fails loud', () => {
+test('Hive plan 2 P2: runner=docker without a docker block fails loud', () => {
   assert.throws(
     () => loadFrom(baseConfig({
       endpoints: {
@@ -377,7 +377,7 @@ test('蜂群2计划 P2: runner=docker without docker block fails loud', () => {
   )
 })
 
-test('蜂群2计划 P2: process spawn keeps resolving with runner=process and docker=null', () => {
+test('Hive plan 2 P2: a process spawn keeps resolving with runner=process and docker=null', () => {
   const cfg = loadFrom(baseConfig({
     endpoints: {
       A: { url: 'http://127.0.0.1:3080', driver: 'apiproxy', spawn: { managed: true, command: 'node' } },
@@ -387,74 +387,74 @@ test('蜂群2计划 P2: process spawn keeps resolving with runner=process and do
   assert.equal(cfg.endpoints['A']?.spawn?.docker, null)
 })
 
-test('蜂群2计划 P5: 随仓发布的容器示例配置必须始终通过 schema（install.sh 依赖它）', () => {
+test('Hive plan 2 P5: the container example config shipped with the repo must always pass the schema (install.sh depends on it)', () => {
   const example = join(dirname(fileURLToPath(import.meta.url)), '..', 'manager.config.container.example.yaml')
   withEnv({ GW_KEY_A: 'apigw-a', GW_KEY_B: 'apigw-b' }, () => {
     const cfg = loadConfig(example)
     const brain = cfg.endpoints['brain']
     const personal = cfg.endpoints['personal']
     assert.ok(brain !== undefined && personal !== undefined)
-    assert.equal(brain.spawn, null, '主脑由 compose 声明（脊柱，非托管）')
+    assert.equal(brain.spawn, null, 'the brain is declared by compose (the spine, unmanaged)')
     assert.equal(personal.spawn?.runner, 'docker')
     assert.equal(personal.spawn?.docker?.image, 'hellodac/dac-node:0.1.2-rc.1')
-    assert.equal(personal.spawn?.docker?.network, 'dac-hive', '与 compose 显式网络名一致')
-    // 工作区路径两套视角统一：节点容器内路径 = manager 视角路径（EACCES mkdir 根因回归）
+    assert.equal(personal.spawn?.docker?.network, 'dac-hive', 'the same as the explicit network name in compose')
+    // The two views of the workspace path are unified: the path inside the node container = the path as the manager sees it (the root cause of the EACCES mkdir, as a regression)
     assert.equal(personal.spawn?.docker?.hostVolumes['/opt/dac/workspaces/personal'], '/opt/dac/workspaces/personal')
-    assert.deepEqual(cfg.backupDockerVolumes, ['dac-brain'], '脊柱主脑卷进备份声明')
-    assert.equal(cfg.backupAuto, false, '自动备份默认关闭（线上小盘教训）')
+    assert.deepEqual(cfg.backupDockerVolumes, ['dac-brain'], 'the spine brain volume enters the backup declaration')
+    assert.equal(cfg.backupAuto, false, 'automatic backup is off by default (the lesson from a small disk in production)')
     assert.equal(cfg.agents['brain']?.sandboxMode, 'workspace-write')
   })
 })
 
-test('线上磁盘教训回归: backup.auto 默认关闭，显式 true 才开自动备份；interval_minutes 可调', () => {
+test('Production disk lesson regression: backup.auto is off by default, and only an explicit true enables automatic backup; interval_minutes is adjustable', () => {
   const bare = loadFrom(baseConfig())
-  assert.equal(bare.backupAuto, false, '缺省 = 关闭')
-  assert.equal(bare.backupIntervalMs, 15 * 60_000, '缺省间隔 15 分钟')
+  assert.equal(bare.backupAuto, false, 'the default = off')
+  assert.equal(bare.backupIntervalMs, 15 * 60_000, 'the default interval is 15 minutes')
 
   const on = loadFrom(baseConfig({ backup: { auto: true } }))
-  assert.equal(on.backupAuto, true, '显式开启')
+  assert.equal(on.backupAuto, true, 'explicitly enabled')
 
   const daily = loadFrom(baseConfig({ backup: { auto: true, interval_minutes: 1440 } }))
-  assert.equal(daily.backupIntervalMs, 1440 * 60_000, '小盘线上可放宽到每日')
+  assert.equal(daily.backupIntervalMs, 1440 * 60_000, 'on a small production disk it can be relaxed to daily')
 
   const off = loadFrom(baseConfig({ backup: { docker_volumes: ['x'] } }))
-  assert.equal(off.backupAuto, false, '只配 docker_volumes 不改变默认关闭')
+  assert.equal(off.backupAuto, false, 'configuring docker_volumes alone does not change the off default')
 })
 
-test('P0 回归: loadConfig 自动迁移旧配置——迁移警告可见、文件写回版本戳、原文件备份', () => {
+test('P0 regression: loadConfig migrates an old config automatically -- the migration warning is visible, the file is written back with a version stamp, and the original is backed up', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mig-load-'))
   try {
     const file = join(dir, 'config.yaml')
     writeFileSync(file, stringify(baseConfig()), 'utf8')
     const cfg = loadConfig(file)
-    assert.ok(cfg.warnings.some((w) => w.includes('migrated from version 0 to 1')), '迁移说明进 config.warnings（boot 日志可见）')
-    assert.match(readFileSync(file, 'utf8'), /config_version: 1/, '写回版本戳')
-    assert.ok(existsSync(`${file}.pre-mig.bak`), '原文件备份')
+    assert.ok(cfg.warnings.some((w) => w.includes('migrated from version 0 to 1')), 'the migration note enters config.warnings (visible in the boot log)')
+    assert.match(readFileSync(file, 'utf8'), /config_version: 1/, 'the version stamp is written back')
+    assert.ok(existsSync(`${file}.pre-mig.bak`), 'the original file is backed up')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
 })
 
-test('P0 回归: 未来版本配置 fail-loud（配置来自更新版 manager，拒绝猜测）', () => {
+test('P0 regression: a future-version config fails loud (the config comes from a newer manager, and guessing is refused)', () => {
   assert.throws(() => loadFrom(baseConfig({ config_version: 99 })), /newer than the supported/)
 })
 
 /**
- * 对外 API 的"服务"定义（口径：内部设计库 `manager/topics/CONCEPTS-ALIGNED.md`）。
+ * The "service" definition of the outward API (the position in the internal design library `manager/topics/CONCEPTS-ALIGNED.md`).
  *
- * 夹具用**现网节点的真实形态**：apiproxy 驱动 + facade 代理前缀 + 该节点自己的
- * gateway 钥匙（`driver: gateway` 已是死路，见 facts/dsh-facts.md §15——历史夹具
- * 用的正是那条死路，会误导后来者）。
+ * The fixture uses the **real shape of a production node**: the apiproxy driver + the facade proxy prefix + that node's own
+ * gateway key (`driver: gateway` is already a dead path, see facts/dsh-facts.md section 15 -- the historical fixture
+ * used exactly that dead path, which would mislead whoever comes next).
  *
- * 服务成员必须是 public agent 且按口径 §1 **各自独占进程**：成员漏标 public 会静默
- * 变成"谁都进不来的服务"，那是最难查的一类故障，所以 fail-loud。
+ * A service member must be a public agent and, per the position in section 1, **each holds its own process**: a member left unmarked
+ * public would silently become "a service nobody can get into", the hardest kind of fault to track down, so it fails loud.
  */
 const serviceConfig = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({
   listen: { host: '127.0.0.1', port: 8080 },
   endpoints: {
     W: { url: 'http://127.0.0.1:3090', driver: 'apiproxy', prefix: '/api-gw/v1/proxy', key_ref: 'GW_KEY_TEST' },
   },
-  agents: { 'worker-1': { name: '客服一', endpoint: 'W', workspace: '.', public: true } },
+  agents: { 'worker-1': { name: 'Support one', endpoint: 'W', workspace: '.', public: true } },
   ...extra,
 })
 
@@ -469,7 +469,7 @@ const loadWithKeyEnv = (obj: Record<string, unknown>): ReturnType<typeof loadCon
   }
 }
 
-test('口径: 一个端点只挂一个 agent（同一端点两个 agent = fail-loud）', () => {
+test('position: one endpoint carries one agent only (two agents on the same endpoint = fail-loud)', () => {
   const shared = baseConfig({
     agents: {
       a: { name: 'a', endpoint: 'A', workspace: '.' },
@@ -479,21 +479,21 @@ test('口径: 一个端点只挂一个 agent（同一端点两个 agent = fail-l
   assert.throws(() => loadFrom(shared), /shared by 2 agents/)
 })
 
-test('口径: 对外 agent 允许落在 apiproxy 端点（独占进程即可，不再看 driver 名字）', () => {
-  // 历史红线是"apiproxy 上不许有 public agent"，它把用户推向 gateway 端点——而那条路
-  // 在 facade 0.2.x 上已经不存在。真正的约束是进程独占（上一条用例已在管）。
+test('position: an outward agent may live on an apiproxy endpoint (an exclusive process is enough; the driver name no longer matters)', () => {
+  // The historical red line was "no public agent on apiproxy", which pushed users toward gateway endpoints -- and that path
+  // no longer exists on facade 0.2.x. The real constraint is an exclusive process (the previous case already covers it).
   const cfg = loadFrom(
     baseConfig({
-      agents: { pub: { name: '对外', endpoint: 'A', workspace: '.', public: true } },
+      agents: { pub: { name: 'Outward', endpoint: 'A', workspace: '.', public: true } },
     }),
   )
   assert.equal(cfg.agents['pub']?.public, true)
 })
 
 /**
- * 机器级隔离（口径 §4.5 第 3 道边界；用户 2026-09-27 确认"配置层也硬拦"）。
- * 机器 = `spawn.host`（远端）或 `local`（本机）：同一台机器上的 agent 共享同一 OS 用户，
- * 而 DSH 读文件不隔离，所以只有"进程独占"这一条是不够的。
+ * Machine-level isolation (the third boundary in section 4.5 of the position; the user confirmed on 2026-09-27 that "the config layer blocks it hard too").
+ * A machine = `spawn.host` (remote) or `local` (this machine): agents on one machine share the same OS user,
+ * and DSH does not isolate file reads, so "an exclusive process" alone is not enough.
  */
 const onMachine = (ids: string[], host: string, publicIds: string[] = []): Record<string, unknown> =>
   baseConfig({
@@ -505,34 +505,34 @@ const onMachine = (ids: string[], host: string, publicIds: string[] = []): Recor
     ),
   })
 
-test('机器隔离: 同机既有对外又有对内 agent = fail-loud', () => {
+test('machine isolation: one machine with both an outward and an internal agent = fail-loud', () => {
   const mixed = onMachine(['srv-a', 'srv-b'], 'box-1', ['srv-a'])
   assert.throws(() => loadFrom(mixed), /hosts both outward agents/)
 })
 
-test('机器隔离: 同机放两个不同对外服务的 agent = fail-loud（跨服务注入面）', () => {
+test('machine isolation: two agents of different outward services on one machine = fail-loud (a cross-service injection surface)', () => {
   const twoServices = onMachine(['srv-a', 'srv-b'], 'box-1', ['srv-a', 'srv-b'])
   const cfg = { ...twoServices, services: [
-    { id: 'support', label: '客服', workers: ['srv-a'] },
-    { id: 'report', label: '报表', workers: ['srv-b'] },
+    { id: 'support', label: 'Support', workers: ['srv-a'] },
+    { id: 'report', label: 'Reports', workers: ['srv-b'] },
   ] }
   assert.throws(() => loadFrom(cfg), /serves 2 different services/)
 })
 
-test('机器隔离: 同机同一个服务的多个 agent = 允许（spread 只是尽量避开，不是禁止）', () => {
+test('machine isolation: several agents of the same service on one machine = allowed (spread only tries to avoid it, it does not forbid it)', () => {
   const sameService = onMachine(['srv-a', 'srv-b'], 'box-1', ['srv-a', 'srv-b'])
   const cfg = { ...sameService, services: [
-    { id: 'support', label: '客服', workers: ['srv-a', 'srv-b'], count: 2 },
+    { id: 'support', label: 'Support', workers: ['srv-a', 'srv-b'], count: 2 },
   ] }
   assert.equal(loadFrom(cfg).services?.[0]?.workers.length, 2)
 })
 
-test('机器隔离: 同机多个对内 agent = 允许（生产形态：33.11 上 spike02/ops33 同机）', () => {
+test('machine isolation: several internal agents on one machine = allowed (the production shape: spike02/ops33 on the same machine at 33.11)', () => {
   const internal = onMachine(['spike02', 'ops33'], 'agent-002cf073615f')
   assert.deepEqual(Object.keys(loadFrom(internal).agents), ['spike02', 'ops33'])
 })
 
-test('机器隔离: 本机（无 spawn.host）同样适用', () => {
+test('machine isolation: it applies to this machine too (no spawn.host)', () => {
   const local = baseConfig({
     endpoints: {
       L1: { url: 'http://127.0.0.1:3190', driver: 'apiproxy' },
@@ -547,12 +547,12 @@ test('机器隔离: 本机（无 spawn.host）同样适用', () => {
 })
 
 /**
- * 远端工作区原样透传（2026-09-28 实机事故）：manager 在 Windows 上，节点在 Linux 上，
- * `resolve('/home/dac/ws')` 会变成 `C:\home\dac\ws`，节点侧 session.create 直接拒绝
- * （cwd must be an absolute path）。同年那台 Linux 上留下的 `C:\root\...\spike02` 怪目录
- * 就是这个 bug 的化石。
+ * A remote workspace is passed through verbatim (a real incident on 2026-09-28): the manager is on Windows and the node on Linux,
+ * so `resolve('/home/dac/ws')` turns into `C:\home\dac\ws`, and session.create on the node side rejects it outright
+ * (cwd must be an absolute path). The strange `C:\root\...\spike02` directory left on that Linux machine
+ * that year is a fossil of this bug.
  */
-test('远端工作区: runner=agent 的路径按那台机器的命名空间原样透传，不做本机解析', () => {
+test('remote workspace: a runner=agent path is passed through verbatim in that machine namespace, with no local resolution', () => {
   const cfg = loadFrom(
     baseConfig({
       endpoints: {
@@ -563,12 +563,12 @@ test('远端工作区: runner=agent 的路径按那台机器的命名空间原�
   )
   assert.equal(cfg.agents['remote']?.workspacePath, '/home/dac/workspaces/chat')
 
-  // 本机节点仍然按 manager 自己的文件系统解析（相对路径是有意义的）
+  // A local node is still resolved against the manager's own filesystem (a relative path is meaningful there)
   const local = loadFrom(baseConfig({ agents: { here: { name: 'here', endpoint: 'A', workspace: 'sub/dir' } } }))
   assert.equal(local.agents['here']?.workspacePath, resolve('sub/dir'))
 })
 
-test('远端工作区: 相对路径 fail-loud（远端没有"当前目录"可以参照）', () => {
+test('remote workspace: a relative path fails loud (a remote has no "current directory" to refer to)', () => {
   const relative = baseConfig({
     endpoints: {
       R: { url: 'http://10.0.0.5:3201', driver: 'apiproxy', spawn: { managed: true, runner: 'agent', host: 'box-1' } },
@@ -578,7 +578,7 @@ test('远端工作区: 相对路径 fail-loud（远端没有"当前目录"可以
   assert.throws(() => loadFrom(relative), /must be an absolute path on the remote machine/)
 })
 
-test('死路告警: driver: gateway 端点必须 warning（facade 0.2.x 无会话 REST 面）', () => {
+test('dead-path warning: a driver: gateway endpoint must warn (facade 0.2.x has no chat REST surface)', () => {
   const legacy = baseConfig({
     endpoints: { G: { url: 'http://127.0.0.1:3090', driver: 'gateway', key_ref: 'GW_KEY_TEST' } },
     agents: { g: { name: 'g', endpoint: 'G', workspace: '.' } },
@@ -586,48 +586,48 @@ test('死路告警: driver: gateway 端点必须 warning（facade 0.2.x 无会�
   const cfg = loadWithKeyEnv(legacy)
   assert.ok(
     cfg.warnings.some((w) => w.includes('gateway driver, which is a dead path')),
-    'gateway 驱动是半死状态：探活绿、会话 404 —— 启动就要喊出来',
+    'the gateway driver is half dead: liveness green, chats 404 -- the boot has to say so out loud',
   )
   const ok = loadFrom(baseConfig())
-  assert.ok(!ok.warnings.some((w) => w.includes('dead path')), 'apiproxy 端点不该有这条告警')
+  assert.ok(!ok.warnings.some((w) => w.includes('dead path')), 'an apiproxy endpoint should not carry this warning')
 })
 
-test('对外 API 服务: 成员必须是 public agent（私有成员 fail-loud，不静默）', () => {
+test('outward API service: a member must be a public agent (a private member fails loud, not silently)', () => {
   const priv = serviceConfig({
-    agents: { 'worker-1': { name: '客服一', endpoint: 'W', workspace: '.', public: false } },
-    services: [{ id: 'support', label: '客服', workers: ['worker-1'] }],
+    agents: { 'worker-1': { name: 'Support one', endpoint: 'W', workspace: '.', public: false } },
+    services: [{ id: 'support', label: 'Support', workers: ['worker-1'] }],
   })
   assert.throws(() => loadWithKeyEnv(priv), /not public/)
 })
 
-test('对外 API 服务: 未知成员 / 重复服务 id / 非绝对挂载点 都 fail-loud', () => {
-  const good = serviceConfig({ services: [{ id: 'support', label: '客服', workers: ['worker-1'] }] })
+test('outward API service: an unknown member / a duplicate service id / a non-absolute mount point all fail loud', () => {
+  const good = serviceConfig({ services: [{ id: 'support', label: 'Support', workers: ['worker-1'] }] })
   assert.ok(loadWithKeyEnv(good).services)
 
-  const ghost = serviceConfig({ services: [{ id: 'support', label: '客服', workers: ['ghost'] }] })
+  const ghost = serviceConfig({ services: [{ id: 'support', label: 'Support', workers: ['ghost'] }] })
   assert.throws(() => loadWithKeyEnv(ghost), /unknown worker/)
 
   const dup = serviceConfig({
     services: [
-      { id: 'support', label: '客服', workers: ['worker-1'] },
-      { id: 'support', label: '重复', workers: ['worker-1'] },
+      { id: 'support', label: 'Support', workers: ['worker-1'] },
+      { id: 'support', label: 'Duplicate', workers: ['worker-1'] },
     ],
   })
   assert.throws(() => loadWithKeyEnv(dup), /duplicate service/)
 
   const badMount = serviceConfig({
-    services: [{ id: 'support', label: '客服', workers: ['worker-1'], knowledge: [{ host: '/srv/kb', mount: 'kb' }] }],
+    services: [{ id: 'support', label: 'Support', workers: ['worker-1'], knowledge: [{ host: '/srv/kb', mount: 'kb' }] }],
   })
   assert.throws(() => loadWithKeyEnv(badMount), /absolute/)
 })
 
-test('对外 API 服务: 正常解析（默认面=两种话术、手册默认只读）+ 门面默认只绑本机', () => {
+test('outward API service: it parses normally (the default surface = both modes of address; the handbook is read-only by default) + the surface binds to this machine by default', () => {
   const cfg = loadWithKeyEnv(
     serviceConfig({
       services: [
         {
           id: 'support',
-          label: '企业智能客服',
+          label: 'Support',
           workers: ['worker-1'],
           surfaces: ['conversations'],
           knowledge: [{ host: '/srv/knowledge/faq', mount: '/knowledge' }],
@@ -635,65 +635,65 @@ test('对外 API 服务: 正常解析（默认面=两种话术、手册默认只
       ],
     }),
   )
-  assert.deepEqual(cfg.publicApi, { enabled: true, host: '127.0.0.1', port: 8081 }, '门面默认只绑本机')
+  assert.deepEqual(cfg.publicApi, { enabled: true, host: '127.0.0.1', port: 8081 }, 'the surface binds to this machine by default')
   assert.equal(cfg.services?.length, 1)
   assert.equal(cfg.services[0]?.id, 'support')
   assert.deepEqual(cfg.services[0]?.surfaces, ['conversations'])
   assert.deepEqual(cfg.services[0]?.knowledge, [{ host: '/srv/knowledge/faq', mount: '/knowledge', readOnly: true }])
 
   const both = loadWithKeyEnv(serviceConfig({ services: [{ id: 's', label: 'x', workers: ['worker-1'] }] }))
-  assert.deepEqual(both.services?.[0]?.surfaces, ['tasks', 'conversations'], '缺省两种话术都开')
+  assert.deepEqual(both.services?.[0]?.surfaces, ['tasks', 'conversations'], 'both modes of address are on by default')
 })
 
-test('对外 API: 未配置服务时为空（等价于"当前没有对外 API"），不影响既有配置', () => {
+test('outward API: it is empty when no service is configured (equivalent to "there is no outward API right now"), and existing config is unaffected', () => {
   const cfg = loadFrom(baseConfig())
   assert.deepEqual(cfg.services, [])
   assert.equal(cfg.publicApi?.enabled, true)
 })
 
-test('对外 API: 门面端口与后台端口相同 = fail-loud（否则门面永远起不来）', () => {
+test('outward API: a surface port identical to the admin port = fail-loud (otherwise the surface can never come up)', () => {
   const clash = serviceConfig({ public_api: { port: 8080 }, services: [{ id: 's', label: 'x', workers: ['worker-1'] }] })
   assert.throws(() => loadWithKeyEnv(clash), /same as listen\.port/)
 })
 
 
 /**
- * 服务级调度声明（口径 §8）：期望 agent 数 / 每 agent 并发 / 权限档位 / 会话回收时长 /
- * 放置策略的默认值与非法组合必须 fail-loud。
+ * The per-service scheduling declaration (section 8 of the position): the expected agent count / concurrency per agent / permission tier / chat reclaim duration /
+ * placement policy defaults, and the illegal combinations, must fail loud.
  */
-test('服务声明: 默认值（1 个 agent · 每 agent 4 并发 · spread · 每机 4 个 · 只读 · 24 小时回收）', () => {
-  const cfg = loadWithKeyEnv(serviceConfig({ services: [{ id: 'support', label: '客服', workers: ['worker-1'] }] }))
+test('service declaration: the defaults (1 agent - 4 concurrent per agent - spread - 4 per machine - read-only - reclaimed after 24 hours)', () => {
+  const cfg = loadWithKeyEnv(serviceConfig({ services: [{ id: 'support', label: 'Support', workers: ['worker-1'] }] }))
   const svc = cfg.services?.[0]
   assert.equal(svc?.count, 1)
   assert.equal(svc?.maxSessionsPerAgent, 4)
-  assert.equal(svc?.permission, 'read', '对外 agent 默认只读')
-  assert.equal(svc?.sessionIdleHours, 24, '会话空闲默认 24 小时回收')
+  assert.equal(svc?.permission, 'read', 'an outward agent is read-only by default')
+  assert.equal(svc?.sessionIdleHours, 24, 'an idle chat is reclaimed after 24 hours by default')
   assert.equal(svc?.placement, 'spread')
   assert.deepEqual(svc?.machines, [])
   assert.equal(svc?.maxAgentsPerMachine, 4)
 })
 
-test('服务声明: 期望 agent 数叫 count（旧名 agents 必须报错，不能被静默丢掉）', () => {
+test('service declaration: the expected agent count is called count (the old name agents must error, and cannot be dropped silently)', () => {
   const renamed = loadWithKeyEnv(
     serviceConfig({ services: [{ id: 's', label: 'x', workers: ['worker-1'], count: 1 }] }),
   )
   assert.equal(renamed.services?.[0]?.count, 1)
 
   const stale = serviceConfig({ services: [{ id: 's', label: 'x', workers: ['worker-1'], agents: 1 }] })
-  assert.throws(() => loadWithKeyEnv(stale), /agents/, '改名后残留的旧字段必须报错：静默丢掉 = 静默少配')
+  assert.throws(() => loadWithKeyEnv(stale), /agents/, 'a stale old field left by the rename must error: dropping it silently = silently under-provisioning')
 })
 
-test('服务声明: 权限档位默认只读、可选可写、禁止全放开', () => {
+test('service declaration: the permission tier is read-only by default, may be write, and forbids full', () => {
   const write = loadWithKeyEnv(
     serviceConfig({ services: [{ id: 's', label: 'x', workers: ['worker-1'], permission: 'write' }] }),
   )
   assert.equal(write.services?.[0]?.permission, 'write')
 
   const full = serviceConfig({ services: [{ id: 's', label: 'x', workers: ['worker-1'], permission: 'full' }] })
-  assert.throws(() => loadWithKeyEnv(full), /permission/, '对外流量 + 全放开 = 把整台机器交出去，schema 层就该拒绝')
+  assert.throws(() => loadWithKeyEnv(full), /permission/, 'outward traffic + full access = handing over the whole machine, which the schema layer should reject outright')
 })
 
-test('服务声明: 会话空闲回收时长可建服务时指定，0 与负数 fail-loud', () => {
+test('service declaration: the idle chat reclaim duration can be given when the service is created, and 0 or a negative fails loud', () => {
   const custom = loadWithKeyEnv(
     serviceConfig({ services: [{ id: 's', label: 'x', workers: ['worker-1'], session_idle_hours: 6 }] }),
   )
@@ -705,20 +705,20 @@ test('服务声明: 会话空闲回收时长可建服务时指定，0 与负数 
   }
 })
 
-test('服务声明: 放置水位门槛可服务级覆盖（其余沿用全局默认），未知键 fail-loud', () => {
+test('service declaration: the placement watermark thresholds can be overridden per service (the rest follow the global defaults), and an unknown key fails loud', () => {
   const def = loadWithKeyEnv(serviceConfig({ services: [{ id: 's', label: 'x', workers: ['worker-1'] }] }))
   assert.deepEqual(
     def.services?.[0]?.thresholds,
     { minFreeCpuPercent: 20, minFreeMemBytes: 1_500_000_000, minFreeDiskBytes: 5_000_000_000 },
-    '不写门槛 = 全局默认打底（放置器拿到的永远是完整三件套）',
+    'no thresholds written = the global defaults as a floor (the placer always gets the complete set of three)',
   )
 
-  // 真实场景：33.11 那台机器内存小但要用来跑对外 agent —— 只把内存门槛按实际调低，
-  // 不能为了它把全局门槛放宽（那会连累所有服务的放置判断）。
+  // A real scenario: that machine at 33.11 has little memory but is meant to run outward agents -- lower only the memory
+  // threshold to match it, and do not relax the global threshold for its sake (that would drag every service's placement decision with it).
   const tuned = loadWithKeyEnv(
     serviceConfig({
       services: [
-        { id: 'chat', label: '客服', workers: ['worker-1'], thresholds: { min_free_mem_bytes: 300_000_000 } },
+        { id: 'chat', label: 'Support', workers: ['worker-1'], thresholds: { min_free_mem_bytes: 300_000_000 } },
       ],
     }),
   )
@@ -731,10 +731,10 @@ test('服务声明: 放置水位门槛可服务级覆盖（其余沿用全局默
   const typo = serviceConfig({
     services: [{ id: 's', label: 'x', workers: ['worker-1'], thresholds: { min_free_memory_bytes: 1 } }],
   })
-  assert.throws(() => loadWithKeyEnv(typo), /thresholds/, '门槛键名写错必须报错，不能被静默忽略')
+  assert.throws(() => loadWithKeyEnv(typo), /thresholds/, 'a misspelled threshold key must error, and cannot be ignored silently')
 })
 
-test('服务声明: pin 必须给 machines；非 pin 给 machines = fail-loud（不静默忽略）', () => {
+test('service declaration: pin must be given machines; machines with a non-pin placement = fail-loud (not ignored silently)', () => {
   assert.throws(
     () => loadWithKeyEnv(serviceConfig({ services: [{ id: 's', label: 'x', workers: ['worker-1'], placement: 'pin' }] })),
     /needs machines/,
@@ -751,7 +751,7 @@ test('服务声明: pin 必须给 machines；非 pin 给 machines = fail-loud（
   assert.equal(ok.services?.[0]?.placement, 'pin')
 })
 
-test('服务声明: pin 装不下声明的 agent 数 = fail-loud', () => {
+test('service declaration: a pin that cannot fit the declared agent count = fail-loud', () => {
   assert.throws(
     () =>
       loadWithKeyEnv(
@@ -763,7 +763,7 @@ test('服务声明: pin 装不下声明的 agent 数 = fail-loud', () => {
   )
 })
 
-test('服务声明: count 与 workers 数不符 = fail-loud（自动新建尚未实现，别静默少配）', () => {
+test('service declaration: a count that does not match the number of workers = fail-loud (automatic provisioning is not implemented yet, so do not silently under-provision)', () => {
   assert.throws(
     () => loadWithKeyEnv(serviceConfig({ services: [{ id: 's', label: 'x', workers: ['worker-1'], count: 3 }] })),
     /Automatic agent provisioning is not implemented yet/,

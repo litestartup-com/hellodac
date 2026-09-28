@@ -1,28 +1,28 @@
 /**
- * 品牌单一真相源（DAC v1.0.0）。
+ * The single source of truth for branding (DAC v1.0.0).
  *
- * 产品名、仓库地址、站点、口号只在这里出现一次：页面渲染（pages.ts 的
- * {{BRAND}}/{{REPO_URL}} 等占位符）、侧栏入口、⋮ 菜单页脚全部从这里取。
- * 散写 URL 的代价是改域名时要满仓 grep，而且总有一处漏掉——正是 UI.md 里
- * 「单一真相源」那条的由来。
+ * The product name, repo URL, site and tagline appear exactly once, here: page rendering (the
+ * {{BRAND}}/{{REPO_URL}} placeholders in pages.ts), the sidebar entry and the ⋮ menu footer all read
+ * from it. Scattered URLs mean grepping the whole repo to change a domain and always missing one --
+ * which is where UI.md's 'single source of truth' line comes from.
  *
- * 注意：这里是**产品品牌**，不是代码标识符。把 `dac` 换成 `dac` 的机械
- * 更名（B2）走的是另一条路径（包名/路径/env/cookie），两者互不替代。
+ * Note: this is the **product brand**, not a code identifier. The mechanical rename of `dac` to
+ * `dac` (B2) takes another path (package name/paths/env/cookie); neither replaces the other.
  */
 export interface Brand {
-  /** 对外产品名（页面标题、侧栏、页脚）。 */
+  /** The outward product name (page title, sidebar, footer). */
   name: string
-  /** 展开全称（README、关于弹窗）。 */
+  /** The expanded full name (README, the about dialog). */
   fullName: string
-  /** 一句话定位。 */
+  /** The one-line positioning. */
   tagline: string
-  /** 公开仓库。 */
+  /** The public repository. */
   repoUrl: string
-  /** 站点。 */
+  /** The site. */
   homepage: string
-  /** 支持邮箱（关于弹窗里的联系方式）。 */
+  /** The support email (the contact in the about dialog). */
   supportEmail: string
-  /** 品牌标记（单字符，侧栏方块）。 */
+  /** The brand mark (a single character, the sidebar square). */
   mark: string
 }
 

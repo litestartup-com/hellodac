@@ -16,11 +16,11 @@ import { installNodeDepsAsync } from './provision.js'
 import { probeEndpoint } from './status.js'
 
 /**
- * 蜂群 P3：节点（fleet）视图数据源。
+ * Hive P3: the data source for the node (fleet) view.
  *
- * 一个节点 = 一个 endpoint 的实体。托管节点（spawn.managed）的真相是监督器
- * 状态机（cold/starting/live/restarting/offline）；未托管节点的真相是探活
- * 结果（live/offline）。侧栏节点区与未来的 /nodes 页共用这一份。
+ * One node = the entity of one endpoint. For a managed node (spawn.managed) the truth is the
+ * supervisor state machine (cold/starting/live/restarting/offline); for an unmanaged node it is
+ * the probe result (live/offline). The sidebar node section and the future /nodes page share it.
  */
 export const registerNodesRoutes = (
   app: FastifyInstance,
@@ -29,22 +29,22 @@ export const registerNodesRoutes = (
   clients: Map<string, GatewayClient>,
   upstreamClients: Map<string, SessionDriver>,
   requireUser: preHandlerHookHandler,
-  /** 蜂群2计划 P3：节点操作审计回调（wiring 层注入，测试可不传）。 */
+  /** Hive plan 2 P3: audit callback for node actions (injected by the wiring layer, optional in tests). */
   audit?: (actor: string, kind: AuditKind, detail: string) => void,
-  /** 能力二：对齐路由的依赖安装器（测试注入假实现；缺省 = 真实 npm install）。 */
+  /** Capability two: the dependency installer for the align route (a fake in tests; default = a real npm install). */
   installDeps: (dir: string, dshVersion?: string) => Promise<void> = (dir, version) => installNodeDepsAsync(dir, version),
 ): void => {
   /**
-   * 能力二：进程节点的配置钉版（显式值 > 矩阵默认）与 profile 目录。
-   * 容器节点返回 null（换版本 = 改镜像 tag，不在本路由范围）。
+   * Capability two: a process node's configured pin (explicit value beats the matrix default) and
+   * its profile directory. A container node returns null (a version change = a new image tag, out of scope here).
    */
   const pinnedOf = (ep: ResolvedEndpoint): { version: string; gatewayRef: string; profileDir: string | null } => {
     const version = ep.spawn?.dshVersion ?? COMPAT_DSH_VERSION
     const gatewayRef = ep.spawn?.gatewayRef ?? (resolvePair(version)?.gateway ?? GATEWAY_REF)
     const dshHome = ep.spawn?.env['DSH_HOME']
-    // profile 目录名 = spawn.args 里 --profile 指定的名字（端点 id 只是配置键，
-    // 线上实踩：端点 id 'personal' 而 profile 名 'dac-personal'，按 id 拼目录
-    // 会重播种进幽灵目录、真节点纹丝不动）；无 --profile 才回退端点 id。
+    // The profile directory name is the one --profile names in spawn.args (the endpoint id is only
+    // a config key; in production id 'personal' met profile 'dac-personal', so building the path from
+    // the id re-seeded a ghost directory and the real node never moved); no --profile = the endpoint id.
     const args = ep.spawn?.args ?? []
     const profileIdx = args.indexOf('--profile')
     const rawProfile = profileIdx >= 0 ? args[profileIdx + 1] : undefined
@@ -58,8 +58,8 @@ export const registerNodesRoutes = (
     return profileDir !== null && profileDrift(profileDir, version, gatewayRef)
   }
   app.get('/api/nodes', { preHandler: requireUser }, async () => {
-    // 能力三 v1：按节点从日志即时捕获 GUI token 并拼装打开 URL——每次请求
-    // 重新读日志,节点重启轮换 token 后自动跟随,无需任何缓存/失效机制。
+    // Capability three v1: capture the GUI token from the log per node and build the open URL --
+    // the log is read on every request, so a restart that rotates the token is followed for free.
     const isLoopbackBase = (urlStr: string): boolean => {
       try {
         const host = new URL(urlStr).hostname
@@ -74,24 +74,24 @@ export const registerNodesRoutes = (
         try {
           logs = readFileSync(ep.spawn.logFile, 'utf8')
         } catch {
-          // 日志文件读失败 = 视为尚未捕获
+          // A failed log read counts as not captured yet
         }
       } else if (supervisor !== undefined) {
         if (ep.spawn?.runner === 'docker') {
           const dockerLogs = await supervisor.dockerLogs()
           if (dockerLogs !== null) logs = dockerLogs
         } else if (ep.spawn?.runner === 'agent') {
-          // 能力四：agent 节点日志经事件通道回传（manager 侧环形缓冲）
+          // Capability four: an agent node's log comes back over the event channel (a ring buffer on the manager)
           logs = supervisor.agentLogs()
         } else {
           logs = supervisor.logs()
         }
       }
       const capture = captureGuiToken(logs)
-      // 已配置 access = 用户选了隧道形态（本机映射口打开）
+      // access configured = the user chose the tunnel form (open through the local mapped port)
       if (ep.access !== null) return guiOpenUrl(ep.access.localPort, capture)
-      // 体验优化：本机 loopback 节点无需隧道——浏览器即 loopback，直接用启动行
-      // 里的真实 GUI 端口直连（非 loopback 且无 access = 无打开能力）
+      // UX nicety: a loopback node needs no tunnel -- the browser is already on loopback, so the real
+      // GUI port from the start line works directly (non-loopback without access = no open ability)
       if (isLoopbackBase(ep.url)) return guiDirectUrl(capture)
       return null
     }
@@ -106,7 +106,7 @@ export const registerNodesRoutes = (
         const guiUrl = ep === undefined ? null : await guiUrlOf(ep, supervisor)
         if (supervisor !== undefined) {
           const s = supervisor.current
-          // 容器形态：镜像标签就是节点 DSH 版本的真相（镜像 tag 即 DSH 版本）。
+          // Container form: the image tag is the truth of the node's DSH version (tag = version).
           const image = await supervisor.containerImage()
           return {
             id,
@@ -118,13 +118,13 @@ export const registerNodesRoutes = (
             agents: agentIds,
             dshVersion: probe.dshVersion,
             dshCompatible: probe.dshCompatible,
-            // 能力二：配置钉版（null = 跟随全局默认）；漂移 = profile 种子与钉版不符
+            // Capability two: the configured pin (null = follow the global default); drift = the profile seed disagrees
             configuredDshVersion: ep?.spawn?.dshVersion ?? null,
             dshDrift: ep === undefined ? false : driftOf(ep),
-            // 能力四（M1-7）：该节点的执行 agent（null = 本机/容器）
+            // Capability four (M1-7): the agent running this node (null = this machine / a container)
             host: ep?.spawn?.host ?? null,
             ...(image === null ? {} : { image }),
-            // 能力三 v1：隧道元数据 + 拼好的打开 URL（未配置/未捕获 = null）
+            // Capability three v1: tunnel metadata plus the assembled open URL (unset/not captured = null)
             access: ep?.access ?? null,
             guiUrl,
           }
@@ -148,14 +148,14 @@ export const registerNodesRoutes = (
         }
       }),
     )
-    // 蜂群2计划 P6：向导需要知道部署形态（docker runner 节点默认工作区路径不同）
+    // Hive plan 2 P6: the wizard needs the deployment form (a docker runner node has a different default workspace path)
     const dockerMode = Object.values(config.endpoints).some((e) => e.spawn?.runner === 'docker')
-    // 能力二：向导版本下拉的数据源（矩阵是唯一真相源，前端不硬编码版本清单）
+    // Capability two: the data source for the wizard's version dropdown (the matrix is the only truth; no version list in the frontend)
     const supportedDsh = SUPPORTED_DSH.map((p) => ({ dsh: p.dsh, status: p.status }))
-    // 部署形态标记（镜像 ENV DAC_DEPLOY_FORM）：容器形态前端禁用「宿主机进程」
+    // Deployment form marker (image ENV DAC_DEPLOY_FORM): in container form the frontend disables 'host process'
     const containerForm = process.env.DAC_DEPLOY_FORM === 'container'
-    // UI 收尾 C-P1.5：本机信息（拓扑「本机卡」+ 机器列表「本机行」数据源；
-    // manager 宿主不经 node-agent，机器目录里没有它，这里显式给出）。
+    // UI wrap-up C-P1.5: local machine info (the data source of the topology's local card and the
+    // machine list's local row; the manager host has no node-agent, so the directory lacks it).
     const hostOs = process.platform
     const hostArch = process.arch
     const hostName = hostname()
@@ -164,8 +164,8 @@ export const registerNodesRoutes = (
   })
 
   /**
-   * 蜂群 P5.1：节点管控。只有托管节点（有 spawn 配置 + 监督器在册）能操作；
-   * 外部管理的节点友好拒绝——manager 的手伸不到的地方，按钮就不该出现。
+   * Hive P5.1: node control. Only managed nodes (spawn config plus a supervisor entry) can be
+   * acted on; an externally managed node is refused politely -- no button where the manager cannot reach.
    */
   type Managed =
     | { kind: 'ok'; supervisor: NodeSupervisor; spawn: NonNullable<AppConfig['endpoints'][string]['spawn']> }
@@ -229,13 +229,13 @@ export const registerNodesRoutes = (
       const limit = Math.min(Math.max(Number(request.query.limit ?? 200) || 200, 1), 2000)
       const tail = (text: string): string => text.split(/\r?\n/).slice(-limit).join('\n')
 
-      // 日志文件（detached + log_file 的节点）从文件读；否则读监督器内存缓冲。
+      // A log file (a detached node with log_file) is read from disk; otherwise the supervisor's memory buffer.
       if (ep.spawn?.logFile !== undefined && ep.spawn.logFile !== null) {
         try {
           return reply.send({ logs: tail(readFileSync(ep.spawn.logFile, 'utf8')), source: 'file' })
         } catch (error) {
-          // 债务 E11:读失败不再静默返回空串(用户会把「无日志」当成节点没跑,
-          // 而真相是权限/IO 错误)——记日志并把原因带回给前端展示。
+          // Debt E11: a failed read no longer returns an empty string silently (users read 'no log' as
+          // 'the node is not running' when the truth is a permission/IO error) -- log it and return the reason.
           const message = error instanceof Error ? error.message : String(error)
           app.log.warn(`node ${request.params.id}: reading log file failed: ${message}`)
           return reply.send({ logs: '', source: 'file', error: `could not read the log: ${message}` })
@@ -245,12 +245,12 @@ export const registerNodesRoutes = (
       if (supervisor === undefined) {
         return reply.code(409).send({ error: 'not_managed', detail: 'a node managed outside the manager has no log to read' })
       }
-      // 蜂群2计划 P2b：docker runner 的节点日志走 docker logs（缓冲里没有进程输出）
+      // Hive plan 2 P2b: a docker runner node's log comes from docker logs (the buffer has no process output)
       if (ep.spawn?.runner === 'docker') {
         const dockerLogs = await supervisor.dockerLogs()
         if (dockerLogs !== null) return reply.send({ logs: tail(dockerLogs), source: 'docker' })
       }
-      // 能力四：agent runner 的日志走事件通道回传缓冲
+      // Capability four: an agent runner's log comes back through the event channel's buffer
       if (ep.spawn?.runner === 'agent') {
         return reply.send({ logs: tail(supervisor.agentLogs()), source: 'agent' })
       }
@@ -259,10 +259,10 @@ export const registerNodesRoutes = (
   )
 
   /**
-   * 能力三 v1：节点原生 GUI 的 SSH 隧道元数据（真相源 = endpoints.<id>.access）。
-   * clear=true 移除该段；否则 ssh_user/ssh_host/local_port 必填，ssh_port/gui_port
-   * 缺省 22/3080。写真相源（锁 + 原子写）后热加载进内存配置。
-   * 红线：ssh 私钥不进本接口——manager 只记「怎么连」，不记「凭什么连」。
+   * Capability three v1: SSH tunnel metadata for a node's native GUI (truth = endpoints.<id>.access).
+   * clear=true removes the section; otherwise ssh_user/ssh_host/local_port are required and
+   * ssh_port/gui_port default to 22/3080. It writes the source of truth (lock + atomic write) and
+   * hot-reloads the in-memory config. Red line: the ssh private key never comes through this API.
    */
   const accessBody = z.object({
     clear: z.boolean().optional(),
@@ -271,7 +271,7 @@ export const registerNodesRoutes = (
     ssh_port: z.number().int().positive().optional(),
     gui_port: z.number().int().positive().optional(),
     local_port: z.number().int().positive().optional(),
-    /** 体验优化：用户本机私钥路径（非密钥内容），命令带 -i；缺省用 ssh 默认密钥。 */
+    /** UX nicety: private key path on the user's machine (not the key); the command carries -i; default = ssh's own key. */
     ssh_key: z.string().min(1).optional(),
   })
 
@@ -327,9 +327,9 @@ export const registerNodesRoutes = (
   )
 
   /**
-   * P1（hive/plan-config-version-switch）：进程节点「改钉版 → 重播种 → 后台重装
-   * → 隔离 bin 重启」的共享实现——align-version（对齐到配置钉版）与 version
-   * （显式切换）共用，不复制逻辑。ep.spawn.dshVersion 由调用方先改好。
+   * P1 (hive/plan-config-version-switch): the shared implementation of a process node's 'change the
+   * pin -> re-seed -> reinstall in the background -> restart on the isolated bin' -- used by both
+   * align-version (align to the configured pin) and version (explicit switch). The caller sets ep.spawn.dshVersion.
    */
   const alignProcessNode = (
     id: string,
@@ -353,7 +353,7 @@ export const registerNodesRoutes = (
       return reply.code(500).send({ error: 'reseed_failed', detail: message })
     }
 
-    // 后台重装依赖 → 完成/失败都重启（缺依赖崩溃 → offline 显性，同 provision 口径）
+    // Reinstall dependencies in the background -> restart either way (a missing dependency crashes to a visible offline, as in provision)
     void installDeps(profileDir, opts.version)
       .then(() => {
         const isolatedBin = dshBinInProfile(profileDir)
@@ -373,9 +373,9 @@ export const registerNodesRoutes = (
   }
 
   /**
-   * 能力二：版本对齐——把进程节点的 profile 重播种到配置钉版（重写依赖清单 +
-   * .seed-version）→ 后台重装依赖 → 用 profile 内隔离 bin 重启节点（幂等）。
-   * 容器节点 409（换版本 = 改镜像 tag，用 /version 路由）。审计 node_align_version。
+   * Capability two: version alignment -- re-seed a process node's profile to the configured pin
+   * (rewrite the dependency list + .seed-version) -> reinstall in the background -> restart on the
+   * profile's isolated bin (idempotent). Container node = 409, use /version. Audits node_align_version.
    */
   app.post<{ Params: { id: string } }>(
     '/api/nodes/:id/align-version',
@@ -400,10 +400,10 @@ export const registerNodesRoutes = (
   )
 
   /**
-   * P1（hive/plan-config-version-switch）：节点切换 DSH 版本——升级零 sed。
-   * 双分支：容器 = 改 spawn.docker.image tag + 立即重建（镜像 ID 比对触发）；
-   * 进程 = 改钉版后委托对齐链（重播种→重装→重启）。矩阵校验 + 审计
-   * node_version_change + 显式切版才写真相源（口径同 provision）。
+   * P1 (hive/plan-config-version-switch): switch a node's DSH version -- upgrades with no sed.
+   * Two branches: a container rewrites the spawn.docker.image tag and rebuilds at once (triggered by
+   * the image id); a process changes the pin and delegates to the align chain (re-seed -> reinstall ->
+   * restart). Matrix check, node_version_change audit, and the truth written only on an explicit switch.
    */
   const versionBody = z.object({ dsh_version: z.string().min(1) })
   app.post<{ Params: { id: string }; Body: unknown }>(
@@ -427,7 +427,7 @@ export const registerNodesRoutes = (
 
       const configPath = config.configPath ?? resolve('manager.config.yaml')
       const actor = request.currentUser?.username ?? 'unknown'
-      // 真相源落盘：显式切版才写 dsh_version 钉版（默认跟随矩阵的节点不落盘）
+      // Source of truth on disk: only an explicit switch writes the dsh_version pin (a node following the matrix writes nothing)
       try {
         await withConfigLock(() => mutateYamlFile(configPath, (doc) => doc.setIn(['endpoints', id, 'spawn', 'dsh_version'], target)))
       } catch (error) {
@@ -449,7 +449,7 @@ export const registerNodesRoutes = (
         const next = { ...spawn, dshVersion: target, docker: { ...dockerSpec, image } }
         ep.spawn = next
         audit?.(actor, 'node_version_change', `node ${id} switched DSH → ${target} (container image ${oldImage} → ${image})`)
-        // 立即重建：停旧容器 → ensureImage → 起新镜像（不等对账周期）
+        // Rebuild at once: stop the old container -> ensureImage -> start the new image (no waiting for reconcile)
         supervisor.restart(next)
         return reply.code(202).send({ ok: true, switching: true, version: target, image })
       }

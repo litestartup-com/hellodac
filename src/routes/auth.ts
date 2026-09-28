@@ -10,13 +10,13 @@ import { COOKIE_NAME, issueSession, resolveSession, revokeAllForUser, revokeSess
 import { recordAudit } from '../audit.js'
 import { withConfigLock } from '../config-store.js'
 
-/** 蜂群2计划 P3：CSRF 双提交 cookie（非 httpOnly，前端读出来放进 X-CSRF-Token）。 */
+/** Hive plan 2 P3: the CSRF double-submit cookie (not httpOnly; the frontend reads it into X-CSRF-Token). */
 export const CSRF_COOKIE = 'dac_csrf'
 
 /**
- * CSRF 门（P6 自愈版）：非 GET 请求必须带与 cookie 一致的 X-CSRF-Token。
- * 升级场景自愈：带着有效会话但缺 csrf cookie 的老会话（升级前的登录），
- * 由服务端补发 cookie —— 前端收到该 403 后带新 cookie 自动重试一次，用户无感。
+ * CSRF gate (P6 self-healing): a non-GET request must carry an X-CSRF-Token matching the cookie.
+ * Upgrade healing: for an old session holding a valid session cookie but no csrf cookie (logged in
+ * before the upgrade) the server reissues the cookie -- the frontend retries once with it, unseen.
  */
 export const makeCsrfHook = (secure: boolean): preHandlerHookHandler => async (request, reply) => {
   const method = request.method ?? 'GET'
@@ -37,14 +37,14 @@ export const makeCsrfHook = (secure: boolean): preHandlerHookHandler => async (r
 }
 
 /**
- * P1-5：改密成功后抹掉 `.env` 里的初始口令。
+ * P1-5: wipe the initial password from `.env` once the password change succeeds.
  *
- * 它只在"库里没有用户"时有意义，改密之后就纯粹是一份留在磁盘上的明文口令，
- * 而这个文件在容器形态里是 rw 挂载的。键保留、值清空（保持 .env 的形状可读），
- * 其余行连注释一起原样保留。
+ * It only matters while the DB has no user; after a password change it is a plaintext password left
+ * on disk, and in container form that file is mounted rw. The key stays with an empty value (so the
+ * shape of .env stays readable) and every other line, comments included, is kept as is.
  *
- * 写法与 workspace/writer 一致：`.tmp` + rename（原子），失败只警告不影响改密
- * —— 只读挂载或权限不足时，改密本身仍必须成功。
+ * Same approach as workspace/writer: `.tmp` + rename (atomic); a failure only warns and never
+ * affects the password change -- on a read-only mount or without permission the change itself must still succeed.
  */
 export const clearInitialPassword = (envPath: string): boolean => {
   const text = readFileSync(envPath, 'utf8')
@@ -60,23 +60,23 @@ export const clearInitialPassword = (envPath: string): boolean => {
   const body = next.join(text.includes('\r\n') ? '\r\n' : '\n')
   const tmp = `${envPath}.tmp`
   writeFileSync(tmp, body, 'utf8')
-  // 0600：与 gen-env.sh 在 POSIX 上的收紧一致（Windows 上是空操作）
+  // 0600: same tightening as gen-env.sh on POSIX (a no-op on Windows)
   try {
     chmodSync(tmp, 0o600)
   } catch {
-    // 权限模型不支持（Windows）——不是失败
+    // The permission model does not support it (Windows) -- not a failure
   }
   try {
     renameSync(tmp, envPath)
   } catch {
-    // 容器形态下 `.env` 是**文件级 bind mount**（compose: ./.env:/app/.env），
-    // 挂载点不能被 rename 顶替（EBUSY/EXDEV）——回落为原地写。
-    // 原子性在这一步让位于"能用"：这是清理动作，且内容只是抹掉一个值。
+    // In container form `.env` is a **file-level bind mount** (compose: ./.env:/app/.env) and the
+    // mount point cannot be replaced by a rename (EBUSY/EXDEV), so fall back to writing in place.
+    // Atomicity yields to 'it works' here: this is cleanup, and all it does is blank one value.
     writeFileSync(envPath, body, 'utf8')
     try {
       unlinkSync(tmp)
     } catch {
-      // 残留的 .tmp 不影响正确性
+      // A leftover .tmp does not affect correctness
     }
   }
   return true
@@ -96,7 +96,7 @@ export const registerAuthRoutes = (
   app: FastifyInstance,
   db: Db,
   secure: boolean,
-  /** P1-5：改密后要抹初始口令的 `.env` 路径；省略则跳过这一步（测试与旧调用）。 */
+  /** P1-5: the `.env` path whose initial password gets wiped after a change; omit to skip (tests, older callers). */
   envPath?: string,
 ): void => {
   app.post(
@@ -118,7 +118,7 @@ export const registerAuthRoutes = (
       // exists, so the response cannot be used to enumerate accounts.
       const ok = found === undefined ? false : await verifyPassword(found.passwordHash, password)
       if (!ok || found === undefined) {
-        // 蜂群2计划 P3：审计留痕（失败也留，actor = 尝试的用户名）
+        // Hive plan 2 P3: audit trail (also on failure; actor = the username attempted)
         recordAudit(db, { actor: username, kind: 'login_failed', detail: 'sign-in failed' })
         return reply.code(401).send({ error: 'invalid_credentials' })
       }
@@ -154,11 +154,11 @@ export const registerAuthRoutes = (
   })
 
   /**
-   * 蜂群2计划 P3：修改密码 —— 首登强制改密的唯一出口。
-   * 强度规则（D2）：新密码 ≥ 10 字符；改成功即清除强制标记。
+   * Hive plan 2 P3: change the password -- the only way out of the forced first-login change.
+   * Strength rule (D2): the new password is >= 10 characters; a success clears the forced flag.
    */
   app.post('/api/account/password', {
-    // 债务 S3:改密是「有会话者暴力猜当前口令」的向量,与登录同档限流。
+    // Debt S3: a password change is a vector for brute-forcing the current password with a session, so it is rate-limited like login.
     config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
   }, async (request, reply) => {
     const user = resolveSession(db, request.cookies[COOKIE_NAME])
@@ -182,9 +182,9 @@ export const registerAuthRoutes = (
       .where(eq(schema.user.id, user.id))
       .run()
 
-    // P1-5：口令换了，旧会话就必须失效 —— 否则"改密"踢不掉已经拿着 cookie 的
-    // 攻击者，改密只是让他多知道一个密码。当前设备紧接着换发一枚新会话，
-    // 所以操作者自己不会被踢下线（体验不变，安全性提高）。
+    // P1-5: a new password must invalidate the old sessions -- otherwise the change cannot kick out
+    // an attacker already holding a cookie and only tells them one more password. This device gets a
+    // fresh session right after, so the operator is not logged out (same experience, better security).
     revokeAllForUser(db, user.id)
     const { token, expiresAt } = issueSession(db, user.id)
     const csrf = randomBytes(24).toString('base64url')
@@ -200,9 +200,9 @@ export const registerAuthRoutes = (
     recordAudit(db, { actor: user.username, kind: 'password_change', detail: 'succeeded (other sessions were revoked)' })
 
     if (envPath !== undefined) {
-      // 抹初始口令是"顺手清理"，不是改密的前提：只读挂载/权限不足时只警告。
+      // Wiping the initial password is housekeeping, not a precondition of the change: a read-only mount or missing permission only warns.
       try {
-        // 债务 R6:.env 写入统一走锁入口(与 provision/setup 的配置写串行)
+        // Debt R6: .env writes all go through the locked entry (serialised with provision/setup config writes)
         await withConfigLock(() => clearInitialPassword(envPath))
         app.log.info('cleared MANAGER_INITIAL_PASSWORD from .env')
       } catch (error) {

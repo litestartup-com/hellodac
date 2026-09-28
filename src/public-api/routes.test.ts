@@ -7,16 +7,16 @@ import type { AppConfig } from '../config.js'
 import { buildPublicApiApp } from './listener.js'
 
 /**
- * `/v1` 面的安全契约（设计稿 manager/topics/public-api.md §3/§5/§11）：
- * 只认钥匙、不认会话 cookie；越权不说资源存在与否；对外只暴露必要字段。
+ * The security contract of the `/v1` surface (design manager/topics/public-api.md §3/§5/§11): keys
+ * only, never session cookies; an unauthorised call reveals nothing about existence; minimal fields.
  */
 const config = (over: Partial<AppConfig> = {}): AppConfig => ({
   listen: { host: '127.0.0.1', port: 8080 },
   endpoints: {},
   agents: {},
   services: [
-    { id: 'support', label: '企业智能客服', workers: ['worker-1'], surfaces: ['tasks', 'conversations'], knowledge: [] },
-    { id: 'report', label: '报表服务', workers: ['worker-2'], surfaces: ['tasks'], knowledge: [] },
+    { id: 'support', label: 'Enterprise support', workers: ['worker-1'], surfaces: ['tasks', 'conversations'], knowledge: [] },
+    { id: 'report', label: 'Reporting service', workers: ['worker-2'], surfaces: ['tasks'], knowledge: [] },
   ],
   runner: { timeoutMs: 1000, silenceMs: 0, maxConsecutiveFailures: 3, dailyBudgetMicroUsd: null },
   databasePath: ':memory:',
@@ -32,13 +32,13 @@ const setup = (
   scopeServices: string[] = ['*'],
 ): { db: Db; app: FastifyInstance; key: ApiKey; token: string } => {
   const { db } = openDb(':memory:')
-  const { token, key } = mintApiKey(db, { name: '测试钥匙', scopes, scopeServices, createdBy: 'admin' })
+  const { token, key } = mintApiKey(db, { name: 'Test key', scopes, scopeServices, createdBy: 'admin' })
   return { db, app: buildPublicApiApp({ config: config(), db }), key, token }
 }
 
 const auth = (token: string): Record<string, string> => ({ authorization: `Bearer ${token}` })
 
-test('/v1: 无钥匙 / 格式错 / 会话 cookie 一律 401（门面不认后台的身份）', async () => {
+test('/v1: no key / a malformed one / a session cookie all get 401 (the facade does not accept the backend identity)', async () => {
   const { app } = setup()
   const none = await app.inject({ method: 'GET', url: '/v1/services' })
   assert.equal(none.statusCode, 401)
@@ -47,37 +47,37 @@ test('/v1: 无钥匙 / 格式错 / 会话 cookie 一律 401（门面不认后台
   const malformed = await app.inject({ method: 'GET', url: '/v1/services', headers: auth('not-a-key') })
   assert.equal(malformed.statusCode, 401)
 
-  // 关键回归：后台会话 cookie 在门面必须无效（两扇门不互认）
+  // Key regression: a backend session cookie must be useless at the facade (the two doors do not recognise each other)
   const cookie = await app.inject({ method: 'GET', url: '/v1/services', headers: { cookie: 'mgr_sid=' + 'z'.repeat(43) } })
-  assert.equal(cookie.statusCode, 401, 'cookie 不是门面的身份')
+  assert.equal(cookie.statusCode, 401, 'a cookie is not an identity at the facade')
 })
 
-test('/v1: 越权（缺 scope）403，且不透露资源是否存在', async () => {
+test('/v1: an unauthorised call (missing scope) gets 403 and reveals nothing about existence', async () => {
   const { app, token } = setup(['services:read'])
   const res = await app.inject({ method: 'GET', url: '/v1/usage', headers: auth(token) })
   assert.equal(res.statusCode, 403)
   assert.equal(res.json().error, 'insufficient_scope')
 })
 
-test('/v1/services: 只回本钥匙允许的服务，且不泄漏成员（agent）信息', async () => {
+test('/v1/services: returns only the services this key may use and leaks no member (agent) info', async () => {
   const { app, token } = setup(['services:read'], ['support'])
   const res = await app.inject({ method: 'GET', url: '/v1/services', headers: auth(token) })
   assert.equal(res.statusCode, 200)
   const body: { services: Array<Record<string, unknown>> } = res.json()
-  assert.equal(body.services.length, 1, '只看到 support')
+  assert.equal(body.services.length, 1, 'support is the only one visible')
   assert.equal(body.services[0]?.id, 'support')
   assert.deepEqual(body.services[0]?.surfaces, ['tasks', 'conversations'])
-  assert.ok(!('workers' in (body.services[0] ?? {})), '成员 id 属运营信息，不对外')
-  assert.ok(!('knowledge' in (body.services[0] ?? {})), '手册挂载路径同样不对外')
+  assert.ok(!('workers' in (body.services[0] ?? {})), 'member ids are operations info, not outward')
+  assert.ok(!('knowledge' in (body.services[0] ?? {})), 'the manual mount path is not outward either')
 })
 
-test('/v1/services: 通配钥匙看到全部服务', async () => {
+test('/v1/services: a wildcard key sees every service', async () => {
   const { app, token } = setup(['services:read'], ['*'])
   const body: { services: Array<{ id: string }> } = (await app.inject({ method: 'GET', url: '/v1/services', headers: auth(token) })).json()
   assert.deepEqual(body.services.map((s) => s.id), ['support', 'report'])
 })
 
-test('/v1/usage: 只回自己的账（含今日配额与在跑数）', async () => {
+test('/v1/usage: returns only its own account (today\'s quota and the running count)', async () => {
   const { app, token, key } = setup(['usage:read'])
   const res = await app.inject({ method: 'GET', url: '/v1/usage', headers: auth(token) })
   assert.equal(res.statusCode, 200)
@@ -86,14 +86,14 @@ test('/v1/usage: 只回自己的账（含今日配额与在跑数）', async () 
   assert.deepEqual(body.key.scopes, ['usage:read'])
   assert.equal(body.today.used, 0)
   assert.equal(body.today.active, 0)
-  assert.equal(body.today.remaining, null, '默认不限次数')
+  assert.equal(body.today.remaining, null, 'unlimited by default')
 })
 
-test('/v1: 吊销后立即 401，且 detail 说明原因；X-API-Key 头同样可用', async () => {
+test('/v1: revoked keys get 401 at once with detail explaining why; the X-API-Key header works too', async () => {
   const { app, db, token, key } = setup()
 
   const viaHeader = await app.inject({ method: 'GET', url: '/v1/services', headers: { 'x-api-key': token } })
-  assert.equal(viaHeader.statusCode, 200, 'X-API-Key 与 Bearer 等价（反代转发常用）')
+  assert.equal(viaHeader.statusCode, 200, 'X-API-Key equals Bearer (common behind a reverse proxy)')
 
   revokeApiKey(db, key.id)
   const revoked = await app.inject({ method: 'GET', url: '/v1/services', headers: auth(token) })
@@ -101,20 +101,20 @@ test('/v1: 吊销后立即 401，且 detail 说明原因；X-API-Key 头同样�
   assert.match(String(revoked.json().detail), /revoked/)
 })
 
-test('/v1/health: 不鉴权即可探活（运维确认门面在不在）', async () => {
+test('/v1/health: probes without auth (ops checking whether the facade is up)', async () => {
   const { app } = setup()
   const res = await app.inject({ method: 'GET', url: '/v1/health' })
   assert.equal(res.statusCode, 200)
   assert.equal(res.json().ok, true)
 })
 
-test('审计: 通过鉴权的调用必留痕（actor=api_key:<id>）；malformed 不留痕（防灌表）', async () => {
+test('Audit: an authenticated call always leaves a row (actor=api_key:<id>); malformed leaves none (no table flooding)', async () => {
   const { app, db, token, key } = setup()
   await app.inject({ method: 'GET', url: '/v1/services', headers: auth(token) })
   await app.inject({ method: 'GET', url: '/v1/services', headers: auth('garbage') })
 
   const rows = db.select().from(schema.auditLog).all()
-  assert.equal(rows.length, 1, '只有可识别身份的调用才留痕')
+  assert.equal(rows.length, 1, 'only a call with an identifiable actor leaves a row')
   assert.equal(rows[0]?.actor, `api_key:${key.id}`)
   assert.match(rows[0]?.detail ?? '', /GET \/v1\/services → 200/)
 })

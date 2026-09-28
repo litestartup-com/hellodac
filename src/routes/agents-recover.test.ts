@@ -6,11 +6,11 @@ import { openDb, schema, type Db } from '../db/index.js'
 import { registerAgentsRoutes, AGENT_OFFLINE_MS } from './agents.js'
 
 /**
- * 事故回归（2026-09-25 ubuntu-focal 失联）：agent 重新上线后，manager 侧
- * 必须立即触发舰队对账自愈，而不是干等下一次周期对账（默认 10 分钟）。
+ * Incident regression (2026-09-25, ubuntu-focal went missing): once an agent comes back online, the
+ * manager side must trigger Fleet reconciliation self-healing at once instead of waiting for the next periodic pass (10 minutes by default).
  *
- * 现场：主机重启 → node-agent 没随开机起来（user unit 缺 linger）→ 节点全灭；
- * agent 后来恢复心跳，但看门狗只发通知、不做自愈，节点要等周期对账才回来。
+ * The scene: the host restarted -> node-agent did not come up with the boot (the user unit lacked linger) -> every
+ * node was gone; the agent later resumed its heartbeat, but the watchdog only sent a notice and did no self-healing, so the nodes waited for the periodic pass.
  */
 
 const buildApp = (
@@ -35,7 +35,7 @@ const register = async (app: Fastify.FastifyInstance, hostname = 'srv-a'): Promi
 
 const bearer = (token: string): Record<string, string> => ({ authorization: `Bearer ${token}` })
 
-/** 把 lastSeenAt 拨到离线窗口之外，模拟「agent 死了一段时间」。 */
+/** Push lastSeenAt outside the offline window to simulate "the agent has been dead for a while". */
 const goOffline = (db: Db, agentId: string): void => {
   db.update(schema.agentMachine)
     .set({ lastSeenAt: Date.now() - AGENT_OFFLINE_MS - 1_000 })
@@ -51,27 +51,27 @@ const sendEvents = (app: Fastify.FastifyInstance, agentId: string, token: string
     payload: { events },
   })
 
-test('事故回归: agent 从离线恢复 → 触发（且只触发一次）舰队自愈回调', async () => {
+test('Incident regression: an agent recovering from offline triggers the Fleet self-heal callback (once, and only once)', async () => {
   const { db } = openDb(':memory:')
   const recovered: string[] = []
   const app = buildApp(db, (agentId) => recovered.push(agentId))
   const { agentId, agentToken } = await register(app)
 
-  // 刚注册 = 在线：心跳不该当作「恢复」（避免正常心跳每 25s 触发一次对账）
+  // Just registered = online: a heartbeat must not count as a "recovery" (or a normal heartbeat would trigger reconciliation every 25s)
   await sendEvents(app, agentId, agentToken, [{ type: 'heartbeat', detail: {} }])
-  assert.deepEqual(recovered, [], '在线期间的心跳不触发自愈')
+  assert.deepEqual(recovered, [], 'a heartbeat while online does not trigger self-healing')
 
-  // 掉线后第一个心跳 = 边沿：必须触发
+  // The first heartbeat after going offline = the edge: it must trigger
   goOffline(db, agentId)
   await sendEvents(app, agentId, agentToken, [{ type: 'heartbeat', detail: {} }])
-  assert.deepEqual(recovered, [agentId], '离线→在线 必须触发一次自愈')
+  assert.deepEqual(recovered, [agentId], 'offline -> online must trigger self-healing once')
 
-  // 后续心跳已回到在线窗口内：不再重复触发（对账不是每 25s 一次的负担）
+  // Later heartbeats are back inside the online window: no repeat trigger (reconciliation is not a burden to repeat every 25s)
   await sendEvents(app, agentId, agentToken, [{ type: 'heartbeat', detail: {} }])
-  assert.deepEqual(recovered, [agentId], '恢复后的心跳不再重复触发')
+  assert.deepEqual(recovered, [agentId], 'a heartbeat after recovery does not trigger again')
 })
 
-test('事故回归: 恢复判定按机器隔离——别的 agent 恢复不影响本机', async () => {
+test('Incident regression: the recovery decision is per machine -- another agent recovering does not affect this one', async () => {
   const { db } = openDb(':memory:')
   const recovered: string[] = []
   const app = buildApp(db, (agentId) => recovered.push(agentId))
@@ -80,13 +80,13 @@ test('事故回归: 恢复判定按机器隔离——别的 agent 恢复不影�
 
   goOffline(db, a.agentId)
   await sendEvents(app, b.agentId, b.agentToken, [{ type: 'heartbeat', detail: {} }])
-  assert.deepEqual(recovered, [], 'b 一直在线，它的心跳不触发自愈')
+  assert.deepEqual(recovered, [], 'b was online all along, so its heartbeat triggers no self-healing')
 
   await sendEvents(app, a.agentId, a.agentToken, [{ type: 'heartbeat', detail: {} }])
-  assert.deepEqual(recovered, [a.agentId], '只有真正恢复的那台触发')
+  assert.deepEqual(recovered, [a.agentId], 'only the machine that really recovered triggers')
 })
 
-test('事故回归: commands 长轮询入口同样识别恢复（心跳随轮询携带）', async () => {
+test('Incident regression: the commands long-poll entry point recognises a recovery too (the heartbeat rides along with the poll)', async () => {
   const { db } = openDb(':memory:')
   const recovered: string[] = []
   const app = buildApp(db, (agentId) => recovered.push(agentId))
@@ -95,28 +95,28 @@ test('事故回归: commands 长轮询入口同样识别恢复（心跳随轮询
   goOffline(db, agentId)
   const res = await app.inject({ method: 'GET', url: `/api/internal/agents/${agentId}/commands?wait=100`, headers: bearer(agentToken) })
   assert.equal(res.statusCode, 200)
-  assert.deepEqual(recovered, [agentId], '长轮询抵达即在线证据')
+  assert.deepEqual(recovered, [agentId], 'a long poll arriving is itself evidence of being online')
 })
 
-test('事故回归: 指令结果回传也算一次在线证据——离线 agent 回传即触发自愈', async () => {
+test('Incident regression: a command result counts as online evidence too -- an offline agent reporting back triggers self-healing', async () => {
   const { db } = openDb(':memory:')
   const recovered: string[] = []
   const app = buildApp(db, (agentId) => recovered.push(agentId))
   const { agentId, agentToken } = await register(app)
 
   goOffline(db, agentId)
-  // 重启后 agent 领到在途指令并回报结果——这也是「它回来了」的证据
+  // After a restart the agent picks up an in-flight command and reports the result back -- that too is evidence that "it is back"
   const res = await sendEvents(app, agentId, agentToken, [{ type: 'command_result', commandId: 999, ok: false, result: {} }])
   assert.equal((res as { statusCode: number }).statusCode, 200)
-  assert.deepEqual(recovered, [agentId], '任意鉴权回报都应识别为恢复')
+  assert.deepEqual(recovered, [agentId], 'any authenticated report should be recognised as a recovery')
 })
 
-test('事故回归: 未接线的 manager（不传回调）不炸', async () => {
+test('Incident regression: a manager without the wiring (no callback passed) does not blow up', async () => {
   const { db } = openDb(':memory:')
   const app = buildApp(db)
   const { agentId, agentToken } = await register(app)
 
   goOffline(db, agentId)
   const res = await sendEvents(app, agentId, agentToken, [{ type: 'heartbeat', detail: {} }])
-  assert.equal((res as { statusCode: number }).statusCode, 200, '回调缺省 = 静默，不影响心跳通路')
+  assert.equal((res as { statusCode: number }).statusCode, 200, 'a missing callback = silence, the heartbeat path is unaffected')
 })

@@ -108,8 +108,8 @@ export interface RunLabel {
 }
 
 /**
- * 蜂群 P5.4：工作区当前 HEAD，用于并发冲突检测——run 结束时若 HEAD 已经
- * 不在它开始时的位置，说明期间有另一个回合提交过。非 git 仓返回 null。
+ * Hive P5.4: the workspace's current HEAD, used for concurrent-conflict detection -- if HEAD has moved from
+ * where it was when the run started, another turn committed meanwhile. Returns null for a non-git repository.
  */
 export const currentHead = async (workspacePath: string): Promise<string | null> => {
   try {

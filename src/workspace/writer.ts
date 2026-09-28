@@ -93,10 +93,10 @@ export interface ApplyOptions {
   /** Skip the commit; used by tests and dry runs. */
   commit?: boolean
   /**
-   * 债务 R7:落盘后二次校验的治理规则(per-agent,来自 manager.config.yaml)。
-   * 缺省 = DEFAULT_RULES(只做通用凭证检查)。writeNoteData 会把写前校验用的
-   * 同一份规则透传到这里——回读校验与写前校验必须同一标准,否则落盘内容
-   * 偏离(并发/序列化差异)时按默认规则放行。
+   * Debt R7: the governance rules for the second check after the write (per-agent, from manager.config.yaml).
+   * The default is DEFAULT_RULES (only the generic credential check). writeNoteData passes the very same rules
+   * it validated with down to here -- the read-back check and the pre-write check must use one standard, or a
+   * write that drifted (concurrency/serialisation differences) would be let through under the default rules.
    */
   rules?: ValidateRules
 }
@@ -212,8 +212,8 @@ export const applyWrites = async (
         corrupt.map((p) => `${p.file}: ${p.reason}`),
       )
     }
-    // 债务 R7:回读校验与写前校验同一套规则(writeNoteData 透传),不得退化
-    // 为 DEFAULT_RULES——否则带治理规则的 agent 在落盘偏离时会被放行。
+    // Debt R7: the read-back check uses the same rules as the pre-write check (passed down by writeNoteData) and
+    // must not fall back to DEFAULT_RULES -- otherwise an agent with governance rules would be let through when its write drifts.
     const violations = validateNoteData(data, options.rules === undefined ? {} : { rules: options.rules })
     if (violations.length > 0) {
       rollback()
@@ -257,7 +257,7 @@ export const writeNoteData = async (
   workspacePath: string,
   patch: NoteDataPatch,
   options: ApplyOptions,
-  /** 债务 E12:写前校验的治理规则;缺省 = 只做通用凭证检查。 */
+  /** Debt E12: the governance rules for the pre-write check; the default does only the generic credential check. */
   rules: ValidateRules = DEFAULT_RULES,
 ): Promise<ApplyResult> => {
   const keys = Object.keys(patch)
@@ -323,7 +323,7 @@ export const writeNoteData = async (
 
   if (writes.length === 0) return { files: [], commit: null }
 
-  // 债务 R7:把写前校验的同一份规则透传进 applyWrites(回读校验同标准)。
+  // Debt R7: pass the very same pre-write rules into applyWrites (the read-back check uses one standard).
   return applyWrites(workspacePath, writes, { ...options, rules })
 }
 

@@ -21,8 +21,8 @@ test('every shipped template produces a board manager can render', () => {
   // validation, the product's opening impression is a page full of red
   // placeholder cards -- so check them all, not just personal.
   for (const preset of listPresets()) {
-    // 蜂群 P2：brain 是主脑的 scratchpad 模板（manager 级对象），不是业务工作区——
-    // 没有 board，也不渲染大盘；业务大盘断言只适用于 worker 模板。
+    // Hive P2: brain is the brain's scratchpad template (a manager-level object), not a business
+    // workspace -- no board and no dashboard rendered; business dashboard assertions apply to worker templates only.
     if (preset === 'brain') continue
     const root = fresh()
     initWorkspace({ workspacePath: root, preset, useGit: false })
@@ -40,8 +40,8 @@ test('every shipped template produces a board manager can render', () => {
 
 test('every template explains itself to the agent', () => {
   for (const preset of listPresets()) {
-    // 蜂群 P2：brain 的 AGENTS.md 是红线清单与派工判据，不写业务 block 目录
-    // （它没有 board）；该断言只适用于 worker 模板。
+    // Hive P2: brain's AGENTS.md is a list of red lines and dispatch criteria, with no business block
+    // directory (it has no board); that assertion applies to the worker template only.
     if (preset === 'brain') continue
     const root = fresh()
     initWorkspace({ workspacePath: root, preset, useGit: false })
@@ -59,13 +59,13 @@ test('never overwrites a file that already exists', () => {
   // be the worst thing this command could do.
   const root = fresh()
   mkdirSync(join(root, 'board'), { recursive: true })
-  writeFileSync(join(root, 'AGENTS.md'), '我自己写的规则\n', 'utf8')
-  writeFileSync(join(root, 'board', 'meta.json'), '{"title":"我的标题"}', 'utf8')
+  writeFileSync(join(root, 'AGENTS.md'), 'Rules I wrote myself\n', 'utf8')
+  writeFileSync(join(root, 'board', 'meta.json'), '{"title":"My Own Title"}', 'utf8')
 
   const result = initWorkspace({ workspacePath: root, preset: 'personal', useGit: false })
 
-  assert.equal(readFileSync(join(root, 'AGENTS.md'), 'utf8'), '我自己写的规则\n')
-  assert.equal(readBoard(root, 'x').title, '我的标题')
+  assert.equal(readFileSync(join(root, 'AGENTS.md'), 'utf8'), 'Rules I wrote myself\n')
+  assert.equal(readBoard(root, 'x').title, 'My Own Title')
   assert.ok(result.skipped.includes('AGENTS.md'))
   assert.ok(result.created.length > 0, 'the missing files were still added')
 })
@@ -154,8 +154,8 @@ test('does not create a nested repository inside an existing one', () => {
 })
 
 test('2026-09-05: adopting an outer repo warns about the missing audit trail', () => {
-  // 主脑工作区曾寄居在外层仓库里：无独立 git、文件又被 .gitignore 忽略，
-  // agent 的每次运行都没有提交审计。现在收养外层仓库时必须显式警告。
+  // The brain's workspace once squatted inside an outer repo: no git of its own, files ignored by
+  // .gitignore, so no agent run had a commit to audit. Adopting an outer repo must now warn explicitly.
   const root = fresh()
   execFileSync('git', ['init'], { cwd: root, stdio: 'ignore' })
   execFileSync('git', ['config', 'user.email', 't@t'], { cwd: root, stdio: 'ignore' })
@@ -186,7 +186,7 @@ test('the personal template lays out the pages a user expects', () => {
   initWorkspace({ workspacePath: root, preset: 'personal', useGit: false })
   const board = readBoard(root, 'x')
 
-  assert.equal(board.title, '个人大盘')
+  assert.equal(board.title, 'Personal dashboard')
   assert.deepEqual(
     board.pages.map((p) => p.key),
     ['overview', 'money', 'health'],

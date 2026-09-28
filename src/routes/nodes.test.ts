@@ -63,15 +63,15 @@ test('an unmanaged node reports the probe result as its state', async () => {
   assert.equal(body.nodes[0]?.managed, false)
   assert.equal(body.nodes[0]?.state, 'live')
   assert.deepEqual(body.nodes[0]?.agents, ['personal'])
-  // 蜂群2计划 P1：gateway 驱动探测不到 DSH 版本 → null，不产生虚假告警
+  // Hive plan 2 P1: a gateway-driven probe cannot see the DSH version -> null, so no false alarm is raised
   assert.equal(body.nodes[0]?.dshVersion, null)
   assert.equal(body.nodes[0]?.dshCompatible, null)
-  // UI 收尾 C-P1.5：本机平台信息（拓扑「本机卡」数据源）
-  assert.equal(typeof body.hostOs, 'string', 'hostOs 必须随 /api/nodes 返回')
-  assert.equal(typeof body.hostArch, 'string', 'hostArch 必须随 /api/nodes 返回')
-  // UI 收尾 C-P1.5：本机行数据源（机器列表首行的主机名与 node 版本）
-  assert.equal(typeof body.hostName, 'string', 'hostName 必须随 /api/nodes 返回')
-  assert.equal(typeof body.hostNodeVersion, 'string', 'hostNodeVersion 必须随 /api/nodes 返回')
+  // UI wrap-up C-P1.5: local platform information (the data source of the topology's local card)
+  assert.equal(typeof body.hostOs, 'string', 'hostOs must come back with /api/nodes')
+  assert.equal(typeof body.hostArch, 'string', 'hostArch must come back with /api/nodes')
+  // UI wrap-up C-P1.5: the data source of the local row (the hostname and node version on the first row of the machine list)
+  assert.equal(typeof body.hostName, 'string', 'hostName must come back with /api/nodes')
+  assert.equal(typeof body.hostNodeVersion, 'string', 'hostNodeVersion must come back with /api/nodes')
 })
 
 test('a managed node reports the supervisor state machine', async () => {
@@ -105,7 +105,7 @@ test('an unreachable unmanaged node reports offline with the reason', async () =
   assert.ok((body.nodes[0]?.lastError ?? '').length > 0)
 })
 
-// ---- 蜂群 P5.1：节点管控 ----
+// ---- Hive P5.1: node control ----
 
 const managedSpawn = {
   managed: true,
@@ -136,7 +136,7 @@ const stubSupervisor = (calls: { start: number; stop: number; restart: number })
     current: { state: 'cold' },
   }) as unknown as NodeSupervisor
 
-test('蜂群 P5.1: managed nodes accept up/down/restart and serve their log buffer', async () => {
+test('Hive P5.1: managed nodes accept up/down/restart and serve their log buffer', async () => {
   const gw = await startFakeGateway({ frames: [] }, API_KEY)
   gateways.push(gw)
   const config = configFor(gw)
@@ -163,7 +163,7 @@ test('蜂群 P5.1: managed nodes accept up/down/restart and serve their log buff
   assert.equal((logs.json()).source, 'buffer')
 })
 
-test('蜂群 P5.1: unmanaged nodes get a friendly 409, unknown nodes a 404', async () => {
+test('Hive P5.1: unmanaged nodes get a friendly 409, unknown nodes a 404', async () => {
   const gw = await startFakeGateway({ frames: [] }, API_KEY)
   gateways.push(gw)
   const config = configFor(gw)
@@ -181,7 +181,7 @@ test('蜂群 P5.1: unmanaged nodes get a friendly 409, unknown nodes a 404', asy
   assert.equal(missing.statusCode, 404)
 })
 
-test('蜂群2计划 P2b: docker runner 节点的日志走 docker logs', async () => {
+test('Hive plan 2 P2b: a docker runner node serves its logs through docker logs', async () => {
   const gw = await startFakeGateway({ frames: [] }, API_KEY)
   gateways.push(gw)
   const config = configFor(gw)
@@ -204,7 +204,7 @@ test('蜂群2计划 P2b: docker runner 节点的日志走 docker logs', async ()
   assert.equal((logs.json()).source, 'docker')
 })
 
-test('债务 P3 回归: 进程节点漂移检测 + align-version 对齐（重播种/重装/重启，幂等）', async () => {
+test('Debt P3 regression: process node drift detection plus align-version alignment (reseed/reinstall/restart, idempotent)', async () => {
   const gw = await startFakeGateway({ frames: [] }, API_KEY)
   gateways.push(gw)
   const config = configFor(gw)
@@ -213,7 +213,7 @@ test('债务 P3 回归: 进程节点漂移检测 + align-version 对齐（重播
     ...managedSpawn,
     runner: 'process' as const,
     host: null,
-    env: { DSH_HOME: join(profileDir, '..') }, // profile 目录 = DSH_HOME/profiles/<id>
+    env: { DSH_HOME: join(profileDir, '..') }, // the profile directory = DSH_HOME/profiles/<id>
     docker: null,
   }
   config.endpoints['A']!.spawn = spawn
@@ -225,7 +225,7 @@ test('债务 P3 回归: 进程节点漂移检测 + align-version 对齐（重播
     app, config, new Map([['A', stubSupervisor(calls)]]), new Map(), new Map(), async () => {},
     undefined,
     async (dir) => {
-      // 假安装器：不触网——写一个假的 profile 内 bin 就算装完
+      // Fake installer: no network -- writing a fake bin inside the profile counts as installed
       const binDir = join(dir, 'node_modules', '@deepseek-ai', 'dsh', 'lib')
       mkdirSync(binDir, { recursive: true })
       writeFileSync(join(binDir, 'bin.js'), '', 'utf8')
@@ -233,20 +233,20 @@ test('债务 P3 回归: 进程节点漂移检测 + align-version 对齐（重播
   )
 
   const before = await app.inject({ method: 'GET', url: '/api/nodes' })
-  assert.equal((before.json() as { nodes: Array<{ dshDrift: boolean }> }).nodes[0]?.dshDrift, true, '旧标记 → 漂移')
+  assert.equal((before.json() as { nodes: Array<{ dshDrift: boolean }> }).nodes[0]?.dshDrift, true, 'the stale marker -> drift')
 
   const align = await app.inject({ method: 'POST', url: '/api/nodes/A/align-version' })
   assert.equal(align.statusCode, 202)
   await new Promise((resolve) => setTimeout(resolve, 20))
 
   const after = await app.inject({ method: 'GET', url: '/api/nodes' })
-  assert.equal((after.json() as { nodes: Array<{ dshDrift: boolean }> }).nodes[0]?.dshDrift, false, '对齐后漂移消失')
-  assert.equal(calls.restart, 1, '对齐完成后重启节点')
+  assert.equal((after.json() as { nodes: Array<{ dshDrift: boolean }> }).nodes[0]?.dshDrift, false, 'the drift is gone after alignment')
+  assert.equal(calls.restart, 1, 'restart the node once alignment finishes')
   const marker = readFileSync(join(profileDir, '..', 'profiles', 'A', '.seed-version'), 'utf8').trim()
-  assert.equal(marker.length, 40, '标记重写为 sha1')
+  assert.equal(marker.length, 40, 'the marker is rewritten to a sha1')
 })
 
-test('P1 回归: POST /api/nodes/:id/version 进程分支——钉版落盘 + 对齐链 + 审计 + 未知版本 400', async () => {
+test('P1 regression: POST /api/nodes/:id/version on the process branch -- pinning written to disk, the alignment chain, the audit, and 400 for an unknown version', async () => {
   const gw = await startFakeGateway({ frames: [] }, API_KEY)
   gateways.push(gw)
   const config = configFor(gw)
@@ -281,17 +281,17 @@ test('P1 回归: POST /api/nodes/:id/version 进程分支——钉版落盘 + �
   assert.equal(res.statusCode, 202, JSON.stringify(res.body))
   assert.equal((res.json() as { version: string }).version, '0.1.5-rc.2')
   await new Promise((resolve) => setTimeout(resolve, 20))
-  assert.equal(config.endpoints['A']?.spawn?.dshVersion, '0.1.5-rc.2', '内存钉版热加载')
-  assert.match(readFileSync(configPath, 'utf8'), /dsh_version: 0.1.5-rc.2/, '真相源落盘显式钉版')
-  assert.ok(audits.includes('node_version_change'), '审计 node_version_change')
-  assert.equal(calls.restart, 1, '对齐完成后重启')
+  assert.equal(config.endpoints['A']?.spawn?.dshVersion, '0.1.5-rc.2', 'the pin hot-loads into memory')
+  assert.match(readFileSync(configPath, 'utf8'), /dsh_version: 0.1.5-rc.2/, 'the explicit pin is written to the source of truth')
+  assert.ok(audits.includes('node_version_change'), 'the audit records node_version_change')
+  assert.equal(calls.restart, 1, 'restart once alignment finishes')
 
   const bad = await app.inject({ method: 'POST', url: '/api/nodes/A/version', payload: { dsh_version: '0.9.9' } })
   assert.equal(bad.statusCode, 400)
   assert.equal((bad.json() as { error: string }).error, 'unknown_dsh_version')
 })
 
-test('P1 回归: profile 目录按 spawn.args 的 --profile 解析（端点 id ≠ profile 名，线上实踩）', async () => {
+test('P1 regression: the profile directory resolves from --profile in spawn.args (the endpoint id is not the profile name, hit for real in production)', async () => {
   const gw = await startFakeGateway({ frames: [] }, API_KEY)
   gateways.push(gw)
   const config = configFor(gw)
@@ -317,20 +317,20 @@ test('P1 回归: profile 目录按 spawn.args 的 --profile 解析（端点 id �
   registerNodesRoutes(
     app, config, new Map([['A', stubSupervisor(calls)]]), new Map(), new Map(), async () => {},
     undefined,
-    async () => undefined, // 假安装器：不触网
+    async () => undefined, // fake installer: no network
   )
 
   const res = await app.inject({ method: 'POST', url: '/api/nodes/A/version', payload: { dsh_version: '0.1.5-rc.2' } })
   assert.equal(res.statusCode, 202, JSON.stringify(res.body))
   await new Promise((resolve) => setTimeout(resolve, 20))
 
-  assert.equal(existsSync(join(dshHome, 'profiles', 'A')), false, '不得按端点 id 造幽灵 profile 目录')
+  assert.equal(existsSync(join(dshHome, 'profiles', 'A')), false, 'must not create a ghost profile directory from the endpoint id')
   const realPkg = JSON.parse(readFileSync(join(realDir, 'package.json'), 'utf8'))
-  assert.equal(realPkg.dependencies?.['@deepseek-ai/dsh'], '0.1.5-rc.2', '真实 profile（--profile 指定名）被重播种')
-  assert.equal(readFileSync(join(realDir, '.seed-version'), 'utf8').trim().length, 40, '真实目录种子重写')
+  assert.equal(realPkg.dependencies?.['@deepseek-ai/dsh'], '0.1.5-rc.2', 'the real profile (the name given to --profile) is reseeded')
+  assert.equal(readFileSync(join(realDir, '.seed-version'), 'utf8').trim().length, 40, 'the seed of the real directory is rewritten')
 })
 
-test('P1 回归: POST /api/nodes/:id/version 容器分支——镜像 tag 落盘 + 立即重建 + 审计', async () => {
+test('P1 regression: POST /api/nodes/:id/version on the container branch -- the image tag written to disk, an immediate rebuild, and the audit', async () => {
   const gw = await startFakeGateway({ frames: [] }, API_KEY)
   gateways.push(gw)
   const config = configFor(gw)
@@ -356,13 +356,13 @@ test('P1 回归: POST /api/nodes/:id/version 容器分支——镜像 tag 落盘
   const res = await app.inject({ method: 'POST', url: '/api/nodes/A/version', payload: { dsh_version: '0.1.5-rc.2' } })
   assert.equal(res.statusCode, 202, JSON.stringify(res.body))
   assert.equal((res.json() as { image: string }).image, 'hellodac/dac-node:0.1.5-rc.2')
-  assert.equal((config.endpoints['A']?.spawn as unknown as { docker: { image: string } } | null)?.docker.image, 'hellodac/dac-node:0.1.5-rc.2', '内存镜像 tag 热加载')
-  assert.match(readFileSync(configPath, 'utf8'), /image: hellodac\/dac-node:0.1.5-rc.2/, '真相源落盘镜像 tag')
-  assert.equal(calls.restart, 1, '立即重建（不等对账周期）')
+  assert.equal((config.endpoints['A']?.spawn as unknown as { docker: { image: string } } | null)?.docker.image, 'hellodac/dac-node:0.1.5-rc.2', 'the image tag hot-loads into memory')
+  assert.match(readFileSync(configPath, 'utf8'), /image: hellodac\/dac-node:0.1.5-rc.2/, 'the image tag is written to the source of truth')
+  assert.equal(calls.restart, 1, 'rebuild immediately (without waiting for the reconcile cycle)')
   assert.ok(audits.includes('node_version_change'))
 })
 
-test('债务 P1 回归: POST /api/nodes/:id/access 写真相源并热加载;clear 移除;非法值 400', async () => {
+test('Debt P1 regression: POST /api/nodes/:id/access writes the source of truth and hot-loads it; clear removes it; an invalid value is 400', async () => {
   const gw = await startFakeGateway({ frames: [] }, API_KEY)
   gateways.push(gw)
   const config = configFor(gw)
@@ -380,10 +380,10 @@ test('债务 P1 回归: POST /api/nodes/:id/access 写真相源并热加载;clea
     payload: { ssh_user: 'ubuntu', ssh_host: '10.0.0.5', local_port: 3088, ssh_key: 'C:\\Users\\you\\.ssh\\id_ed25519' },
   })
   assert.equal(set.statusCode, 200)
-  assert.deepEqual(config.endpoints['A']?.access, { sshUser: 'ubuntu', sshHost: '10.0.0.5', sshPort: 22, guiPort: 3080, localPort: 3088, sshKey: 'C:\\Users\\you\\.ssh\\id_ed25519' }, '内存热加载')
-  assert.match(readFileSync(configPath, 'utf8'), /access:/, '真相源落盘')
-  assert.match(readFileSync(configPath, 'utf8'), /ssh_key/, '私钥路径落盘（非密钥内容）')
-  assert.ok(audits.includes('node_access_update'), '审计留痕')
+  assert.deepEqual(config.endpoints['A']?.access, { sshUser: 'ubuntu', sshHost: '10.0.0.5', sshPort: 22, guiPort: 3080, localPort: 3088, sshKey: 'C:\\Users\\you\\.ssh\\id_ed25519' }, 'hot-loaded into memory')
+  assert.match(readFileSync(configPath, 'utf8'), /access:/, 'written to the source of truth')
+  assert.match(readFileSync(configPath, 'utf8'), /ssh_key/, 'the private key path is written, not the key content')
+  assert.ok(audits.includes('node_access_update'), 'the audit leaves a trail')
 
   const clear = await app.inject({ method: 'POST', url: '/api/nodes/A/access', payload: { clear: true } })
   assert.equal(clear.statusCode, 200)
@@ -397,7 +397,7 @@ test('债务 P1 回归: POST /api/nodes/:id/access 写真相源并热加载;clea
   assert.equal(missing.statusCode, 404)
 })
 
-test('债务 P1 回归: GET /api/nodes 挂 access + guiUrl（token 从日志即时捕获，重启轮换自动跟随）', async () => {
+test('Debt P1 regression: GET /api/nodes carries access + guiUrl (the token is captured from the log on the spot, and a restart rotation is followed automatically)', async () => {
   const gw = await startFakeGateway({ frames: [] }, API_KEY)
   gateways.push(gw)
   const config = configFor(gw)
@@ -414,14 +414,14 @@ test('债务 P1 回归: GET /api/nodes 挂 access + guiUrl（token 从日志即�
   const node = payload.nodes[0]
   assert.deepEqual(node?.access, { sshUser: 'ubuntu', sshHost: '10.0.0.5', sshPort: 22, guiPort: 3080, localPort: 3088, sshKey: null })
   assert.equal(node?.guiUrl, 'http://127.0.0.1:3088/?token=tok-abc')
-  assert.deepEqual(payload.supportedDsh.map((p) => p.dsh), ['0.1.2-rc.1', '0.1.5-rc.2'], '向导版本下拉的数据源 = 矩阵')
+  assert.deepEqual(payload.supportedDsh.map((p) => p.dsh), ['0.1.2-rc.1', '0.1.5-rc.2'], 'the wizard version dropdown reads the matrix')
 
-  // 重启轮换：日志里出现新 token 行 → guiUrl 自动跟随
+  // Restart rotation: a new token line shows up in the log -> guiUrl follows automatically
   supervisor.logs = () => 'dsh web: http://127.0.0.1:3080/?token=tok-old\nrestarted\ndsh web: http://127.0.0.1:3080/?token=tok-new\n'
   const after = await app.inject({ method: 'GET', url: '/api/nodes' })
   assert.equal((after.json() as { nodes: Array<{ guiUrl: string | null }> }).nodes[0]?.guiUrl, 'http://127.0.0.1:3088/?token=tok-new')
 
-  // 未配置 access 的非 loopback 节点：access=null 且 guiUrl=null（无打开能力）
+  // A non-loopback node with no access configured: access=null and guiUrl=null (there is no way to open it)
   config.endpoints['A']!.access = null
   config.endpoints['A']!.url = 'http://10.0.0.5:3080'
   const bare = await app.inject({ method: 'GET', url: '/api/nodes' })
@@ -429,10 +429,10 @@ test('债务 P1 回归: GET /api/nodes 挂 access + guiUrl（token 从日志即�
   assert.equal(bareNode?.access, null)
   assert.equal(bareNode?.guiUrl, null)
 
-  // 体验优化：本机 loopback 节点未配置 access 也直连——guiUrl 用启动行里的真实端口
+  // Ease-of-use improvement: a local loopback node connects directly even without access -- guiUrl uses the real port from the startup line
   config.endpoints['A']!.url = 'http://127.0.0.1:3081'
   const direct = await app.inject({ method: 'GET', url: '/api/nodes' })
   const directNode = (direct.json() as { nodes: Array<{ access: unknown; guiUrl: string | null }> }).nodes[0]
   assert.equal(directNode?.access, null)
-  assert.equal(directNode?.guiUrl, 'http://127.0.0.1:3080/?token=tok-new', '直连用日志端口（3080）而非配置端口（3081）')
+  assert.equal(directNode?.guiUrl, 'http://127.0.0.1:3080/?token=tok-new', 'direct connect uses the port from the log (3080), not the configured port (3081)')
 })

@@ -10,7 +10,7 @@ import { startFakeGateway, type FakeGateway, type FakeScript } from '../gateway/
 import type { GatewayFrame } from '../gateway/stream.js'
 import { runAgent } from '../runner.js'
 import { bindSession, chatRuns, createChat, deriveTitle, getChat, listChats, removeChat, setTitleIfEmpty } from './store.js'
-// 债务 C3:makeDb/agentFor 收敛进 test-harness(本地保留别名,行为不变)。
+// Debt C3: makeDb/agentFor moved into the test harness (local aliases kept, behavior unchanged).
 import { makeDb as makeHarnessDb, personalAgent } from '../test-harness.js'
 
 /**
@@ -57,9 +57,9 @@ const turn = (text: string, inputTokens: number): FakeScript['frames'] => [
 // ---------------------------------------------------------------------------
 
 test('a title is a prefix of what the user actually said', () => {
-  assert.equal(deriveTitle('把这周的开销汇总一下'), '把这周的开销汇总一下')
+  assert.equal(deriveTitle('sum up the spending for this week'), 'sum up the spending for this week')
   // Whitespace collapses so a pasted multi-line prompt still yields one line.
-  assert.equal(deriveTitle('第一行\n\n  第二行  '), '第一行 第二行')
+  assert.equal(deriveTitle('first line\n\n  second line  '), 'first line second line')
   assert.equal(deriveTitle('   '), '新会话')
 })
 
@@ -79,10 +79,10 @@ test('the title is set once and later turns do not rewrite it', () => {
   const { db } = makeDb()
   const chat = createChat(db, 'personal')
 
-  setTitleIfEmpty(db, chat.id, '第一句')
-  setTitleIfEmpty(db, chat.id, '第二句')
+  setTitleIfEmpty(db, chat.id, 'first line')
+  setTitleIfEmpty(db, chat.id, 'second line')
 
-  assert.equal(getChat(db, chat.id)?.title, '第一句')
+  assert.equal(getChat(db, chat.id)?.title, 'first line')
 })
 
 // ---------------------------------------------------------------------------
@@ -91,13 +91,13 @@ test('the title is set once and later turns do not rewrite it', () => {
 
 test('a second turn continues the same session instead of creating one', async () => {
   const { db, workspace } = makeDb()
-  const gw = await boot({ frames: turn('第一轮', 100) })
+  const gw = await boot({ frames: turn('first turn', 100) })
   const agent = agentFor(workspace)
   const chat = createChat(db, 'personal')
 
   const first = await runAgent(
     { db },
-    { agent, client: clientFor(gw), prompt: '你好', trigger: 'manual', chatId: chat.id, sessionId: null, keepSession: true },
+    { agent, client: clientFor(gw), prompt: 'hello', trigger: 'manual', chatId: chat.id, sessionId: null, keepSession: true },
   )
   assert.equal(first.state, 'done')
   bindSession(db, chat.id, first.sessionId as string)
@@ -107,7 +107,7 @@ test('a second turn continues the same session instead of creating one', async (
     {
       agent,
       client: clientFor(gw),
-      prompt: '接着说',
+      prompt: 'go on',
       trigger: 'manual',
       chatId: chat.id,
       sessionId: getChat(db, chat.id)?.dshSessionId ?? null,
@@ -156,11 +156,11 @@ test('a cold session is revived and the turn still runs', async () => {
   // The gateway holds sessions in memory, so a DSH restart makes `messages` and
   // `stream` answer 404. Adopt is the only way back.
   const { db, workspace } = makeDb()
-  const gw = await boot({ frames: turn('回来了', 70), coldSessions: ['sess-9'] })
+  const gw = await boot({ frames: turn('back again', 70), coldSessions: ['sess-9'] })
 
   const outcome = await runAgent(
     { db },
-    { agent: agentFor(workspace), client: clientFor(gw), prompt: '继续', trigger: 'manual', sessionId: 'sess-9' },
+    { agent: agentFor(workspace), client: clientFor(gw), prompt: 'continue', trigger: 'manual', sessionId: 'sess-9' },
   )
 
   assert.equal(outcome.state, 'done', outcome.error ?? '')
@@ -180,7 +180,7 @@ test('when the gateway forbids adoption the chat is readable but says why', asyn
 
   const outcome = await runAgent(
     { db },
-    { agent: agentFor(workspace), client: clientFor(gw), prompt: '继续', trigger: 'manual', sessionId: 'sess-3' },
+    { agent: agentFor(workspace), client: clientFor(gw), prompt: 'continue', trigger: 'manual', sessionId: 'sess-3' },
   )
 
   assert.equal(outcome.state, 'failed')
@@ -202,7 +202,7 @@ test('a session the gateway has lost tells the user to start a new chat', async 
 
   const outcome = await runAgent(
     { db },
-    { agent: agentFor(workspace), client: clientFor(gw), prompt: '继续', trigger: 'manual', sessionId: 'sess-4' },
+    { agent: agentFor(workspace), client: clientFor(gw), prompt: 'continue', trigger: 'manual', sessionId: 'sess-4' },
   )
 
   assert.equal(outcome.state, 'failed')
@@ -222,7 +222,7 @@ test('a full gateway is reported as a capacity problem, not a lost session', asy
 
   const outcome = await runAgent(
     { db },
-    { agent: agentFor(workspace), client: clientFor(gw), prompt: '继续', trigger: 'manual', sessionId: 'sess-5' },
+    { agent: agentFor(workspace), client: clientFor(gw), prompt: 'continue', trigger: 'manual', sessionId: 'sess-5' },
   )
 
   assert.equal(outcome.state, 'failed')
@@ -240,7 +240,7 @@ test('an adopted session in the wrong directory refuses to run', async () => {
 
   const outcome = await runAgent(
     { db },
-    { agent: agentFor(workspace), client: clientFor(gw), prompt: '继续', trigger: 'manual', sessionId: 'sess-6' },
+    { agent: agentFor(workspace), client: clientFor(gw), prompt: 'continue', trigger: 'manual', sessionId: 'sess-6' },
   )
 
   assert.equal(outcome.state, 'failed')
@@ -257,14 +257,14 @@ test('replayed history is never billed again', async () => {
   // re-charge every previous turn on every turn, growing with the conversation.
   const { db, workspace } = makeDb()
   const gw = await boot({
-    frames: turn('第二轮', 200),
+    frames: turn('second turn', 200),
     // The first turn's message, replayed as history on the second subscribe.
-    history: [{ kind: 'message', text: '第一轮', usage: { inputTokens: 99_999, outputTokens: 99_999 } }],
+    history: [{ kind: 'message', text: 'first turn', usage: { inputTokens: 99_999, outputTokens: 99_999 } }],
   })
 
   const outcome = await runAgent(
     { db },
-    { agent: agentFor(workspace), client: clientFor(gw), prompt: '接着说', trigger: 'manual', sessionId: 'sess-x' },
+    { agent: agentFor(workspace), client: clientFor(gw), prompt: 'go on', trigger: 'manual', sessionId: 'sess-x' },
   )
 
   assert.equal(outcome.state, 'done')
@@ -278,8 +278,8 @@ test('replayed history is never billed again', async () => {
 test('only live frames are relayed to browsers', async () => {
   const { db, workspace } = makeDb()
   const gw = await boot({
-    frames: turn('实时', 30),
-    history: [{ kind: 'message', text: '旧的', usage: { inputTokens: 5, outputTokens: 5 } }],
+    frames: turn('live', 30),
+    history: [{ kind: 'message', text: 'stale', usage: { inputTokens: 5, outputTokens: 5 } }],
   })
 
   const relayed: GatewayFrame[] = []
@@ -296,7 +296,7 @@ test('only live frames are relayed to browsers', async () => {
   )
 
   assert.ok(!relayed.some((f) => f.kind === 'hello'), 'hello is history, not a live frame')
-  assert.ok(!relayed.some((f) => f.text === '旧的'), 'replayed messages were not re-emitted')
+  assert.ok(!relayed.some((f) => f.text === 'stale'), 'replayed messages were not re-emitted')
   assert.deepEqual(
     relayed.map((f) => f.kind),
     ['message', 'turn_end'],

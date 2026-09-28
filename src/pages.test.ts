@@ -45,20 +45,20 @@ test('each page gets its own title, stylesheets and script', () => {
   assert.match(pages.get('nodes') ?? '', /<main class="content wide">/)
 })
 
-test('DAC v1.0.0: 每种语言都能成页（缺键/漏翻在启动期就炸，而不是页面里混语言）', () => {
+test('DAC v1.0.0: every locale builds its pages (a missing key or translation fails at boot, instead of mixing languages inside a page)', () => {
   for (const locale of LOCALES) {
     const pages = buildPages(publicDir, locale)
     assert.ok(pages.size > 0)
     for (const [name, html] of pages) {
-      assert.doesNotMatch(html, /\{\{t:/, `${name} (${locale}) 还有未替换的翻译占位符`)
-      assert.doesNotMatch(html, /\{\{[A-Z_]+\}\}/, `${name} (${locale}) 还有未替换的框架占位符`)
-      assert.match(html, new RegExp(`<html lang="${locale}">`), `${name} (${locale}) 的 lang 属性`)
+      assert.doesNotMatch(html, /\{\{t:/, `${name} (${locale}) still has an unreplaced translation placeholder`)
+      assert.doesNotMatch(html, /\{\{[A-Z_]+\}\}/, `${name} (${locale}) still has an unreplaced framework placeholder`)
+      assert.match(html, new RegExp(`<html lang="${locale}">`), `${name} (${locale}) lang attribute`)
     }
   }
-  // 独立页（登录）也要两种语言都成页
+  // The standalone page (login) has to build in both locales too
   for (const locale of LOCALES) {
     const login = buildStandalonePage(publicDir, 'login.html', locale)
-    assert.doesNotMatch(login, /\{\{/, `login.html (${locale}) 还有未替换的占位符`)
+    assert.doesNotMatch(login, /\{\{/, `login.html (${locale}) still has an unreplaced placeholder`)
     assert.match(login, new RegExp(`<html lang="${locale}">`))
   }
 })
@@ -122,9 +122,9 @@ test('a page body containing $& survives splicing intact', () => {
     '<html><head><title>{{TITLE}}</title>{{HEAD}}</head>' +
       '<body><aside id="sidebar" class="sidebar"></aside><a class="brand" href="/app"></a>' +
       '<main class="content {{CONTENT_CLASS}}">{{CONTENT}}</main>{{SCRIPT}}' +
-      // 其余占位符（品牌注入等）也要出现在布局里，否则 buildPages 会在启动期
-      // 报 "missing placeholder"；用导出的清单拼进来，新增占位符无需改本测试。
-      // {{CONTENT}} 已在上面出现过一次，不能重复（它按单次替换处理）。
+      // The remaining placeholders (branding injection and friends) have to appear in the layout too, or
+      // buildPages reports "missing placeholder" at boot; they are joined in from the exported list, so a
+      // new placeholder needs no edit here. {{CONTENT}} already appeared above and cannot repeat (replaced once).
       PLACEHOLDERS.filter((token) => token !== '{{CONTENT}}').join('') +
       '</body></html>',
     'utf8',

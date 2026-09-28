@@ -9,8 +9,9 @@ import { withConfigLock, writeFileAtomic } from '../config-store.js'
 import type { ManagerConfigFile } from '../config.js'
 import { initWorkspace } from '../workspace/init.js'
 import { COMPAT_DSH_VERSION, DSH_INSTALL_COMMAND, GATEWAY_REF, dshCompatible } from '../dsh-version.js'
-// 能力一（2026-09-20）：profile 生成/安装/钥匙/依赖命令已抽到 host-node 公共模块
-// （setup 与 provision 共用）；本文件 import 自用 + re-export 保持既有导入面。
+// Capability one (2026-09-20): profile create/install/key/dependency commands moved into the
+// shared host-node module (used by both setup and provision); this file imports the ones it
+// needs and re-exports them to keep the existing import surface.
 import { ensureNodeCredentials, ensureNodeProfiles, profileInstallCommand, resolveGatewayKey, type ProfileSpec } from '../host-node/profile.js'
 export {
   ensureNodeProfiles, ensureNodeCredentials, profileFiles, profileInstallCommand,
@@ -19,17 +20,17 @@ export {
 } from '../host-node/profile.js'
 
 /**
- * `npm run setup -- [选项]` — 蜂群 P4：默认安装。
+ * `npm run setup -- [options]` — Hive P4: the default install.
  *
- * 一条命令把「单主机多节点」搭起来：
- *   1. 初始化个人与主脑两个工作区（模板幂等，绝不覆盖已有文件）
- *   2. 在 $DSH_HOME/profiles 下生成两个节点 profile（web 同款 bundle + 端口 patch）
- *   3. 解析 gateway 密钥（settings.yaml 的 provisionedKey，或生成并追加 apiKeys）
- *   4. 生成 .env（SESSION_SECRET / GW_KEY_A / BRAIN_TOKEN，幂等保留旧值）
- *   5. 生成 manager.config.yaml（两个托管节点 + 两个 agent + 沙箱/pre-set 全接）
+ * One command brings up "one host, many nodes":
+ *   1. Initialize the personal and brain workspaces (idempotent templates, never overwrite existing files)
+ *   2. Create two node profiles under $DSH_HOME/profiles (web's bundle + a port patch)
+ *   3. Resolve the gateway key (provisionedKey in settings.yaml, or generate one and append to apiKeys)
+ *   4. Write .env (SESSION_SECRET / GW_KEY_A / BRAIN_TOKEN, idempotent, keeps old values)
+ *   5. Write manager.config.yaml (two managed nodes + two agents + sandbox/pre-set fully wired)
  *
- * 前置：本机已装 DSH（$DSH_HOME 存在且有 credentials）、node / git 在 PATH
- * （节点依赖由 npx 临时拉取 pnpm@9，不要求全局 pnpm）。
+ * Prerequisites: DSH installed on this machine ($DSH_HOME exists with credentials),
+ * node / git on PATH (node dependencies pull pnpm@9 through npx, no global pnpm required).
  */
 
 interface SetupOptions {
@@ -37,26 +38,26 @@ interface SetupOptions {
   brainWorkspace: string
   personalPort: number
   brainPort: number
-  /** 主 DSH_HOME（GUI/日常用），只用于取模型凭据副本。 */
+  /** The main DSH_HOME (for the GUI and daily use); read only to copy the model credentials. */
   dshHome: string
-  /** 节点目录根：每个节点一个独立 DSH_HOME，会话/settings/附件完全隔离。 */
+  /** Node directory root: every node gets its own DSH_HOME, so chats/settings/attachments are fully isolated. */
   nodesHome: string
   dshBin: string | null
   installProfiles: boolean
-  /** 本地 gateway 包路径（file: 依赖，离线安装）；null = 用钉死引用。 */
+  /** Local gateway package path (a file: dependency, for offline installs); null = use the pinned reference. */
   gatewayLocal: string | null
   force: boolean
-  /** 蜂群2计划 P1：DSH 版本不符时放行（显式声明风险自负）。 */
+  /** Hive plan 2 P1: let a mismatched DSH version through (an explicit opt-in, at your own risk). */
   skipVersionCheck: boolean
 }
 
-/** 解析 DSH 命令所在目录：优先 $DSH_BIN，其次 `where dsh` 的 .ps1 包装器。 */
+/** Resolve the directory holding the DSH command: $DSH_BIN first, then the .ps1 wrapper from `where dsh`. */
 export const detectDshBin = (dshHome: string, override: string | null): string => {
   const fromEnv = override ?? process.env.DSH_BIN ?? null
   if (fromEnv !== null && fromEnv !== '' && existsSync(fromEnv)) return resolve(fromEnv)
 
   if (process.platform === 'win32') {
-    // Windows：`where dsh` 找到 npm 的 .ps1 垫片，真身在其旁的 node_modules 里
+    // Windows: `where dsh` finds npm's .ps1 shim; the real binary sits in node_modules next to it
     try {
       const found = execFileSync('where', ['dsh'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
         .split(/\r?\n/)
@@ -67,25 +68,25 @@ export const detectDshBin = (dshHome: string, override: string | null): string =
         if (existsSync(candidate)) return resolve(candidate)
       }
     } catch {
-      // `where` 找不到 dsh：继续按常见位置猜测
+      // `where` did not find dsh: keep guessing from the usual locations
     }
   } else {
-    // POSIX（蜂群2计划 P1 修复）：`command` 是 shell 内建，经 sh 执行；
-    // 全局安装的 dsh 是软链，node 可直接跑，无需解析真身。
+    // POSIX (Hive plan 2 P1 fix): `command` is a shell builtin, so it runs through sh;
+    // a globally installed dsh is a symlink that node can run directly, no need to resolve it.
     try {
       const found = execFileSync('sh', ['-c', 'command -v dsh 2>/dev/null || true'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
         .trim()
         .split(/\r?\n/)[0]
       if (found !== undefined && found !== '' && existsSync(found)) return resolve(found)
     } catch {
-      // 继续猜
+      // keep guessing
     }
     try {
       const global = execFileSync('npm', ['root', '-g'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
       const candidate = join(global, '@deepseek-ai', 'dsh', 'lib', 'bin.js')
       if (existsSync(candidate)) return resolve(candidate)
     } catch {
-      // 继续猜
+      // keep guessing
     }
   }
 
@@ -98,10 +99,10 @@ export const detectDshBin = (dshHome: string, override: string | null): string =
 }
 
 /**
- * 蜂群2计划 P6 回归：setup 写进 .env 的密钥集（含首启密码）。
- * MANAGER_INITIAL_PASSWORD 必须在 manager 首启前落盘：manager 无配置密码时会
- * 自己 generate 且只打印到日志（index.ts），Windows 安装器隐藏窗口启动 → 用户
- * 永远拿不到。不进 forceKeys（用户改过绝不覆盖）。
+ * Hive plan 2 P6 regression: the key set setup writes into .env (including the first-boot password).
+ * MANAGER_INITIAL_PASSWORD must land on disk before the manager's first boot: with no configured
+ * password the manager generates one itself and only prints it to the log (index.ts), and the Windows
+ * installer starts it in a hidden window -> the user never gets it. Not in forceKeys (never overwrite a user edit).
  */
 export const setupEnvValues = (
   personalKey: string,
@@ -114,7 +115,7 @@ export const setupEnvValues = (
   MANAGER_INITIAL_PASSWORD: randomBytes(16).toString('base64url'),
 })
 
-/** 蜂群2计划 P1：探测关键工具版本（node/pnpm/git/dsh）；dshBin 为 null = DSH 未找到。 */
+/** Hive plan 2 P1: probe the versions of the key tools (node/pnpm/git/dsh); dshBin null = DSH not found. */
 export const probeToolVersions = (dshBin: string | null): Record<'node' | 'pnpm' | 'git' | 'dsh', string | null> => {
   const run = (cmd: string, args: string[], shell = false): string | null => {
     try {
@@ -124,9 +125,9 @@ export const probeToolVersions = (dshBin: string | null): Record<'node' | 'pnpm'
       return null
     }
   }
-  // Windows 上 pnpm 是 .CMD 垫片：node ≥20 无 shell 直接 spawn 会 EINVAL（CVE-2024-27980
-  // 加固，仓库 L543 同款坑）；无扩展名探测则先 ENOENT。shell: true 交给 cmd 解析；
-  // 只剩 .ps1 垫片的机器（nvm4w 布局）再走 powershell 兜底。
+  // On Windows pnpm is a .CMD shim: spawning it without a shell on node >=20 gives EINVAL (CVE-2024-27980
+  // hardening, the same trap as L543 here); probing the extensionless name gives ENOENT first. shell: true
+  // lets cmd resolve it; machines left with only the .ps1 shim (nvm4w layout) fall back to powershell.
   const probePnpm = (): string | null =>
     process.platform === 'win32'
       ? run('pnpm', ['--version'], true) ?? run('powershell', ['-NoProfile', '-Command', 'pnpm --version'])
@@ -139,7 +140,7 @@ export const probeToolVersions = (dshBin: string | null): Record<'node' | 'pnpm'
   }
 }
 
-/** 蜂群2计划 P1：端口是否空闲（bind 127.0.0.1 试探；被占用 → false）。 */
+/** Hive plan 2 P1: whether a port is free (try binding 127.0.0.1; in use -> false). */
 export const checkPortFree = (port: number): Promise<boolean> =>
   new Promise((resolvePort) => {
     const server = net.createServer()
@@ -148,9 +149,9 @@ export const checkPortFree = (port: number): Promise<boolean> =>
     server.listen(port, '127.0.0.1')
   })
 
-/** .env 合并：已有的值绝不覆盖（用户手改优先）；forceKeys 例外——setup 自己
- * 拥有这些密钥（必须与刚生成的节点 settings 一致），一律以新值为准。
- * 债务 A3：.env 也是真相源——注释与行序保留、原子写（.tmp+rename）、0600。 */
+/** .env merge: never overwrite an existing value (hand edits win); forceKeys is the exception -- setup
+ * owns those keys (they must match the node settings it just wrote), so the new value always wins.
+ * Debt A3: .env is a source of truth too -- keep comments and line order, write atomically (.tmp+rename), 0600. */
 export const mergeEnv = (path: string, values: Record<string, string>, forceKeys: string[] = []): Record<string, string> => {
   const existing: Record<string, string> = {}
   const lines = existsSync(path) ? readFileSync(path, 'utf8').split(/\r?\n/) : []
@@ -169,7 +170,7 @@ export const mergeEnv = (path: string, values: Record<string, string>, forceKeys
   for (const line of lines) {
     const match = /^([A-Z_][A-Z0-9_]*)=(.*)$/.exec(line.trim())
     if (match === null || match[1] === undefined) {
-      out.push(line) // 注释/空行原样保留
+      out.push(line) // keep comments/blank lines as they are
       continue
     }
     const value = merged[match[1]]
@@ -177,7 +178,7 @@ export const mergeEnv = (path: string, values: Record<string, string>, forceKeys
       out.push(`${match[1]}=${value}`)
       handled.add(match[1])
     } else {
-      out.push(line) // 空值行保留原样
+      out.push(line) // keep empty-value lines as they are
     }
   }
   for (const [key, value] of Object.entries(merged)) {
@@ -190,8 +191,8 @@ export const mergeEnv = (path: string, values: Record<string, string>, forceKeys
 }
 
 /**
- * --force 重装时把旧配置里用户定制的工作区保留下来（纯函数，可单测）。
- * 显式传参（--workspace/--brain-workspace）优先于保留值。
+ * On a --force reinstall, carry over the workspaces the user customized in the old config (pure, unit-testable).
+ * Explicit arguments (--workspace/--brain-workspace) win over the carried-over values.
  */
 export const adoptOldWorkspaces = (
   oldConfig: unknown,
@@ -209,9 +210,9 @@ export const adoptOldWorkspaces = (
   }
 }
 
-/** 生成 manager.config.yaml 的配置对象（纯函数，可单测；债务 E7:返回类型 =
- * config.ts 的 ManagerConfigFile,与 loadConfig 消费契约共用一份类型,不再
- * Record<string, unknown> 裸奔）。 */
+/** Build the config object for manager.config.yaml (pure, unit-testable; Debt E7: the return type is
+ * ManagerConfigFile from config.ts, shared with loadConfig's consumption contract instead of a bare
+ * Record<string, unknown>). */
 export const buildManagerConfig = (options: {
   personalWorkspace: string
   brainWorkspace: string
@@ -220,10 +221,10 @@ export const buildManagerConfig = (options: {
   dshBin: string
   personalProfile: string
   brainProfile: string
-  /** 各节点自己的 DSH_HOME：会话/settings/附件完全隔离（蜂群 v1.1）。 */
+  /** Each node's own DSH_HOME: chats/settings/attachments fully isolated (Hive v1.1). */
   personalHome: string
   brainHome: string
-  /** 主脑调内部 API 的令牌：必须注入 brain 节点进程环境，技能手册读 $BRAIN_TOKEN。 */
+  /** Token the brain uses to call the internal API: it must be injected into the brain node's process env; the skill manual reads $BRAIN_TOKEN. */
   brainToken: string
 }): ManagerConfigFile => {
   const endpoint = (
@@ -242,10 +243,10 @@ export const buildManagerConfig = (options: {
     spawn: {
       managed: true,
       command: 'node',
-      // --no-open：节点是后台服务，不允许每次拉起都弹浏览器（web app 的自身参数）。
+      // --no-open: a node is a background service and must not pop a browser on every start (the web app's own flag).
       args: [options.dshBin, '--profile', profile, '--no-open'],
       ready_timeout_ms: 30_000,
-      // 债务 E7:与 spawnSchema 必填默认值显式对齐(类型化抓出的漂移)
+      // Debt E7: explicitly aligned with spawnSchema's required defaults (drift the types surfaced)
       detached: false,
       runner: 'process',
       restart: { max_attempts: 3, base_delay_ms: 1_000, max_delay_ms: 30_000 },
@@ -284,20 +285,20 @@ export const buildManagerConfig = (options: {
       max_consecutive_failures: 3,
       daily_budget_usd: 2.0,
     },
-    // 蜂群 P5.1：主脑日派工预算熔断（只拦 trigger=brain，人手动不拦）。
+    // Hive P5.1: circuit breaker on the brain's daily dispatch budget (blocks trigger=brain only, manual runs pass).
     brain: {
       daily_budget_usd: 1.0,
     },
     database: { path: './data/manager.db' },
-    // 债务 E7:与 fileSchema 默认值显式对齐(生成文件自带,不依赖下游默认)
+      // Debt E7: explicitly aligned with fileSchema's defaults (the generated file carries them; no reliance on downstream defaults)
     reconcile_interval_minutes: 10,
     backup: { docker_volumes: [], auto: false, interval_minutes: 15 },
-    // 对外 API（设计稿 manager/topics/public-api.md）：门面默认开启但只绑本机；
-    // 服务列表留空 = 新装默认没有任何对外面（要对外，先发钥匙、再定义服务）。
+    // Public API (design note manager/topics/public-api.md): the facade is on by default but binds localhost only;
+    // an empty service list = a fresh install exposes nothing (to expose anything, issue a key first, then define services).
     public_api: { enabled: true, host: '127.0.0.1', port: 8081 },
     services: [],
     pricing: {
-      // 债务 E7:与 pricingSchema 的默认值显式对齐(生成文件自带,不依赖下游默认)
+      // Debt E7: explicitly aligned with pricingSchema's defaults (the generated file carries them; no reliance on downstream defaults)
       weekends_off_peak: true,
       timezone: 'Asia/Shanghai',
       peak_windows_utc: [
@@ -322,8 +323,8 @@ export const parseArgs = (argv: string[]): { options: SetupOptions; help: boolea
   const user = process.env.USERPROFILE ?? process.env.HOME ?? '.'
   const nodesHome = `${user}/.dac`
   const defaults: SetupOptions = {
-    // 2026-09-05：默认工作区放在仓库外（~/.dac 下）——放在仓库里会被
-    // 外层 git 收养，agent 运行没有独立审计留痕（主脑工作区实测踩坑）。
+    // 2026-09-05: default workspaces live outside the repo (under ~/.dac) -- inside the repo an outer
+    // git adopts them and agent runs leave no independent audit trail (hit for real on the brain workspace).
     personalWorkspace: `${nodesHome}/workspaces/personal`,
     brainWorkspace: `${nodesHome}/brain-workspace`,
     personalPort: 3081,
@@ -333,8 +334,8 @@ export const parseArgs = (argv: string[]): { options: SetupOptions; help: boolea
     dshBin: null,
     installProfiles: true,
     gatewayLocal: null,
-    // `npm run setup --force` 时 npm 会把 --force 当自己的开关吞掉（并打一行
-    // warn），根本不传给脚本——通过它注入的 npm_config_force 兜底识别。
+    // With `npm run setup --force` npm swallows --force as its own flag (and prints a warning),
+    // never passing it to the script -- catch it through the npm_config_force npm injects.
     force: process.env.npm_config_force === 'true',
     skipVersionCheck: false,
   }
@@ -377,11 +378,11 @@ const usage = (): void => {
 }
 
 // ---------------------------------------------------------------------------
-// 债务 E4:main() 拆阶段函数——六段各司其职,main 只编排。
-// 每段的失败语义(process.exit(2) 红字)原样保留:setup 无半成功态。
+// Debt E4: main() split into phase functions -- six phases each with one job, main only orchestrates.
+// Each phase keeps its failure semantics (process.exit(2) in red): setup has no half-success state.
 // ---------------------------------------------------------------------------
 
-/** ⓪-1 前置检查:已存在配置 / --force 保留定制工作区 / 模型凭据存在。 */
+/** 0-1 prerequisite checks: an existing config / --force keeping customized workspaces / model credentials present. */
 const checkPreconditions = (
   options: SetupOptions,
   explicit: { personalWorkspace: boolean; brainWorkspace: boolean },
@@ -391,16 +392,16 @@ const checkPreconditions = (
     console.error(`${configPath} already exists. Edit it directly, or re-run with --force (workspaces are kept, the config is rewritten).`)
     process.exit(2)
   }
-  // --force 重写配置前，把旧配置里用户定制过的工作区保留下来——setup 的默认
-  // 值是模板目录，一次不带参数的 --force 就会把 personal 从 note-kaka 打回
-  // workspaces/personal（2026-09-04 真实踩过）。显式传参优先于保留。
+  // Before --force rewrites the config, carry over the workspaces the user customized -- setup's defaults
+  // are the template directories, so a bare --force pushes personal from note-kaka back to
+  // workspaces/personal (hit for real on 2026-09-04). Explicit arguments win over the carried-over values.
   if (options.force && existsSync(configPath)) {
     try {
       const old = parseYaml(readFileSync(resolve(configPath), 'utf8')) as unknown
       adoptOldWorkspaces(old, explicit, options)
       console.log(`   --force: keeping the old workspaces personal=${options.personalWorkspace} brain=${options.brainWorkspace}`)
     } catch {
-      // 旧配置读不了就当没有——生成新配置总比停在原地强。
+      // An unreadable old config counts as none -- writing a new config beats stopping here.
     }
   }
   if (!existsSync(join(options.dshHome, '.credentials.yaml'))) {
@@ -409,7 +410,7 @@ const checkPreconditions = (
   }
 }
 
-/** ⓪-2 自检表:DSH bin / 工具版本 / 端口占用(缺件即红字退出)。返回 dshBin。 */
+/** 0-2 preflight table: DSH bin / tool versions / ports in use (any missing item exits in red). Returns dshBin. */
 const selfCheck = async (options: SetupOptions): Promise<string> => {
   console.log('[0/4] preflight…')
   let dshBin: string
@@ -421,7 +422,7 @@ const selfCheck = async (options: SetupOptions): Promise<string> => {
   }
   const tools = probeToolVersions(dshBin)
   for (const [name, version] of Object.entries(tools)) {
-    // pnpm 行只报告不设门槛：节点依赖固定由 npx 临时拉取 pnpm@9（全局 pnpm 版本无关）。
+    // The pnpm row only reports, it is not a gate: node dependencies always pull pnpm@9 through npx (the global pnpm version is irrelevant).
     const ok = name === 'pnpm' ? true : name === 'dsh' ? dshCompatible(version) : version !== null
     const detail =
       version === null
@@ -455,7 +456,7 @@ const selfCheck = async (options: SetupOptions): Promise<string> => {
   for (const [label, port] of portRows) {
     const free = await checkPortFree(port)
     console.log(`   ${free ? '✓' : '✗'} port ${port} (${label}) ${free ? 'free' : 'in use'}`)
-    if (!free) busyPorts.push(`${port}（${label}）`)
+    if (!free) busyPorts.push(`${port} (${label})`)
   }
   if (busyPorts.length > 0) {
     console.error(`   ✗ ports in use: ${busyPorts.join(', ')}. Change them with --ports 3081,3082; the manager port lives in listen.port of manager.config.yaml.`)
@@ -464,12 +465,12 @@ const selfCheck = async (options: SetupOptions): Promise<string> => {
   return dshBin
 }
 
-/** ① 初始化工作区(模板幂等,绝不覆盖已有文件;note-kaka 类只读权威)。 */
+/** 1. Initialize workspaces (idempotent templates, never overwrite existing files; note-kaka-style libraries are read-only authorities). */
 const initWorkspaces = (options: SetupOptions): void => {
   console.log('[1/4] initialising workspaces…')
-  // note-kaka 之类已有 RULE.md/CONTEXT.md 的笔记库是「只读权威」（TASKS 阶段二）：
-  // 不写入任何模板文件，只确认目录存在——否则 AGENTS.md 会与 RULE.md 打架、
-  // 模板文档会污染用户的笔记体系。
+  // A note library like note-kaka that already has RULE.md/CONTEXT.md is a "read-only authority" (TASKS phase two):
+  // write no template files, only confirm the directory exists -- otherwise AGENTS.md fights with RULE.md and
+  // the template docs pollute the user's note system.
   const personalRoot = resolve(options.personalWorkspace)
   if (existsSync(join(personalRoot, 'RULE.md')) || existsSync(join(personalRoot, 'CONTEXT.md'))) {
     mkdirSync(personalRoot, { recursive: true })
@@ -480,7 +481,7 @@ const initWorkspaces = (options: SetupOptions): void => {
   initWorkspace({ workspacePath: options.brainWorkspace, preset: 'brain' })
 }
 
-/** ② 节点 profile + 凭据 + 依赖安装(失败 = 红字退出,无半成功态)。返回节点 home 映射。 */
+/** 2. Node profiles + credentials + dependency install (failure = red exit, no half-success state). Returns the node home map. */
 const installNodeProfiles = (options: SetupOptions, dshBin: string): Map<string, string> => {
   console.log('[2/4] creating node directories and profiles…')
   const specs: ProfileSpec[] = [
@@ -499,7 +500,7 @@ const installNodeProfiles = (options: SetupOptions, dshBin: string): Map<string,
   for (const home of ensureNodeProfiles(options.nodesHome, specs, gatewayDep)) {
     console.log(`   node directory created: ${home}`)
   }
-  // 模型凭据：同一用户同一把 key，从主 DSH_HOME 复制（绝不覆盖已有）。
+  // Model credentials: one user, one key, copied from the main DSH_HOME (never overwrite an existing one).
   for (const home of nodeHomes.values()) {
     if (ensureNodeCredentials(options.dshHome, home)) {
       console.log(`   credentials copied to ${home}`)
@@ -511,8 +512,8 @@ const installNodeProfiles = (options: SetupOptions, dshBin: string): Map<string,
     for (const [name, home] of nodeHomes) {
       const dir = join(home, 'profiles', name)
       try {
-        // 换 pnpm 大版本（如 11→9）时 pnpm 会弹「node_modules 将重建」交互确认，
-        // 无人值守直接挂死——先删干净，全新安装无提示。
+        // When the pnpm major version changes (say 11->9) pnpm asks to confirm "node_modules will be rebuilt",
+        // which hangs an unattended run -- delete it first, a fresh install asks nothing.
         rmSync(join(dir, 'node_modules'), { recursive: true, force: true })
         const { cmd, args } = profileInstallCommand(process.platform)
         execFileSync(cmd, args, { cwd: dir, shell: true, stdio: ['ignore', 'inherit', 'inherit'] })
@@ -523,8 +524,8 @@ const installNodeProfiles = (options: SetupOptions, dshBin: string): Map<string,
         console.error('   If GitHub is unreachable, re-run setup --force with --gateway-local pointing at a local dsh-api-gateway checkout.')
       }
     }
-    // 蜂群2计划 P6 回归：节点依赖没装成 = 半成功态——红字退出（发布实测旧代码软失败
-    // 继续，节点能起但原生工具悄悄缺）。修复后重跑 setup --force（幂等）。
+    // Hive plan 2 P6 regression: node dependencies not installed = a half-success state -- exit in red (the old code
+    // failed softly and carried on, so the node started with native tools quietly missing). Re-run setup --force (idempotent).
     if (failures > 0) {
       console.error('   ✗ node dependency install failed — fix it and re-run setup --force (idempotent).')
       process.exit(2)
@@ -533,13 +534,13 @@ const installNodeProfiles = (options: SetupOptions, dshBin: string): Map<string,
   return nodeHomes
 }
 
-/** ③ 密钥与 .env(债务 R6:写入走锁入口)。返回 .env 值与两个 home(类型收窄后非空)。 */
+/** 3. Keys and .env (Debt R6: writes go through the lock entry). Returns the .env values and both homes (non-null after narrowing). */
 const writeSecrets = async (
   nodeHomes: Map<string, string>,
 ): Promise<{ envValues: Record<string, string>; personalHome: string; brainHome: string }> => {
   console.log('[3/4] generating secrets…')
-  // 每个节点自己的 settings.yaml 里一把独立的 gateway 密钥；manager 分 ref 引用。
-  // 债务 E10:ensureNodeProfiles 已保证两 home 必在 map,显式收窄替代 `!`
+  // Each node's own settings.yaml holds a separate gateway key; the manager references them by ref.
+  // Debt E10: ensureNodeProfiles guarantees both homes are in the map, so narrow explicitly instead of `!`
   const personalHome = nodeHomes.get('dac-personal')
   const brainHome = nodeHomes.get('dac-brain')
   if (personalHome === undefined || brainHome === undefined) {
@@ -552,7 +553,7 @@ const writeSecrets = async (
   return { envValues, personalHome, brainHome }
 }
 
-/** ④ 生成 manager.config.yaml(债务 R6:写入走锁入口)。 */
+/** 4. Write manager.config.yaml (Debt R6: writes go through the lock entry). */
 const writeManagerConfig = async (
   options: SetupOptions,
   dshBin: string,
@@ -576,7 +577,7 @@ const writeManagerConfig = async (
   await withConfigLock(() => writeFileAtomic('manager.config.yaml', stringifyYaml(managerConfig)))
 }
 
-/** 完成打印:下一步指引。 */
+/** Final print: what to do next. */
 const printDone = (nodeHomes: Map<string, string>): void => {
   console.log('')
   console.log('Done. Next steps:')
@@ -602,6 +603,6 @@ const main = async (): Promise<void> => {
   printDone(nodeHomes)
 }
 
-// 只在被直接执行时运行（测试导入本模块时不应触发安装流程）。
+// Only run when executed directly (importing this module from a test must not trigger the install flow).
 const isDirect = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href
 if (isDirect) void main()

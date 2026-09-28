@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { schema, type Db } from '../db/index.js'
 import { currentMonth, monthByAgent, monthByDay, monthByModel, monthTotals, spendMonths } from './store.js'
-// 债务 C3:双 agent 测试库收敛进 test-harness。
+// Debt C3: two-agent test databases converge into test-harness.
 import { makeDbWithAgents } from '../test-harness.js'
 
 const makeDb = (): Db => makeDbWithAgents([{ id: 'personal' }, { id: 'company' }])

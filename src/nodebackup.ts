@@ -1,15 +1,15 @@
 /**
- * 蜂群2计划 P4：节点 home（会话/settings/技能）备份与恢复。
+ * Hive plan 2 P4: backup and restore of a node home (chats/settings/skills).
  *
- * 形态：
- * - 裸机（process runner）→ 节点目录 DSH_HOME 打 tar.gz（排除 node_modules/pidfile）；
- * - 容器（docker runner）→ 命名卷经一次性 alpine 工具容器打 tar.gz；
- * - compose 脊柱的主脑卷等无 spawn 段 → `backup.docker_volumes` 声明。
+ * Shapes:
+ * - bare metal (process runner) -> tar.gz the node directory DSH_HOME (node_modules/pidfile excluded);
+ * - container (docker runner) -> tar.gz the named volume through a one-shot alpine tool container;
+ * - no-spawn cases such as the brain volume of the compose spine -> declared in `backup.docker_volumes`.
  *
- * 归档统一加密落盘（AES-256-GCM，债务 A1：密钥 = `BACKUP_KEY` 或 HKDF 派生自
- * SESSION_SECRET；旧 CBC 归档兼容读），保留策略与
- * DB 快照一致（24h 全留 → 每日 30 天 → 每周 12 周）；每节点 6 小时内已有
- * 归档则跳过（会话数据重，15 分钟级全量打包不划算）。
+ * Archives are always written encrypted (AES-256-GCM; Debt A1: the key is `BACKUP_KEY` or derived from
+ * SESSION_SECRET via HKDF, and old CBC archives stay readable), with the same retention policy as
+ * DB snapshots (keep everything for 24h -> one per day for 30 days -> one per week for 12 weeks); a node that
+ * already has an archive from the last 6 hours is skipped (chat data is heavy, so 15-minute full packaging is not worth it).
  */
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
@@ -21,11 +21,11 @@ import { decryptFile, encryptFile } from './crypt.js'
 export interface NodeHomeEntry {
   nodeId: string
   kind: 'dir' | 'docker'
-  /** dir = 绝对目录；docker = 命名卷名。 */
+  /** dir = an absolute directory; docker = a named volume name. */
   home: string
 }
 
-/** 从配置收集节点 home（纯函数，可单测）。 */
+/** Collect node homes from the config (a pure function, unit-testable). */
 export const collectNodeHomes = (config: AppConfig): NodeHomeEntry[] => {
   const entries: NodeHomeEntry[] = []
   for (const [id, ep] of Object.entries(config.endpoints)) {
@@ -40,7 +40,7 @@ export const collectNodeHomes = (config: AppConfig): NodeHomeEntry[] => {
       }
     }
   }
-  // 蜂群2计划 P4：额外 docker 卷（compose 脊柱的主脑卷等）
+  // Hive plan 2 P4: extra docker volumes (the brain volume of the compose spine and friends)
   for (const volume of config.backupDockerVolumes ?? []) {
     entries.push({ nodeId: basename(volume), kind: 'docker', home: volume })
   }
@@ -55,7 +55,7 @@ const stamp = (now: number): string => {
   return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
 }
 
-/** 某节点的最新归档（无 = null）。 */
+/** The newest archive for a node (null when there is none). */
 export const lastNodeHomeArchive = (dir: string, nodeId: string): { file: string; at: number } | null => {
   if (!existsSync(dir)) return null
   const prefix = `node-${nodeId}-`
@@ -66,7 +66,7 @@ export const lastNodeHomeArchive = (dir: string, nodeId: string): { file: string
   return files[0] ?? null
 }
 
-/** 保留策略：24h 全留 → 每节点每日一份 30 天 → 每节点每周一份 12 周。返回被删文件。 */
+/** Retention policy: keep everything for 24h -> one per node per day for 30 days -> one per node per week for 12 weeks. Returns the deleted files. */
 export const pruneNodeHomeArchives = (dir: string, now = Date.now()): string[] => {
   if (!existsSync(dir)) return []
   const HOUR = 3_600_000
@@ -125,9 +125,9 @@ export const pruneNodeHomeArchives = (dir: string, now = Date.now()): string[] =
 }
 
 /**
- * 打包一个节点 home 到加密归档。返回归档文件名；跳过/失败语义由调用方处理。
- * docker 卷经一次性 alpine 工具容器（镜像缺失自动拉取）。
- * `sessionSecret` 交给 crypt 层按格式派生（v2 = HKDF/`BACKUP_KEY`;v1 兼容读 = legacy）。
+ * Pack one node home into an encrypted archive. Returns the archive file name; skip/failure semantics are the caller's job.
+ * A docker volume goes through a one-shot alpine tool container (a missing image is pulled automatically).
+ * `sessionSecret` is handed to the crypt layer, which derives per format (v2 = HKDF/`BACKUP_KEY`; v1 read-compatibility = legacy).
  */
 export const packNodeHome = async (
   entry: NodeHomeEntry,
@@ -145,8 +145,8 @@ export const packNodeHome = async (
       execFileSync('tar', ['-czf', tarball, '--exclude=profiles/*/node_modules', '--exclude=*.pid', '-C', entry.home, '.'], { stdio: ['ignore', 'ignore', 'pipe'] })
     } else {
       if (dockerRunner === undefined) throw new Error('backing up a docker volume needs docker.sock (is it mounted into the manager?)')
-      // 债务 R10：tar 打 stdout（-），manager 经 attach 流收下写 tarball——
-      // 只绑命名卷，不把 manager 容器内的备份目录当宿主路径 bind（ENOENT 根因）。
+      // Debt R10: tar writes to stdout (-) and the manager receives it over the attach stream to write the tarball --
+      // only the named volume is bound; the backup directory inside the manager container is not bound as a host path (the ENOENT root cause).
       await dockerRunner.runToolIo(
         'alpine:3.20',
         ['tar', 'czf', '-', '-C', '/data', '.'],
@@ -161,7 +161,7 @@ export const packNodeHome = async (
   }
 }
 
-/** 全部节点 home 打包（6 小时内已有归档的节点跳过）。返回打包的归档名。 */
+/** Pack every node home (nodes with an archive from the last 6 hours are skipped). Returns the archive names packed. */
 export const packNodeHomes = async (
   entries: NodeHomeEntry[],
   backupDir: string,
@@ -180,9 +180,9 @@ export const packNodeHomes = async (
 }
 
 /**
- * 恢复前守卫（评审 B4）：目录形态的恢复会 rm -rf 目标——配置来源的路径可能被
- * 误配为根目录/家目录/备份目录本身，毁掉不可再生的数据。凡是被判「危险」的
- * 目标一律拒绝，宁可恢复失败也不冒删盘风险。
+ * Pre-restore guard (review B4): a directory-shaped restore rm -rf's the target -- a path coming from the
+ * config may be misconfigured as the root directory, the home directory or the backup directory itself and
+ * destroy unrecoverable data. Any target judged "dangerous" is refused outright: better a failed restore than a wiped disk.
  */
 const assertSafeRestoreTarget = (target: string, backupDir: string): void => {
   const abs = resolve(target)
@@ -197,8 +197,8 @@ const assertSafeRestoreTarget = (target: string, backupDir: string): void => {
 }
 
 /**
- * 恢复一个节点 home：解密归档 → tar 解包到目标目录（目录已存在则清空重建）。
- * docker 卷形态经一次性工具容器解包进卷。
+ * Restore one node home: decrypt the archive -> untar into the target directory (an existing directory is wiped and rebuilt).
+ * The docker volume shape untars into the volume through a one-shot tool container.
  */
 export const restoreNodeHome = async (
   entry: NodeHomeEntry,
@@ -207,7 +207,7 @@ export const restoreNodeHome = async (
   sessionSecret: string,
   dockerRunner: DockerRunner | undefined,
 ): Promise<void> => {
-  // 评审 B4：先守卫后动刀——目标路径危险时在解密/删除任何东西之前就拒绝
+  // Review B4: guard first, cut later -- a dangerous target path is refused before anything is decrypted or deleted
   if (entry.kind === 'dir') assertSafeRestoreTarget(entry.home, backupDir)
   const archive = join(backupDir, archiveFile)
   if (!existsSync(archive)) throw new Error(`node home archive not found: ${archiveFile}`)
@@ -220,7 +220,7 @@ export const restoreNodeHome = async (
       execFileSync('tar', ['-xzf', tarball, '-C', entry.home], { stdio: ['ignore', 'ignore', 'pipe'] })
     } else {
       if (dockerRunner === undefined) throw new Error('restoring a docker volume needs docker.sock')
-      // 债务 R10：tarball 经 stdin 流喂给容器内 tar（反向流，同样不 bind 备份目录）。
+      // Debt R10: the tarball is fed to tar inside the container over stdin (the reverse stream; again the backup directory is not bound).
       await dockerRunner.runToolIo(
         'alpine:3.20',
         ['tar', 'xzf', '-', '-C', '/data'],

@@ -45,20 +45,20 @@ describe('parseMuxFrame', () => {
   })
 })
 
-describe('债务 A4: nextReconnectDelay 指数退避 + 抖动', () => {
-  it('attempt 1 = 3s 基数,退避递增,30s 封顶', () => {
+describe('Debt A4: nextReconnectDelay exponential backoff + jitter', () => {
+  it('attempt 1 = 3s base, backoff grows, capped at 30s', () => {
     for (let i = 0; i < 50; i += 1) {
-      assert.ok(nextReconnectDelay(1) >= 2_250 && nextReconnectDelay(1) <= 3_750, '首次 3s ±25%')
-      assert.ok(nextReconnectDelay(2) >= 4_500 && nextReconnectDelay(2) <= 7_500, '二次 6s ±25%')
-      assert.ok(nextReconnectDelay(3) >= 9_000 && nextReconnectDelay(3) <= 15_000, '三次 12s ±25%')
-      assert.ok(nextReconnectDelay(10) >= 22_500 && nextReconnectDelay(10) <= 37_500, '基数封顶 30s,抖动上浮不超 ±25%')
+      assert.ok(nextReconnectDelay(1) >= 2_250 && nextReconnectDelay(1) <= 3_750, 'first attempt 3s ±25%')
+      assert.ok(nextReconnectDelay(2) >= 4_500 && nextReconnectDelay(2) <= 7_500, 'second attempt 6s ±25%')
+      assert.ok(nextReconnectDelay(3) >= 9_000 && nextReconnectDelay(3) <= 15_000, 'third attempt 12s ±25%')
+      assert.ok(nextReconnectDelay(10) >= 22_500 && nextReconnectDelay(10) <= 37_500, 'base capped at 30s, jitter adds no more than +25%')
     }
   })
 })
 
 /**
- * 手写假 WebSocket:只实现 mux 用到的面(onopen/onmessage/onerror/onclose + close)。
- * 连接工厂经 _setSocketFactory 注入,避免真实网络。
+ * A hand-written fake WebSocket: only the surface mux uses (onopen/onmessage/onerror/onclose + close).
+ * The connection factory is injected through _setSocketFactory, so no real network is involved.
  */
 class FakeWs {
   onopen: (() => void) | null = null
@@ -82,9 +82,9 @@ after(() => {
   closeAllMux()
 })
 
-describe('债务 A4: 连接级行为(注入假 socket)', () => {
-  it('重连成功后向所有活跃订阅者广播 stream_reconnected(首连不发)', async () => {
-    // 债务 C3:mock 时钟驱动重连退避,消掉 4.1s 真实等待。
+describe('Debt A4: connection-level behaviour (fake socket injected)', () => {
+  it('after a successful reconnect, stream_reconnected is broadcast to every active subscriber (not on the first connect)', async () => {
+    // Debt C3: a mock clock drives the reconnect backoff, removing the real 4.1s wait.
     mock.timers.enable({ apis: ['setTimeout'] })
     captured.length = 0
     _setSocketFactory(() => {
@@ -100,25 +100,25 @@ describe('债务 A4: 连接级行为(注入假 socket)', () => {
     const unsub = subscribe(EP, 's1', listener)
     try {
       assert.equal(captured.length, 1)
-      captured[0]!.onopen?.() // 首连
-      assert.deepEqual(seen, [], '首连不广播 stream_reconnected')
+      captured[0]!.onopen?.() // first connect
+      assert.deepEqual(seen, [], 'the first connect does not broadcast stream_reconnected')
 
-      captured[0]!.close() // 断线 → 退避后重连
-      // 先放行 onclose 微任务(它才排上重连定时器),再推时钟
+      captured[0]!.close() // disconnect -> reconnect after the backoff
+      // Let the onclose microtask through first (that is what schedules the reconnect timer), then advance the clock
       await Promise.resolve()
-      // 首退避 = 3s ±25% 抖动,上浮可达 3750ms——推进 4s 覆盖全部余量
-      // (@types/node 把 tick 标成 void,实际返回 Promise——包一层消除误报)
+      // The first backoff = 3s ±25% jitter, so it can stretch to 3750ms -- advancing 4s covers every case
+      // (@types/node types tick as void although it returns a Promise -- wrapping it silences the false report)
       await Promise.resolve(mock.timers.tick(4_000))
-      assert.equal(captured.length, 2, '断线后必须自动重连')
-      captured[1]!.onopen?.() // 重连成功
-      assert.deepEqual(seen, ['stream_reconnected'], '重连成功必须广播 stream_reconnected')
+      assert.equal(captured.length, 2, 'a disconnect must trigger an automatic reconnect')
+      captured[1]!.onopen?.() // reconnect succeeded
+      assert.deepEqual(seen, ['stream_reconnected'], 'a successful reconnect must broadcast stream_reconnected')
     } finally {
       unsub()
       mock.timers.reset()
     }
   })
 
-  it('债务 R5:首连失败(从未 onopen)不算「曾连接」——重试首次成功不得广播 stream_reconnected', async () => {
+  it('Debt R5: a failed first connect (never onopen) does not count as "was connected" -- the successful retry must not broadcast stream_reconnected', async () => {
     mock.timers.enable({ apis: ['setTimeout'] })
     captured.length = 0
     _setSocketFactory(() => {
@@ -133,19 +133,19 @@ describe('债务 A4: 连接级行为(注入假 socket)', () => {
     })
     try {
       assert.equal(captured.length, 1)
-      captured[0]!.close() // 首连从未 onopen 就断线(连接失败/被拒)
-      await Promise.resolve() // 放行 onclose 微任务,排上重连定时器
-      await Promise.resolve(mock.timers.tick(4_000)) // 退避后的自动重连
-      assert.equal(captured.length, 2, '断线后必须自动重连')
-      captured[1]!.onopen?.() // 重试的首次成功连接
-      assert.deepEqual(seen, [], '首连失败→重试首次成功,不得广播 stream_reconnected(会误杀 run)')
+      captured[0]!.close() // the first connect closes before ever calling onopen (connection failed/refused)
+      await Promise.resolve() // let the onclose microtask through, scheduling the reconnect timer
+      await Promise.resolve(mock.timers.tick(4_000)) // the automatic reconnect after the backoff
+      assert.equal(captured.length, 2, 'a disconnect must trigger an automatic reconnect')
+      captured[1]!.onopen?.() // the retry's first successful connection
+      assert.deepEqual(seen, [], 'first connect failed then the retry succeeded: must not broadcast stream_reconnected (it would kill the run by mistake)')
     } finally {
       unsub()
       mock.timers.reset()
     }
   })
 
-  it('债务 R5:首连成功后断线,重连成功仍必须广播 stream_reconnected', async () => {
+  it('Debt R5: the first connect succeeded and then the line dropped -- a successful reconnect must still broadcast stream_reconnected', async () => {
     mock.timers.enable({ apis: ['setTimeout'] })
     captured.length = 0
     _setSocketFactory(() => {
@@ -160,20 +160,20 @@ describe('债务 A4: 连接级行为(注入假 socket)', () => {
     })
     try {
       assert.equal(captured.length, 1)
-      captured[0]!.onopen?.() // 首连成功
-      captured[0]!.close() // 断线
-      await Promise.resolve() // 放行 onclose 微任务,排上重连定时器
+      captured[0]!.onopen?.() // first connect succeeded
+      captured[0]!.close() // disconnect
+      await Promise.resolve() // let the onclose microtask through, scheduling the reconnect timer
       await Promise.resolve(mock.timers.tick(4_000))
       assert.equal(captured.length, 2)
       captured[1]!.onopen?.()
-      assert.deepEqual(seen, ['stream_reconnected'], '曾连接过→重连成功必须广播')
+      assert.deepEqual(seen, ['stream_reconnected'], 'it had connected before, so a successful reconnect must broadcast')
     } finally {
       unsub()
       mock.timers.reset()
     }
   })
 
-  it('退订修复:旧 unsub 在重新订阅之后调用,不得误删新订阅', () => {    captured.length = 0
+  it('unsubscribe fix: an old unsub called after re-subscribing must not delete the new subscription', () => {    captured.length = 0
     _setSocketFactory(() => {
       const ws = new FakeWs()
       captured.push(ws)
@@ -181,13 +181,13 @@ describe('债务 A4: 连接级行为(注入假 socket)', () => {
     })
 
     const got: Array<{ listener: string; kind: string }> = []
-    // 常驻订阅让 conn 在 s1 退订后仍然存活——原 bug 的复现前提(同一连接内
-    // 退订→重订阅→旧 unsub 迟到执行,旧 unsub 会把新 set 从 map 误删)。
+    // A resident subscription keeps conn alive after s1 unsubscribes -- the precondition for reproducing the
+    // original bug (within one connection: unsubscribe -> resubscribe -> the old unsub runs late and deletes the new set from the map).
     const keepalive = subscribe(EP, 's-keep', () => {})
     const unsubOld = subscribe(EP, 's1', (_sid, frame) => got.push({ listener: 'old', kind: frame.kind }))
     unsubOld()
     const unsubNew = subscribe(EP, 's1', (_sid, frame) => got.push({ listener: 'new', kind: frame.kind }))
-    // 旧 unsub 再来一次(时序:退订→重订阅→旧 unsub 迟到执行)
+    // the old unsub runs again (order: unsubscribe -> resubscribe -> the old unsub runs late)
     unsubOld()
 
     const ws = captured[0]!
@@ -201,14 +201,14 @@ describe('债务 A4: 连接级行为(注入假 socket)', () => {
       }),
     })
     const kinds = got.map((g) => `${g.listener}:${g.kind}`)
-    assert.ok(kinds.includes('new:turn_start'), '新订阅必须仍然生效')
-    assert.ok(!kinds.some((k) => k.startsWith('old:')), '旧订阅必须彻底移除')
+    assert.ok(kinds.includes('new:turn_start'), 'the new subscription must still be in effect')
+    assert.ok(!kinds.some((k) => k.startsWith('old:')), 'the old subscription must be removed completely')
 
     unsubNew()
     keepalive()
   })
 
-  it('债务卡片链: 形状不符的 question/requested 帧被拒时必须留日志(卡片不显示的排障线索)', () => {
+  it('Debt card chain: a rejected question/requested frame with the wrong shape must leave a log line (the clue for diagnosing cards that never show)', () => {
     captured.length = 0
     _setSocketFactory(() => {
       const ws = new FakeWs()
@@ -226,18 +226,18 @@ describe('债务 A4: 连接级行为(注入假 socket)', () => {
           type: 'server-request',
           rpcId: 'rpc-9',
           method: 'question/requested',
-          // 缺 questions 字段——schema 必拒;旧行为静默丢弃,卡片不显示且无从排查
+          // missing the questions field -- the schema must reject it; the old behaviour dropped it silently, leaving a card that never shows with nothing to investigate
           payload: { type: 'question/requested', sessionId: 's1' },
         }),
       })
-      assert.ok(logLines.some((l) => l.includes('dropped frame') && l.includes('question/requested')), `丢弃必须留痕: ${logLines.join(' | ')}`)
+      assert.ok(logLines.some((l) => l.includes('dropped frame') && l.includes('question/requested')), `a drop must leave a trace: ${logLines.join(' | ')}`)
     } finally {
       unsub()
       setMuxLogger(() => {})
     }
   })
 
-  it('债务卡片链: 断线重连必须留痕(订阅会话数)——定位「广播窗口丢失」用', async () => {
+  it('Debt card chain: a reconnect after a disconnect must leave a trace (subscribed chat count) -- the tool for locating a lost broadcast window', async () => {
     mock.timers.enable({ apis: ['setTimeout'] })
     captured.length = 0
     _setSocketFactory(() => {
@@ -249,14 +249,14 @@ describe('债务 A4: 连接级行为(注入假 socket)', () => {
     setMuxLogger((line) => logLines.push(line))
     const unsub = subscribe(EP, 's1', () => {})
     try {
-      captured[0]!.onopen?.() // 首连(不记重连日志)
-      assert.ok(!logLines.some((l) => l.includes('reconnected')), '首连不得记 reconnected')
-      captured[0]!.close() // 断线
+      captured[0]!.onopen?.() // first connect (no reconnect log)
+      assert.ok(!logLines.some((l) => l.includes('reconnected')), 'the first connect must not log reconnected')
+      captured[0]!.close() // disconnect
       await Promise.resolve()
       await Promise.resolve(mock.timers.tick(4_000))
-      captured[1]!.onopen?.() // 重连成功
-      assert.ok(logLines.some((l) => l.includes('connection lost')), `断线必须留痕: ${logLines.join(' | ')}`)
-      assert.ok(logLines.some((l) => l.includes('reconnected')), `重连必须留痕: ${logLines.join(' | ')}`)
+      captured[1]!.onopen?.() // reconnect succeeded
+      assert.ok(logLines.some((l) => l.includes('connection lost')), `a disconnect must leave a trace: ${logLines.join(' | ')}`)
+      assert.ok(logLines.some((l) => l.includes('reconnected')), `a reconnect must leave a trace: ${logLines.join(' | ')}`)
     } finally {
       unsub()
       setMuxLogger(() => {})

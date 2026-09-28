@@ -8,7 +8,7 @@ import type Dockerode from 'dockerode'
 import { DockerRunner } from './docker-runner.js'
 import type { ResolvedSpawnSpec } from '../config.js'
 
-/** docker 多路复用帧：8 字节头（1 字节流类型 + 3 空 + 4 字节大端长度）+ payload。 */
+/** A docker multiplexed frame: an 8-byte header (1 byte stream type + 3 padding + 4-byte big-endian length) + payload. */
 const frame = (type: number, payload: string): Buffer => {
   const body = Buffer.from(payload, 'utf8')
   const header = Buffer.alloc(8)
@@ -17,7 +17,7 @@ const frame = (type: number, payload: string): Buffer => {
   return Buffer.concat([header, body])
 }
 
-/** 测试用假 dockerode：只实现 DockerRunner 用到的面，调用全部留痕。 */
+/** The fake dockerode used in tests: it implements only what DockerRunner touches and records every call. */
 const fake = (options: { imageExists?: boolean; leftovers?: Array<{ Id: string }>; inspectThrows?: boolean; inspectImage?: string } = {}) => {
   const state = {
     pulls: [] as string[],
@@ -95,7 +95,7 @@ const dockerSpec = (): ResolvedSpawnSpec => ({
   },
 })
 
-test('蜂群2计划 P2b: ensureImage 缺失才拉，存在零网络', async () => {
+test('Hive plan 2 P2b: ensureImage pulls only when missing; when present, no network at all', async () => {
   const missing = fake()
   await new DockerRunner({ docker: missing.docker }).ensureImage('img')
   assert.deepEqual(missing.state.pulls, ['img'])
@@ -105,12 +105,12 @@ test('蜂群2计划 P2b: ensureImage 缺失才拉，存在零网络', async () =
   assert.deepEqual(present.state.pulls, [])
 })
 
-test('蜂群2计划 P2b: start 创建容器（名称/标签/命令/环境/挂载），同名残留先清', async () => {
+test('Hive plan 2 P2b: start creates the container (name/labels/command/env/mounts) and clears a same-name leftover first', async () => {
   const f = fake({ leftovers: [{ Id: 'stale-1' }] })
   const runner = new DockerRunner({ docker: f.docker })
   const id = await runner.start(dockerSpec(), 'personal', { DSH_HOME: '/data', GW_KEY: 'apigw-x' })
   assert.equal(id, 'container-1')
-  assert.deepEqual(f.state.removed, ['stale-1'], '同名残留容器被强制清理')
+  assert.deepEqual(f.state.removed, ['stale-1'], 'the same-name leftover container is force-cleared')
   const created = f.state.created[0]
   assert.ok(created !== undefined)
   assert.equal(created.name, 'dac-node-personal')
@@ -122,16 +122,16 @@ test('蜂群2计划 P2b: start 创建容器（名称/标签/命令/环境/挂载
   assert.equal(host.NetworkMode, 'hive')
   assert.deepEqual(host.Binds, ['/opt/dac/workspaces/personal:/workspace', 'dac-personal:/data'])
   assert.deepEqual(host.RestartPolicy, { Name: 'unless-stopped' })
-  // 能力三 v1：节点 GUI 端口只发布到宿主机 loopback（SSH 隧道目标；绝不进公网面）
-  assert.deepEqual(host.PortBindings, { '3081/tcp': [{ HostIp: '127.0.0.1', HostPort: '3081' }] }, 'GUI 端口必须只绑 127.0.0.1')
-  // 网络别名：manager 探活 URL http://node-<id>:port 靠它解析（fetch failed 根因回归）
+  // Capability three v1: the node GUI port is published to the host loopback only (the SSH tunnel target; never public)
+  assert.deepEqual(host.PortBindings, { '3081/tcp': [{ HostIp: '127.0.0.1', HostPort: '3081' }] }, 'the GUI port must bind 127.0.0.1 only')
+  // Network alias: the manager's probe URL http://node-<id>:port resolves through it (regression for the fetch-failed root cause)
   const net = created.NetworkingConfig as { EndpointsConfig: Record<string, { Aliases: string[] }> }
   assert.deepEqual(net.EndpointsConfig['hive']?.Aliases, ['node-personal', 'personal'])
-  // 与宿主机部署用户同 uid（工作区 bind mount 写权限）
+  // Same uid as the host deployment user (write access to the workspace bind mount)
   assert.match(String(created.User ?? ''), /^\d+:\d+$/)
 })
 
-test('蜂群2计划 P2b: stop = stop + remove；logs 收集容器输出', async () => {
+test('Hive plan 2 P2b: stop = stop + remove; logs collects the container output', async () => {
   const f = fake()
   const runner = new DockerRunner({ docker: f.docker })
   await runner.stop('cid-9')
@@ -140,16 +140,16 @@ test('蜂群2计划 P2b: stop = stop + remove；logs 收集容器输出', async 
   assert.equal(await runner.logs('cid-9', 100), 'logs-of-cid-9\n')
 })
 
-test('节点版本展示: containerImage 返回容器的镜像标签，查不到返回 null', async () => {
+test('Node version display: containerImage returns the container image tag, null when it is gone', async () => {
   const f = fake()
   const runner = new DockerRunner({ docker: f.docker })
   assert.equal(await runner.containerImage('cid-1'), 'hellodac/dac-node:0.1.2-rc.1')
   const gone = fake({ inspectThrows: true })
   const goneRunner = new DockerRunner({ docker: gone.docker })
-  assert.equal(await goneRunner.containerImage('cid-missing'), null, '容器已消失按未知处理')
+  assert.equal(await goneRunner.containerImage('cid-missing'), null, 'a vanished container counts as unknown')
 })
 
-test('蜂群2计划 P2b: listManaged 只回 managed 标签容器并归一化字段', async () => {
+test('Hive plan 2 P2b: listManaged returns only managed-labelled containers with normalised fields', async () => {
   const listed = [
     { Id: 'abc', Names: ['/dac-node-personal'], Labels: { 'com.dac.managed': 'true', 'com.dac.node': 'personal' }, State: 'running' },
     { Id: 'def', Names: ['/dac-node-product'], Labels: { 'com.dac.managed': 'true', 'com.dac.node': 'product' }, State: 'exited' },
@@ -166,16 +166,16 @@ test('蜂群2计划 P2b: listManaged 只回 managed 标签容器并归一化字�
   void original
 })
 
-test('蜂群2计划 P6 回归: matchesSpec——GW_KEY 或镜像 ID 不符必须重建而非认领', () => {
+test('Hive plan 2 P6 regression: matchesSpec -- a GW_KEY or image-ID mismatch must rebuild, not adopt', () => {
   const good = { env: ['GW_KEY=apigw-new', 'DSH_HOME=/data'], imageId: 'sha256:abc' }
-  assert.equal(DockerRunner.matchesSpec(good, 'apigw-new', 'sha256:abc'), true, '钥匙与镜像 ID 一致 → 可认领')
-  assert.equal(DockerRunner.matchesSpec(good, 'apigw-other', 'sha256:abc'), false, '旧钥匙 → 重建（重装残留根因）')
-  assert.equal(DockerRunner.matchesSpec({ env: ['GW_KEY=apigw-new'], imageId: 'sha256:old' }, 'apigw-new', 'sha256:abc'), false, 'tag 同名但镜像 ID 变了 → 重建')
-  assert.equal(DockerRunner.matchesSpec({ env: ['GW_KEY=apigw-new'], imageId: 'sha256:abc' }, '', 'sha256:abc'), false, 'manager 侧无钥匙却认领有钥匙容器 → 重建')
-  assert.equal(DockerRunner.matchesSpec({ env: ['GW_KEY=apigw-new'], imageId: 'sha256:abc' }, 'apigw-new', null), true, '拿不到期望镜像 ID 时跳过镜像比对（只比钥匙）')
+  assert.equal(DockerRunner.matchesSpec(good, 'apigw-new', 'sha256:abc'), true, 'key and image ID agree -> adoptable')
+  assert.equal(DockerRunner.matchesSpec(good, 'apigw-other', 'sha256:abc'), false, 'an old key -> rebuild (the reinstall-leftover root cause)')
+  assert.equal(DockerRunner.matchesSpec({ env: ['GW_KEY=apigw-new'], imageId: 'sha256:old' }, 'apigw-new', 'sha256:abc'), false, 'same tag but a new image ID -> rebuild')
+  assert.equal(DockerRunner.matchesSpec({ env: ['GW_KEY=apigw-new'], imageId: 'sha256:abc' }, '', 'sha256:abc'), false, 'no key on the manager side but a keyed container -> rebuild')
+  assert.equal(DockerRunner.matchesSpec({ env: ['GW_KEY=apigw-new'], imageId: 'sha256:abc' }, 'apigw-new', null), true, 'with no expected image ID, skip the image check (key only)')
 })
 
-/** runToolIo 测试专用假 dockerode：attach 返回多路复用帧流（可注入 stdout/stderr/退出码）。 */
+/** The fake dockerode for the runToolIo tests: attach returns a multiplexed frame stream (stdout/stderr/exit code injectable). */
 const fakeToolDocker = (scenario: { exitCode: number; frames?: Array<{ type: number; payload: string }> }) => {
   const state = {
     created: [] as Array<Record<string, unknown>>,
@@ -224,7 +224,7 @@ const fakeToolDocker = (scenario: { exitCode: number; frames?: Array<{ type: num
               for (const f of frames) stream.write(frame(f.type, f.payload))
               stream.end()
             }
-            // 无帧 = 纯 stdin 场景：流保持打开，由 pipeline 收尾（真实 attach 流同语义）
+            // No frames = the stdin-only case: the stream stays open and the pipeline ends it (same as a real attach stream)
           })
           return stream
         },
@@ -238,7 +238,7 @@ const fakeToolDocker = (scenario: { exitCode: number; frames?: Array<{ type: num
   return { state, docker: docker as unknown as Dockerode }
 }
 
-test('债务 R10 回归: runToolIo 经 attach 流式传输——stdout 落文件（不 bind 备份目录，宿主路径不可知）', async () => {
+test('Debt R10 regression: runToolIo streams over attach -- stdout lands in a file (no backup-dir bind; the host path is unknown)', async () => {
   const root = mkdtempSync(join(tmpdir(), 'runToolIo-'))
   try {
     const f = fakeToolDocker({ exitCode: 0, frames: [{ type: 1, payload: 'tar-bytes-here' }] })
@@ -249,18 +249,18 @@ test('债务 R10 回归: runToolIo 经 attach 流式传输——stdout 落文件
       [{ from: 'dac-personal', to: '/data' }],
       { stdout: outFile },
     )
-    assert.equal(readFileSync(outFile, 'utf8'), 'tar-bytes-here', 'stdout 帧必须完整落到文件')
+    assert.equal(readFileSync(outFile, 'utf8'), 'tar-bytes-here', 'the stdout frames must land in the file intact')
     const created = f.state.created[0] as { HostConfig: { Binds: string[] }; AttachStdout: boolean; AttachStdin: boolean | undefined }
-    assert.deepEqual(created.HostConfig.Binds, ['dac-personal:/data'], '只绑卷——备份目录不再作为宿主路径 bind（ENOENT 根因）')
+    assert.deepEqual(created.HostConfig.Binds, ['dac-personal:/data'], 'volume bind only -- the backup dir is no longer bound as a host path (the ENOENT root cause)')
     assert.equal(created.AttachStdout, true)
-    assert.notEqual(created.AttachStdin, true, '无 stdin 时不挂 stdin')
-    assert.equal(f.state.removed, 1, '工具容器用完即删')
+    assert.notEqual(created.AttachStdin, true, 'stdin is not attached when there is none')
+    assert.equal(f.state.removed, 1, 'the tool container is removed as soon as it is done')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
 })
 
-test('债务 R10 回归: runToolIo 退出码非 0 抛错并带 stderr', async () => {
+test('Debt R10 regression: runToolIo throws on a non-zero exit code and carries stderr', async () => {
   const f = fakeToolDocker({ exitCode: 1, frames: [{ type: 2, payload: 'tar: error reading /data\n' }] })
   await assert.rejects(
     () => new DockerRunner({ docker: f.docker }).runToolIo('alpine:3.20', ['tar', 'czf', '-', '-C', '/data', '.'], [], {}),
@@ -269,7 +269,7 @@ test('债务 R10 回归: runToolIo 退出码非 0 抛错并带 stderr', async ()
   assert.equal(f.state.removed, 1)
 })
 
-test('债务 R10 回归: runToolIo stdin 从文件喂给工具容器（restore 反向流）', async () => {
+test('Debt R10 regression: runToolIo feeds stdin from a file into the tool container (the restore reverse flow)', async () => {
   const root = mkdtempSync(join(tmpdir(), 'runToolIo-stdin-'))
   try {
     const f = fakeToolDocker({ exitCode: 0 })
@@ -281,7 +281,7 @@ test('债务 R10 回归: runToolIo stdin 从文件喂给工具容器（restore �
       [{ from: 'dac-personal', to: '/data' }],
       { stdin: inFile },
     )
-    assert.equal(Buffer.concat(f.state.stdinWritten).toString('utf8'), 'tarball-bytes', 'stdin 必须原样喂进 attach 流')
+    assert.equal(Buffer.concat(f.state.stdinWritten).toString('utf8'), 'tarball-bytes', 'stdin must be fed into the attach stream verbatim')
     const created = f.state.created[0] as { AttachStdin: boolean | undefined }
     assert.equal(created.AttachStdin, true)
     assert.equal(f.state.removed, 1)

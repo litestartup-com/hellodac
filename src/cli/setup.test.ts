@@ -26,19 +26,19 @@ test('buildManagerConfig wires two managed nodes, agents, sandbox and presets', 
   assert.equal(ep['brain']?.url, 'http://127.0.0.1:3082')
   assert.deepEqual(spawn('brain').args, ['C:/nvm4w/nodejs/node_modules/@deepseek-ai/dsh/lib/bin.js', '--profile', 'dac-brain', '--no-open'])
   assert.deepEqual(spawn('personal').env, { DSH_HOME: 'C:/Users/me/.dac/dac-personal' })
-  // 主脑节点进程必须拿到 BRAIN_TOKEN，技能手册里的 curl 才能过内部 API 的门
+  // The brain node process has to get BRAIN_TOKEN, or the curl in the skills handbook cannot pass the internal API gate
   assert.deepEqual(spawn('brain').env, {
     DSH_HOME: 'C:/Users/me/.dac/dac-brain',
     BRAIN_TOKEN: 'brain-token-1',
   })
-  // 每节点独立 gateway 密钥（分 ref 引用）
+  // An independent gateway key per node (referenced by ref)
   assert.equal(ep['personal']?.sandbox_key_ref, 'GW_KEY_A')
   assert.equal(ep['brain']?.sandbox_key_ref, 'GW_KEY_B')
   const agents = config.agents as Record<string, Record<string, unknown>>
   assert.equal(agents['personal']?.preset, 'standard')
   assert.equal(agents['personal']?.sandbox_mode, 'workspace-write')
   assert.equal(agents['brain']?.endpoint, 'brain')
-  // 蜂群 P5.1：主脑日派工预算熔断随 setup 默认开启
+  // Hive P5.1: the brain's daily dispatch budget circuit breaker is on by default with setup
   const brain = config.brain as Record<string, unknown>
   assert.equal(brain['daily_budget_usd'], 1.0)
 })
@@ -63,16 +63,16 @@ test('ensureNodeProfiles writes one isolated DSH_HOME per node, idempotently', (
         dependencies: Record<string, string>
       }
       assert.ok(pkg.dsh.profile.bundles.includes('ohdsh-api-facade'))
-      assert.equal(pkg.dependencies['ohdsh-api-facade'], GATEWAY_REF, 'gateway 引用钉死 commit，不再追 master')
-      // 蜂群2计划 P1：bundle 钉版本 = COMPAT_DSH_VERSION，根治安装漂移
+      assert.equal(pkg.dependencies['ohdsh-api-facade'], GATEWAY_REF, 'the gateway reference is pinned to a commit, no longer chasing master')
+      // Hive plan 2 P1: bundle versions pinned to COMPAT_DSH_VERSION, curing install drift at the root
       assert.equal(pkg.dependencies['@deepseek-ai/dsh-base'], COMPAT_DSH_VERSION)
       assert.equal(pkg.dependencies['@deepseek-ai/dsh-web-app'], COMPAT_DSH_VERSION)
-      // pnpm ≥10 构建脚本白名单（镜像构建实测撞过 ERR_PNPM_IGNORED_BUILDS）
+      // The pnpm >= 10 build-script allowlist (a real image build hit ERR_PNPM_IGNORED_BUILDS)
       const workspace = readFileSync(join(dir, 'pnpm-workspace.yaml'), 'utf8')
-      assert.ok(workspace.includes('onlyBuiltDependencies:'), '必须声明构建脚本白名单')
-      assert.ok(workspace.includes('node-pty') && workspace.includes('koffi'), '原生依赖必须在白名单内')
+      assert.ok(workspace.includes('onlyBuiltDependencies:'), 'the build-script allowlist must be declared')
+      assert.ok(workspace.includes('node-pty') && workspace.includes('koffi'), 'the native dependencies must be inside the allowlist')
     }
-    // 幂等：第二次不重建、不报错
+    // Idempotent: a second run rebuilds nothing and reports no error
     assert.deepEqual(ensureNodeProfiles(nodesHome, specs, GATEWAY_REF), [])
   } finally {
     rmSync(nodesHome, { recursive: true, force: true })
@@ -101,7 +101,7 @@ test('ensureNodeCredentials copies the model key once, never overwriting', () =>
     writeFileSync(join(main, '.credentials.yaml'), 'provider: x\n', 'utf8')
     assert.equal(ensureNodeCredentials(main, node), true)
     assert.equal(readFileSync(join(node, '.credentials.yaml'), 'utf8'), 'provider: x\n')
-    // 已有凭据不覆盖
+    // Existing credentials are not overwritten
     writeFileSync(join(node, '.credentials.yaml'), 'provider: mine\n', 'utf8')
     assert.equal(ensureNodeCredentials(main, node), false)
     assert.equal(readFileSync(join(node, '.credentials.yaml'), 'utf8'), 'provider: mine\n')
@@ -110,7 +110,7 @@ test('ensureNodeCredentials copies the model key once, never overwriting', () =>
   }
 })
 
-test('resolveGatewayKey reuses the provisioned key, else mints and appends apiKeys（facade 命名空间）', () => {
+test('resolveGatewayKey reuses the provisioned key, else mints and appends apiKeys (the facade namespace)', () => {
   const home = mkdtempSync(join(tmpdir(), 'setup-key-'))
   const settings = join(home, 'settings.yaml')
   try {
@@ -122,10 +122,10 @@ test('resolveGatewayKey reuses the provisioned key, else mints and appends apiKe
     assert.match(minted, /^apigw-[0-9a-f]{48}$/)
     const parsed = parseYaml(readFileSync(settings, 'utf8')) as { 'ohdsh-api-facade': { apiKeys: string[] } }
     assert.deepEqual(parsed['ohdsh-api-facade'].apiKeys, [minted])
-    // 旧命名空间的钥匙不被新 facade 读取（容器路径同款坑回归）
+    // A key from the old namespace is not read by the new facade (the same trap as the container path, as a regression)
     writeFileSync(settings, stringifyYaml({ 'dsh-api-gw': { provisionedKey: 'apigw-stale' } }), 'utf8')
     const fresh = resolveGatewayKey(home, settings)
-    assert.notEqual(fresh, 'apigw-stale', 'dsh-api-gw 段对 0.1.2 facade 无效，必须重新铸钥')
+    assert.notEqual(fresh, 'apigw-stale', 'the dsh-api-gw section means nothing to the 0.1.2 facade, so a key must be minted again')
   } finally {
     rmSync(home, { recursive: true, force: true })
   }
@@ -145,20 +145,20 @@ test('parseArgs: npm run setup --force is recognised via npm_config_force (npm s
   }
 })
 
-test('蜂群2计划 P1: parseArgs recognises --skip-version-check', () => {
+test('Hive plan 2 P1: parseArgs recognises --skip-version-check', () => {
   assert.equal(parseArgs([]).options.skipVersionCheck, false)
   assert.equal(parseArgs(['--skip-version-check']).options.skipVersionCheck, true)
 })
 
-test('蜂群2计划 P1: dshCompatible compares against the pinned version', () => {
+test('Hive plan 2 P1: dshCompatible compares against the pinned version', () => {
   assert.equal(dshCompatible(COMPAT_DSH_VERSION), true)
   assert.equal(dshCompatible(`v${COMPAT_DSH_VERSION}`), true)
   assert.equal(dshCompatible('0.1.1-rc.3'), false)
   assert.equal(dshCompatible(null), false)
 })
 
-test('蜂群2计划 P1: checkPortFree reports occupation truthfully', async () => {
-  // 先占一个随机端口
+test('Hive plan 2 P1: checkPortFree reports occupation truthfully', async () => {
+  // Occupy a random port first
   const net = await import('node:net')
   const blocker = net.createServer()
   await new Promise<void>((resolveListen) => blocker.listen(0, '127.0.0.1', resolveListen))
@@ -166,27 +166,27 @@ test('蜂群2计划 P1: checkPortFree reports occupation truthfully', async () =
   assert.ok(address !== null && typeof address === 'object')
   const port = address.port
   try {
-    assert.equal(await checkPortFree(port), false, '有进程监听的端口必须判占用')
+    assert.equal(await checkPortFree(port), false, 'a port some process is listening on must count as occupied')
   } finally {
     await new Promise<void>((resolveClose) => blocker.close(() => resolveClose()))
   }
-  assert.equal(await checkPortFree(port), true, '释放后的端口必须判空闲')
+  assert.equal(await checkPortFree(port), true, 'a released port must count as free')
 })
 
-test('蜂群2计划 P1: probeToolVersions reports node and marks missing dsh as null', () => {
+test('Hive plan 2 P1: probeToolVersions reports node and marks a missing dsh as null', () => {
   const tools = probeToolVersions(null)
-  assert.ok(tools.node !== null, 'node 是跑测试的前提，必然存在')
+  assert.ok(tools.node !== null, 'node is the prerequisite for running tests, so it is certainly there')
   assert.match(tools.node, /^v?\d+\./)
   assert.equal(tools.dsh, null)
 })
 
-test('蜂群2计划 P6 回归: Windows 上 pnpm 探测必须穿透 .CMD 垫片（node≥20 无 shell 直接 EINVAL/ENOENT）', { skip: process.platform !== 'win32' }, () => {
+test('Hive plan 2 P6 regression: on Windows the pnpm probe has to go through the .CMD shim (node >= 20 without a shell gives EINVAL/ENOENT)', { skip: process.platform !== 'win32' }, () => {
   const tools = probeToolVersions(null)
-  assert.ok(tools.pnpm !== null, 'pnpm 已装且探针必须找得到——发布实测：旧探针报 EINVAL 导致 setup 自检假红')
+  assert.ok(tools.pnpm !== null, 'pnpm is installed and the probe has to find it -- measured at release: the old probe reported EINVAL and made the setup self-check fail for nothing')
   assert.match(tools.pnpm, /^\d+\.\d+\.\d+$/)
 })
 
-test('0.1.2 切主路回归: 节点依赖改 npm——pnpm9 预发布区间失效、pnpm11 白名单失效（容器双墙实证）', () => {
+test('0.1.2 main-path switch regression: node dependencies move to npm -- the pnpm9 prerelease range stopped matching and the pnpm11 allowlist stopped working (both walls proven in the container)', () => {
   const win = profileInstallCommand('win32')
   assert.equal(win.cmd, 'npm')
   assert.deepEqual(win.args, ['install', '--no-audit', '--no-fund'])
@@ -195,13 +195,13 @@ test('0.1.2 切主路回归: 节点依赖改 npm——pnpm9 预发布区间失�
   assert.deepEqual(posix.args, ['install', '--no-audit', '--no-fund'])
 })
 
-test('蜂群2计划 P6 回归: setup 必须预生成首启密码进 .env（manager 隐藏窗口启动，生成密码会丢）', () => {
+test('Hive plan 2 P6 regression: setup has to pre-generate the first-boot password into .env (the manager starts in a hidden window, so a generated password would be lost)', () => {
   const values = setupEnvValues('apigw-a', 'apigw-b')
   assert.equal(values.GW_KEY_A, 'apigw-a')
   assert.equal(values.GW_KEY_B, 'apigw-b')
   assert.match(values.SESSION_SECRET, /^[0-9a-f]{64}$/)
   assert.match(values.BRAIN_TOKEN, /^[0-9a-f]{48}$/)
-  assert.match(values.MANAGER_INITIAL_PASSWORD, /^[A-Za-z0-9_-]{22}$/, '16 字节 base64url')
+  assert.match(values.MANAGER_INITIAL_PASSWORD, /^[A-Za-z0-9_-]{22}$/, '16 bytes of base64url')
 })
 
 test('adoptOldWorkspaces keeps user-customised workspaces unless explicitly overridden', () => {  const options = { personalWorkspace: './workspaces/personal', brainWorkspace: './workspaces/brain' }
@@ -211,13 +211,13 @@ test('adoptOldWorkspaces keeps user-customised workspaces unless explicitly over
   assert.equal(options.personalWorkspace, 'C:/Workplace/gitee/note-kaka')
   assert.equal(options.brainWorkspace, 'D:/brain')
 
-  // 显式传参优先：--workspace 指了新的，旧值让路
+  // An explicit argument wins: --workspace points at a new one, so the old value gives way
   const explicit = { personalWorkspace: './new-one', brainWorkspace: './workspaces/brain' }
   adoptOldWorkspaces(old, { personalWorkspace: true, brainWorkspace: false }, explicit)
   assert.equal(explicit.personalWorkspace, './new-one')
   assert.equal(explicit.brainWorkspace, 'D:/brain')
 
-  // 旧配置缺字段/损坏：不动现状
+  // An old config with a missing or broken field: leave the current state alone
   const untouched = { personalWorkspace: 'a', brainWorkspace: 'b' }
   adoptOldWorkspaces({ agents: {} }, { personalWorkspace: false, brainWorkspace: false }, untouched)
   assert.deepEqual(untouched, { personalWorkspace: 'a', brainWorkspace: 'b' })
@@ -248,7 +248,7 @@ test('mergeEnv forceKeys overrides stale values (setup-owned secrets must match 
     assert.equal(again.GW_KEY_A, 'new-key')
     assert.equal(again.GW_KEY_B, 'new-b')
     assert.equal(again.SESSION_SECRET, 's')
-    // 非 force 键仍是旧值优先
+    // A non-force key still prefers the old value
     const third = mergeEnv(env, { SESSION_SECRET: 'later' }, ['GW_KEY_A', 'GW_KEY_B'])
     assert.equal(third.SESSION_SECRET, 's')
   } finally {

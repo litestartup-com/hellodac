@@ -8,7 +8,7 @@ import { DEFAULT_LOCALE, t as translate, type Locale } from './i18n/index.js'
  * Splices each page's body into one shared frame at boot.
  *
  * Every page used to carry its own copy of the `<head>`, the icon sprite and a
- * 返回 button, and only the dashboard had the sidebar -- so navigating anywhere
+ * back button, and only the dashboard had the sidebar -- so navigating anywhere
  * threw the frame away and handed back a bare document. The frame is the
  * application; the page is the part that differs.
  *
@@ -43,12 +43,12 @@ export interface PageDef {
 }
 
 export const PAGES: Record<string, PageDef> = {
-  // 页面标题里的产品名来自 src/brand.ts（改品牌/域名只改一处）。
+  // The product name in the page title comes from src/brand.ts (change the brand/domain in one place).
   // `wide` buys these a roomier column than the old home page's reading width:
   // a month of daily bars needs it.
   spend: { file: 'spend.html', title: `{{t:spend.title}} · ${BRAND.name}`, css: ['spend.css'], script: 'spend.js', contentClass: 'wide' },
-  // 公开版精简（DAC v1.0.0）：定时任务页已下线——引擎与 /api/crons 保留
-  // （内部 API 与未来的调度 UI 可回归），但不再是对外页面。
+  // Public-edition trim (DAC v1.0.0): the cron page is retired -- the engine and /api/crons stay
+  // (the internal API and a future scheduling UI can return), but it is no longer a public page.
   // The other half of archiving: without a place to see what was archived, a
   // soft delete is indistinguishable from a real one.
   archive: {
@@ -58,19 +58,19 @@ export const PAGES: Record<string, PageDef> = {
     script: 'archive.js',
     contentClass: 'wide',
   },
-  // 公开版精简（DAC v1.0.0）：大盘页已下线（UI 删除，后端 src/board/* 与
-  // /api/board/*、/api/internal/agents/:id/board 保留——主脑按大盘文件产出）。
-  // `content-flush`：the composer is pinned to the bottom of the column, so the
+  // Public-edition trim (DAC v1.0.0): the dashboard page is retired (the UI is gone, while the backend
+  // src/board/* and /api/board/*, /api/internal/agents/:id/board stay -- the brain produces dashboard files).
+  // `content-flush`: the composer is pinned to the bottom of the column, so the
   // page owns its full height and cannot be inset by the standard content padding.
   chat: {
     file: 'chat.html',
     title: `{{t:topbar.chat}} · ${BRAND.name}`,
-    // dsw-theme.css 先于 chat.css：DSH web 的整套主题 token（对齐基准）。
+    // dsw-theme.css comes before chat.css: DSH web's full set of theme tokens (the alignment baseline).
     css: ['dsw-theme.css', 'chat.css'],
     script: 'chat.js',
     contentClass: 'content-flush',
   },
-  // 蜂群 Q4：节点（fleet）总览——侧栏只留汇总与异常，完整列表在这里。
+  // Hive Q4: the node (fleet) overview -- the sidebar keeps only the summary and anomalies, the full list is here.
   nodes: {
     file: 'nodes.html',
     title: `{{t:nodes.title}} · ${BRAND.name}`,
@@ -78,8 +78,8 @@ export const PAGES: Record<string, PageDef> = {
     script: 'nodes.js',
     contentClass: 'wide',
   },
-  // UI 收尾 A：全局任务流独立成页（从 /nodes 的「最近任务」迁出并升级为
-  // 筛选 + 分页）；主脑派活在这里留痕。
+  // UI wrap-up A: the global task stream became its own page (moved out of /nodes' "recent tasks" and
+  // upgraded to filtering + paging); the brain's dispatches leave their trace here.
   runs: {
     file: 'runs.html',
     title: `{{t:runs.title}} · ${BRAND.name}`,
@@ -87,7 +87,7 @@ export const PAGES: Record<string, PageDef> = {
     script: 'runs.js',
     contentClass: 'wide',
   },
-  // 蜂群 P5.2：技能清单（v1 只读——文件即真相 + 版本对照）。
+  // Hive P5.2: the skill list (v1 read-only -- the files are the truth + a version comparison).
   skills: {
     file: 'skills.html',
     title: `{{t:skills.title}} · ${BRAND.name}`,
@@ -95,7 +95,7 @@ export const PAGES: Record<string, PageDef> = {
     script: 'skills.js',
     contentClass: 'wide',
   },
-  // 对外 API：钥匙管理（后台面；客户面是 8081 的 /v1，两扇门不互认）
+  // Outward API: key management (the admin surface; the customer surface is /v1 on 8081, and the two doors do not recognise each other)
   keys: {
     file: 'keys.html',
     title: `{{t:keys.title}} · ${BRAND.name}`,
@@ -103,7 +103,7 @@ export const PAGES: Record<string, PageDef> = {
     script: 'keys.js',
     contentClass: 'wide',
   },
-  // 蜂群2计划 P3：首登强制改密 + 审计流水
+  // Hive plan 2 P3: forced password change on first login + the audit trail
   password: {
     file: 'password.html',
     title: `{{t:password.title}} · ${BRAND.name}`,
@@ -121,16 +121,16 @@ export const PAGES: Record<string, PageDef> = {
 }
 
 /**
- * 布局里**必须**出现的占位符（buildPages 启动期校验；测试据此拼夹具布局）。
- * 只是「可替换」的占位符（{{TAGLINE}}/{{BRAND_FULL}}）不在此列：它们由页面片段
- * 或独立页按需使用，布局不引用时不该逼着布局保留空位。
+ * The placeholders the layout **must** contain (buildPages checks them at boot; tests build fixture layouts from this).
+ * Merely "substitutable" placeholders ({{TAGLINE}}/{{BRAND_FULL}}) are not on the list: page fragments or
+ * standalone pages use them as needed, and a layout that does not reference one should not be forced to keep the slot.
  *
- * {{REPO_URL}}/{{HOMEPAGE}} 已移出本清单（2026-09-25）：侧栏底部那个 GitHub 图标
- * 被删除、仓库入口收进 ⋮ → About 之后，布局里再也没有它们的使用者——继续要求
- * 布局保留一个没人用的占位符，只会逼着后来者把一个死标记放回去。
+ * {{REPO_URL}}/{{HOMEPAGE}} left this list on 2026-09-25: the GitHub icon at the bottom of the sidebar was
+ * deleted and the repo entry moved into ⋮ -> About, so the layout no longer has a user for them -- insisting
+ * the layout keep an unused placeholder only forces the next person to put a dead marker back.
  *
- * {{BRAND_SUB}} 同样移出（2026-09-26）：品牌副行改为随语言切换（布局里直接
- * `{{t:brand.sub}}` 走译文），不再需要单一英文值占位。
+ * {{BRAND_SUB}} left the list the same way (2026-09-26): the brand sub-line now follows the language (the
+ * layout uses `{{t:brand.sub}}` and goes through the translation), so a single English-value placeholder is no longer needed.
  */
 export const PLACEHOLDERS = [
   '{{TITLE}}',
@@ -193,12 +193,12 @@ export const assetCacheHeaders = (reply: { header: (name: string, value: string)
   reply.header('cache-control', 'no-cache')
 }
 
-/** 模板里的翻译占位符：`{{t:nav.nodes}}`。 */
+/** The translation placeholder in a template: `{{t:nav.nodes}}`. */
 const TRANSLATION_TOKEN = /\{\{t:([A-Za-z0-9_.-]+)\}\}/g
 
 /**
- * 把 `{{t:key}}` 换成译文。缺键直接抛错——启动期炸掉比在页面上显示键名好，
- * 也比"英文页面里混一句中文"好：布局是每页共用的，一次漏翻影响全站。
+ * Replaces `{{t:key}}` with the translation. A missing key throws -- blowing up at boot beats showing the key
+ * name on the page, and beats "one Chinese sentence mixed into an English page": the layout is shared by every page, so one missed translation hits the whole site.
  */
 const translateTokens = (text: string, locale: Locale): string =>
   text.replace(TRANSLATION_TOKEN, (_whole, key: string) => {
@@ -210,20 +210,20 @@ const translateTokens = (text: string, locale: Locale): string =>
 const render = (layout: string, def: PageDef, fragment: string, locale: Locale): string => {
   const head = def.css.map((href) => `<link rel="stylesheet" href="/assets/${href}" />`).join('\n    ')
   const script = def.script === null ? '' : `<script src="/assets/${def.script}" type="module"></script>`
-  // 翻译先做：片段与布局里的 {{t:...}} 都在这一步收敛，后面只剩框架占位符。
+  // Translation comes first: every {{t:...}} in fragments and the layout is resolved here, leaving only framework placeholders.
   const localizedLayout = translateTokens(layout, locale)
   const localizedFragment = translateTokens(fragment, locale)
-  // 客户端字典（本语言全量，几 KB）：由 /api/i18n/<locale> 提供给 shell.js
-  // 与 login.js（CSP 禁内联脚本，不能内嵌到页面里），保证服务端渲染与客户端
-  // 动态文案用的是同一份译文。
+  // The client dictionary (the whole language, a few KB): /api/i18n/<locale> serves it to shell.js and
+  // login.js (CSP forbids inline scripts, so it cannot be embedded in the page), which keeps server-rendered
+  // and client-side dynamic text on the same translation.
   return localizedLayout
-    // replaceAll：品牌占位符在一个页面里可能出现多次（标题、侧栏、注入脚本），
-    // 用 replace 只会换掉第一处——2026-09-24 实测踩到（spend 页残留 {{BRAND}}）。
+    // replaceAll: a brand placeholder can appear several times on one page (title, sidebar, injected script),
+    // and replace would only swap the first -- hit for real on 2026-09-24 ({{BRAND}} left behind on the spend page).
     .replaceAll('{{TITLE}}', translateTokens(def.title, locale))
     .replaceAll('{{HEAD}}', head)
     .replaceAll('{{CONTENT_CLASS}}', def.contentClass)
-    // 品牌占位符（DAC v1.0.0）：产品名/仓库/站点来自 src/brand.ts，页面里
-    // 不散写 URL（改域名只改一处）。
+    // Brand placeholders (DAC v1.0.0): the product name/repo/site come from src/brand.ts, and pages never
+    // scatter URLs (change the domain in one place).
     .replaceAll('{{BRAND}}', BRAND.name)
     .replaceAll('{{BRAND_MARK}}', BRAND.mark)
     .replaceAll('{{BRAND_FULL}}', BRAND.fullName)
@@ -242,8 +242,8 @@ const render = (layout: string, def: PageDef, fragment: string, locale: Locale):
  * placeholder or a missing i18n key fails at startup with a clear message,
  * instead of serving a broken page to whoever happens to open it first.
  *
- * 语言维度也在这里展开（每种语言一套 HTML）：页面是纯静态字符串，按语言预渲染
- * 比每请求模板替换便宜，也不会把「服务端渲染 + 客户端字典」两份译文弄不一致。
+ * The language dimension expands here too (one set of HTML per language): pages are plain static strings, and
+ * pre-rendering per language is cheaper than substituting at every request, nor can it let the "server render + client dictionary" pair drift apart.
  */
 export const buildPages = (publicDir: string, locale: Locale = DEFAULT_LOCALE): Map<string, string> => {
   const layout = readFileSync(join(publicDir, 'layout.html'), 'utf8')
@@ -264,7 +264,7 @@ export const buildPages = (publicDir: string, locale: Locale = DEFAULT_LOCALE): 
   return out
 }
 
-/** 每种语言一套页面（memo：启动期算一次）。 */
+/** One set of pages per language (memo: computed once at boot). */
 export const buildAllPages = (publicDir: string, locales: readonly Locale[]): Map<Locale, Map<string, string>> => {
   const out = new Map<Locale, Map<string, string>>()
   for (const locale of locales) out.set(locale, buildPages(publicDir, locale))
@@ -272,10 +272,10 @@ export const buildAllPages = (publicDir: string, locales: readonly Locale[]): Ma
 }
 
 /**
- * 布局之外的独立页（登录页）也按语言预渲染。
+ * Standalone pages outside the layout (the login page) are pre-rendered per language too.
  *
- * 登录页故意不套 layout 的壳：侧栏画的是 agent 数据，而登录时还没有会话可查。
- * 它需要的是同一套译文与品牌占位符，而不是整套框架。
+ * The login page deliberately stays out of the layout shell: the sidebar draws agent data, and at login there is
+ * no chat to look up yet. What it needs is the same translations and brand placeholders, not the whole frame.
  */
 export const buildStandalonePage = (publicDir: string, file: string, locale: Locale): string => {
   const raw = readFileSync(join(publicDir, file), 'utf8')

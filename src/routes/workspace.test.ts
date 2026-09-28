@@ -7,14 +7,14 @@ import Fastify from 'fastify'
 import type { AppConfig } from '../config.js'
 import { registerWorkspaceRoutes } from './workspace.js'
 
-/** 债务 C2:workspace 路由(agent 工作区体检 + note-data 读取)此前零覆盖。 */
+/** Debt C2: the workspace routes (agent workspace inspection + note-data reading) had zero coverage before. */
 
 const setup = (): { app: ReturnType<typeof Fastify>; dir: string; cleanup: () => void } => {
   const dir = mkdtempSync(join(tmpdir(), 'workspace-route-'))
   const config: AppConfig = {
     listen: { host: '127.0.0.1', port: 0 },
     endpoints: {},
-    agents: { personal: { id: 'personal', name: '个人', endpoint: 'A', workspacePath: dir, public: false, preset: null, gitRemote: null, provider: null, model: null, sandboxMode: null, validate: null } },
+    agents: { personal: { id: 'personal', name: 'Personal', endpoint: 'A', workspacePath: dir, public: false, preset: null, gitRemote: null, provider: null, model: null, sandboxMode: null, validate: null } },
     runner: { timeoutMs: 1_000, silenceMs: 0, maxConsecutiveFailures: 3, dailyBudgetMicroUsd: null },
     databasePath: ':memory:',
     pricing: { rates: {}, peakWindows: [] },
@@ -27,7 +27,7 @@ const setup = (): { app: ReturnType<typeof Fastify>; dir: string; cleanup: () =>
   return { app, dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) }
 }
 
-test('债务 C2: 未知 agent 404;空工作区体检 200 且问题可见', async () => {
+test('Debt C2: an unknown agent 404s; an empty workspace inspects as 200 with its problems visible', async () => {
   const { app, cleanup } = setup()
   const missing = await app.inject({ method: 'GET', url: '/api/agents/nope/workspace' })
   assert.equal(missing.statusCode, 404)
@@ -42,21 +42,21 @@ test('债务 C2: 未知 agent 404;空工作区体检 200 且问题可见', async
     problems: Array<{ file: string; reason: string }>
   }
   assert.equal(body.agent.id, 'personal')
-  // 空目录 = 非 git 仓库:体检必须显性报告(而不是 500 或假装健康)
+  // An empty directory = not a git repository: the inspection must report that plainly (rather than 500 or pretending to be healthy)
   assert.equal(body.git.isRepo, false)
-  assert.ok(Array.isArray(body.blockers) && body.blockers.length > 0, '非 git 工作区必须有阻断项')
+  assert.ok(Array.isArray(body.blockers) && body.blockers.length > 0, 'a non-git workspace must have blockers')
   assert.equal(body.noteData.present, false)
 
   const nd = await app.inject({ method: 'GET', url: '/api/agents/personal/notedata' })
   assert.equal(nd.statusCode, 200)
   const ndBody = nd.json() as { loaded: string[]; problems: unknown[]; violations: unknown[]; data: unknown }
-  assert.deepEqual(ndBody.loaded, [], '空目录无 note-data')
-  assert.deepEqual(ndBody.violations, [], '无数据无违规')
+  assert.deepEqual(ndBody.loaded, [], 'an empty directory has no note-data')
+  assert.deepEqual(ndBody.violations, [], 'no data means no violations')
   await app.close()
   cleanup()
 })
 
-test('债务 C2: 未知 agent 的 notedata 同样 404', async () => {
+test('Debt C2: notedata for an unknown agent 404s the same way', async () => {
   const { app, cleanup } = setup()
   const missing = await app.inject({ method: 'GET', url: '/api/agents/nope/notedata' })
   assert.equal(missing.statusCode, 404)

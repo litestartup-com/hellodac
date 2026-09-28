@@ -9,7 +9,7 @@ import { openDb, schema, type Db } from './db/index.js'
 import { GatewayClient } from './gateway/client.js'
 import { startFakeGateway, type FakeGateway, type FakeScript } from './gateway/fake.js'
 import { activeRunCount, runAgent, runningRunId } from './runner.js'
-// 债务 C3:makeDb/agentFor 收敛进 test-harness(本地保留别名,行为不变)。
+// Debt C3: makeDb/agentFor moved into test-harness (a local alias is kept, behavior unchanged).
 import { makeDb as makeHarnessDb, personalAgent } from './test-harness.js'
 
 const API_KEY = 'test-key'
@@ -363,7 +363,7 @@ test('a failure to create the session fails the run cleanly', async () => {
   assert.equal(runningRunId('personal'), null)
 })
 
-test('two concurrent runs on the same agent both complete (蜂群 P5.4)', async () => {
+test('two concurrent runs on the same agent both complete (Hive P5.4)', async () => {
   const db = makeDb()
   const gw = await boot({ ...SUCCESS, gapMs: 60 })
   const agent = agentFor(mkdtempSync(join(tmpdir(), 'ws-')))
@@ -379,7 +379,7 @@ test('two concurrent runs on the same agent both complete (蜂群 P5.4)', async 
   assert.equal(activeRunCount('personal'), 0, 'both runs left the active set')
   assert.equal(runningRunId('personal'), null)
 
-  // 两个并发 run 都留下了自己的行——不再有「一活 run」约束。
+  // Both concurrent runs left their own row -- there is no longer a "one live run" constraint.
   const rows = db.select().from(schema.run).all()
   assert.equal(rows.length, 2)
 })
@@ -446,7 +446,7 @@ const TWO_RESPONSES: FakeScript = {
   ],
 }
 
-// 2026-08-28 是周五（工作日）——周末全天低谷的规则见 pricing.test。
+// 2026-08-28 is a Friday (a workday) -- the all-day off-peak rule for weekends lives in pricing.test.
 const OFF_PEAK = Date.parse('2026-08-28T12:00:00Z')
 const PEAK = Date.parse('2026-08-28T02:00:00Z')
 /** One million in plus one million out on deepseek-v4-pro. */
@@ -796,8 +796,8 @@ test('the run row exists while the run is in flight', async () => {
   await pending
 })
 
-test('债务 A2 回归: usage 记账落库失败 → run 不落 done 半态,降级 failed 且账目缺口显性', async () => {
-  // 自建 db(需要 sqlite 句柄注入触发器):usage_record 插入即抛 = 磁盘满/约束冲突的真实失败路径
+test('Debt A2 regression: a failed usage write -> the run does not stay in the half-state done; it degrades to failed and the accounting gap is visible', async () => {
+  // A hand-built db (a sqlite handle is needed to inject the trigger): usage_record throws on insert = the real failure path of a full disk or a constraint conflict
   const dir = mkdtempSync(join(tmpdir(), 'runner-db-'))
   const { db, sqlite } = openDb(join(dir, 'test.db'))
   db.insert(schema.agent)
@@ -817,8 +817,8 @@ test('债务 A2 回归: usage 记账落库失败 → run 不落 done 半态,降�
   const gw = await boot(SUCCESS)
   const workspace = mkdtempSync(join(tmpdir(), 'ws-'))
 
-  // 修复前:usage 插入失败直接抛出,run 行停留在中间态(旧代码先写 done 后写 usage);
-  // 修复后:事务回滚 + 降级 failed,run 行有终态且账目缺口在 error 显性可见。
+  // Before the fix: a failing usage insert was thrown straight out and the run row stayed in an intermediate state (the old code wrote done before usage);
+  // After the fix: the transaction rolls back and the run degrades to failed, so the row has a terminal state and the accounting gap is visible in error.
   const outcome = await runAgent({ db }, {
     agent: agentFor(workspace),
     client: clientFor(gw),
@@ -827,13 +827,13 @@ test('债务 A2 回归: usage 记账落库失败 → run 不落 done 半态,降�
   })
 
   assert.equal(outcome.state, 'failed')
-  assert.match(outcome.error ?? '', /记账失败/)
+  assert.match(outcome.error ?? '', /accounting failed/)
   const rows = db.select().from(schema.run).where(eq(schema.run.id, outcome.runId)).all()
-  assert.equal(rows[0]?.state, 'failed', 'run 行必须落在 failed 终态,不能停留在 running/done 半态')
-  assert.match(rows[0]?.error ?? '', /记账失败/)
+  assert.equal(rows[0]?.state, 'failed', 'the run row must land in the terminal failed state, never linger in running/done')
+  assert.match(rows[0]?.error ?? '', /accounting failed/)
   assert.equal(
     db.select().from(schema.usageRecord).where(eq(schema.usageRecord.runId, outcome.runId)).all().length,
     0,
-    '事务回滚后 usage 无残留行',
+    'no leftover usage rows after the transaction rolls back',
   )
 })

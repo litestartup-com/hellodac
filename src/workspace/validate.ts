@@ -5,10 +5,10 @@ import type { NoteData } from './notedata.js'
  * violate them. These are checks, not rewrites: a failing write is rejected
  * and rolled back rather than silently "fixed".
  *
- * 债务 E12:业务规则全部外置为 `ValidateRules`(来自 manager.config.yaml 的
- * agent.validate 段)——旧实现把 note-kaka 的窗口/金额/acct 规则硬编码在
- * 代码里,任何新用户都会继承一套不属于自己的治理行为。代码只保留两样:
- * 通用的凭证检查(no-secrets,所有工作区都该有)与规则引擎。
+ * Debt E12: every business rule is externalised as `ValidateRules` (from the agent.validate section of
+ * manager.config.yaml) -- the old implementation hardcoded note-kaka's window/amount/acct rules, so any new
+ * user inherited a set of governance behaviour that was not theirs. The code keeps only two things: the generic
+ * credential check (no-secrets, which every workspace should have) and the rule engine.
  */
 
 export interface Violation {
@@ -17,17 +17,17 @@ export interface Violation {
   detail: string
 }
 
-/** 债务 E12:per-agent 治理规则(manager.config.yaml → agent.validate)。 */
+/** Debt E12: per-agent governance rules (manager.config.yaml -> agent.validate). */
 export interface ValidateRules {
-  /** 治理窗口:「路径(点分)→ 条目上限 + 归档去向」,note-kaka README §3 的外置化。 */
+  /** Governance windows: "path (dot-separated) -> entry cap + archive destination", the externalised form of note-kaka README §3. */
   windows: { path: string; max: number; archive: string }[]
-  /** trade 数据禁金额字段(RULE.md §7 的外置化)。 */
+  /** Forbid amount fields in trade data (the externalised form of RULE.md §7). */
   forbidAmountFields: boolean
-  /** acct.flow 只保留最近 N 个月(README §2.5 的外置化);null = 不检查。 */
+  /** acct.flow keeps only the last N months (the externalised form of README §2.5); null = do not check. */
   acctFlowMaxAgeMonths: number | null
 }
 
-/** 无业务规则的默认值:只做通用的凭证检查。 */
+/** The default when there are no business rules: only the generic credential check. */
 export const DEFAULT_RULES: ValidateRules = { windows: [], forbidAmountFields: false, acctFlowMaxAgeMonths: null }
 
 const asArray = (value: unknown): unknown[] | null => (Array.isArray(value) ? value : null)
@@ -134,7 +134,7 @@ const checkSecrets = (data: NoteData): Violation[] => {
   return out
 }
 
-/** acct.flow keeps the current and previous months only(阈值由规则外置)。 */
+/** acct.flow keeps the current and previous months only (the threshold comes from the external rules). */
 const checkAcctFlow = (data: NoteData, maxAgeMonths: number, now: Date): Violation[] => {
   const flow = asArray(dig(data, ['acct', 'flow']))
   if (flow === null) return []
@@ -170,7 +170,7 @@ const checkAcctFlow = (data: NoteData, maxAgeMonths: number, now: Date): Violati
 
 export interface ValidateOptions {
   now?: Date
-  /** 债务 E12:per-agent 规则;缺省 = DEFAULT_RULES(只做通用凭证检查)。 */
+  /** Debt E12: per-agent rules; the default is DEFAULT_RULES (only the generic credential check). */
   rules?: ValidateRules
 }
 

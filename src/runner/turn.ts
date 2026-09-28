@@ -1,15 +1,15 @@
 /**
- * 债务 E1:runner 的回合核心下沉为独立模块。
+ * Debt E1: the runner's turn core moved down into its own module.
  *
- * 旧实现:runAgent 里一个 ~460 行的巨型闭包 + 两份回合循环(turnGateway /
- * turnApiproxy),共享逻辑(usage 计价、文本累积、tool 计数、turn_end 终态)
- * 逐字复制两份。本模块:
+ * The old implementation: one ~460-line mega-closure inside runAgent plus two turn loops
+ * (turnGateway / turnApiproxy), with the shared logic (usage pricing, text accumulation, tool
+ * counting, the turn_end final state) copied word for word in both. This module:
  *
- * - `TurnState`:回合可变状态的显式化(旧实现是闭包捕获的一把 let);
- * - `makeFinish`:终态落库(债务 A2 原子记账)+ 幂等(债务 R8)——入参是状态
- *   对象与依赖,不再捕获 runAgent 的局部变量;
- * - `handleTurnFrame`:两份循环共享的帧处理器——循环只留自己的差异
- *   (gateway:hello 回放/发消息时机;apiproxy:重连帧/审计日志/订阅机制)。
+ * - `TurnState`: the turn's mutable state made explicit (the old implementation was a pile of lets captured by the closure);
+ * - `makeFinish`: writing the final state (Debt A2 atomic accounting) + idempotence (Debt R8) -- it takes a state
+ *   object and the dependencies, no longer capturing runAgent's locals;
+ * - `handleTurnFrame`: the frame handler shared by both loops -- each loop keeps only its own differences
+ *   (gateway: hello replay / when to send the message; apiproxy: reconnect frames / audit log / subscription mechanics).
  */
 import { eq } from 'drizzle-orm'
 import { schema, type Db } from '../db/index.js'
@@ -25,10 +25,10 @@ export interface TurnState {
   reason: string | null
   toolCalls: number
   texts: string[]
-  /** 逐响应累积成本(每次响应按到达时刻计价,回合可能跨峰谷)。 */
+  /** Cost accumulated response by response (each response is priced at its arrival time; a turn can span peak and off-peak). */
   accruedCost: number
   accruedPeakCost: number
-  /** 第一个有价响应缺费率即置 false——未定价模型报诚实缺口而非部分合计。 */
+  /** Set to false as soon as the first priced response has no rate -- an unpriced model reports an honest gap, not a partial total. */
   costKnown: boolean
 }
 
@@ -56,13 +56,13 @@ export interface FinishDeps {
   now: () => number
   startedAt: number
   log?: { info: (msg: string) => void; warn: (msg: string) => void; error: (msg: string) => void }
-  /** 总超时与静默计时器的清理(旧 finish 里的 clearTimeout(timer)+clearSilence)。 */
+  /** Clears the overall timeout and the silence timer (clearTimeout(timer) + clearSilence in the old finish). */
   clearTimers: () => void
 }
 
 /**
- * 终态工厂:把回合收尾(清计时器 → 算钱 → 原子落库 → 组 RunOutcome)下沉。
- * 幂等(债务 R8):abort / 重连 / turn_end / 异常路径竞态下多路触发,只落一次账。
+ * The final-state factory: it pulls the turn's wrap-up (clear timers -> price the turn -> atomic write -> build the RunOutcome) down here.
+ * Idempotent (Debt R8): abort / reconnect / turn_end / the error path race and fire from several directions, yet only one write lands.
  */
 export const makeFinish = (
   state: TurnState,
@@ -107,8 +107,8 @@ export const makeFinish = (
       conflict: null,
     })
 
-    // 债务 A2:run 终态与用量落库必须原子——旧代码先写 done 后写 usage,
-    // usage 失败会留下「done + 无账目」或依赖 boot 收敛的半态。
+    // Debt A2: the run's final state and the usage write must be atomic -- the old code wrote done
+    // and then usage, so a usage failure left "done with no accounting", or a half state for boot to reconcile.
     // Written even when the run failed: the tokens were spent either way, and
     // usage cannot be reconstructed after the fact.
     try {
@@ -142,9 +142,10 @@ export const makeFinish = (
           .run()
       })
     } catch (accountingError) {
-      // 记账事务失败(磁盘满/约束冲突):降级为单写 failed 终态——账目缺口
-      // 在 error 里显性可见,绝不静默把「done 但没账」的回合交给账本。
-      const accountingText = `记账失败,本次用量可能未入账: ${(accountingError as Error).message}`
+      // The accounting transaction failed (disk full / constraint conflict): fall back to writing only the
+      // failed final state -- the accounting gap stays visible in the error instead of silently handing
+      // the ledger a "done but unaccounted" turn.
+      const accountingText = `accounting failed, this usage may not have been recorded: ${(accountingError as Error).message}`
       deps.log?.error(`run ${deps.runId}: ${accountingText}`)
       deps.db
         .update(schema.run)
@@ -173,10 +174,10 @@ export const makeFinish = (
 }
 
 // ---------------------------------------------------------------------------
-// 共享帧处理器
+// The shared frame handler
 // ---------------------------------------------------------------------------
 
-/** turn_end 的终态换算(两份循环逐字相同的部分)。 */
+/** The final-state mapping for turn_end (the part both loops had word for word). */
 const endFromTurnEnd = (frame: GatewayFrame): { state: RunState; error: string | null } => {
   const detail = frame.detail as { message?: string; cause?: string } | null
   if (frame.reason === 'error') {
@@ -191,21 +192,21 @@ const endFromTurnEnd = (frame: GatewayFrame): { state: RunState; error: string |
 export type FrameResult = { kind: 'continue' } | { kind: 'end'; state: RunState; error: string | null }
 
 export interface FrameHooks {
-  /** 直播帧转发(浏览器中继)。 */
+  /** Forwards live frames (the browser relay). */
   relay: (frame: GatewayFrame) => void
   trackAwaiting: (frame: GatewayFrame) => void
   armSilence: () => void
-  /** apiproxy 特例:回合中流重连(结果未知,显性失败)。gateway 不传。 */
+  /** apiproxy special case: a mid-turn stream reconnect (result unknown, fails loudly). Not passed by gateway. */
   onReconnect?: () => void
 }
 
 /**
- * 一份帧的共享处理核心(两份循环逐字相同的部分收敛):
- * trackAwaiting → armSilence → relay → 直播计价/文本 → tool_call → turn_end。
+ * The shared processing core for one frame (the part both loops had word for word, brought together):
+ * trackAwaiting -> armSilence -> relay -> live pricing/text -> tool_call -> turn_end.
  *
- * 不进这里的两类特例(循环自己处理):
- * - hello:gateway 的历史回放(绝不转发/计费),且发消息时机挂在第一条 hello 上;
- * - stream_reconnected:apiproxy 的显性失败(经 hooks.onReconnect)。
+ * Two special cases stay out of here (each loop handles its own):
+ * - hello: gateway's history replay (never forwarded and never billed), and the message is sent on the first hello;
+ * - stream_reconnected: apiproxy's explicit failure (through hooks.onReconnect).
  */
 export const handleTurnFrame = (
   state: TurnState,

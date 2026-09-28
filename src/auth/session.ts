@@ -15,7 +15,7 @@ const digest = (token: string): string => createHash('sha256').update(token).dig
 export interface SessionUser {
   id: number
   username: string
-  /** 蜂群2计划 P3：首登强制改密标记（requireUser 按它放行/拦截）。 */
+  /** Hive plan 2 P3: the forced-first-login password change flag (requireUser lets through or blocks by it). */
   mustChangePassword: boolean
 }
 

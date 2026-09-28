@@ -8,7 +8,7 @@ import { UpstreamClient } from '../upstream/client.js'
 import { FakeSessionDriver } from '../session-driver/fake.js'
 import { DEFAULT_PRICING } from '../pricing.js'
 import { _clearProbeCache, registerStatusRoutes } from './status.js'
-// 债务 C3:带参 agent 构造 + 双 agent 测试库 + 临时目录收敛进 test-harness。
+// Debt C3: the agent builder with parameters + the two-agent test database + temp directories all moved into the test harness.
 import { agentWith, makeDbWithAgents, tempDir } from '../test-harness.js'
 
 /**
@@ -23,8 +23,8 @@ const agentFor = (id: string, name: string, workspacePath: string, isPublic = fa
   agentWith({ id, name, workspacePath, public: isPublic })
 
 const boot = (): { app: FastifyInstance; db: Db } => {
-  _clearProbeCache() // 债务 B4:探测缓存跨测试残留会污染同 id 的不同形态断言
-  // 债务 C3:双 agent 测试库收敛进 test-harness。
+  _clearProbeCache() // Debt B4: a probe cache left over between tests would pollute assertions about shapes of the same id
+  // Debt C3: the two-agent test database moved into the test harness.
   const workspace = tempDir('route-status-ws')
   const db = makeDbWithAgents([
     { id: 'personal', workspacePath: workspace },
@@ -112,15 +112,15 @@ test('an apiproxy endpoint gets a row probed via host.describe, not /health', as
   assert.equal(body.endpoints[0]!.driver, 'apiproxy')
   assert.equal(body.endpoints[0]!.reachable, false)
   assert.ok(body.endpoints[0]!.error !== null, 'the unreachable reason is included')
-  // 蜂群2计划 P1：探测失败时版本字段为 null，不产生虚假告警
+  // Hive plan 2 P1: a failed probe leaves the version field null, so it raises no false alarm
   assert.equal(body.endpoints[0]!.dshVersion, null)
   assert.equal(body.endpoints[0]!.dshCompatible, null)
-  // 债务 D5：manager 自身版本暴露（构建期注入的单一真相源）
-  assert.match(body.managerVersion, /^\d+\.\d+\.\d+$/, 'managerVersion 必须可读')
+  // Debt D5: the manager's own version exposed (a single source of truth injected at build time)
+  assert.match(body.managerVersion, /^\d+\.\d+\.\d+$/, 'managerVersion must be readable')
   await app.close()
 })
 
-test('债务 B4 回归: TTL 内重复轮询复用缓存探测,不每请求扇出', async () => {
+test('Debt B4 regression: polling again within the TTL reuses the cached probe instead of fanning out per request', async () => {
   _clearProbeCache()
   const workspace = tempDir('route-status-cache-ws')
   const db = makeDbWithAgents([{ id: 'personal', workspacePath: workspace }])
@@ -147,14 +147,14 @@ test('债务 B4 回归: TTL 内重复轮询复用缓存探测,不每请求扇出
 
   await app.inject({ method: 'GET', url: '/api/status' })
   await app.inject({ method: 'GET', url: '/api/status' })
-  assert.equal(probes, 1, 'TTL 内第二次轮询必须复用缓存,不得再探测(旧代码每请求扇出 = 2 次)')
+  assert.equal(probes, 1, 'a second poll within the TTL must reuse the cache, not probe again (the old code fanned out per request = 2)')
   _clearProbeCache()
   await app.inject({ method: 'GET', url: '/api/status' })
-  assert.equal(probes, 2, 'TTL 过期后恢复探测')
+  assert.equal(probes, 2, 'probing resumes once the TTL has expired')
   await app.close()
 })
 
-test('舰队 M1 试点回归: 兼容性信号走矩阵——0.1.5-rc.2 verified 行必须 compatible（旧逻辑 === COMPAT_DSH_VERSION 误报）', async () => {
+test('Fleet M1 pilot regression: the compatibility signal goes through the matrix -- a 0.1.5-rc.2 verified row must be compatible (the old logic === COMPAT_DSH_VERSION reported a false alarm)', async () => {
   _clearProbeCache()
   const workspace = tempDir('route-status-matrix-ws')
   const db = makeDbWithAgents([{ id: 'personal', workspacePath: workspace }])
@@ -178,6 +178,6 @@ test('舰队 M1 试点回归: 兼容性信号走矩阵——0.1.5-rc.2 verified 
   const response = await app.inject({ method: 'GET', url: '/api/status' })
   const body = response.json()
   assert.equal(body.endpoints[0]!.dshVersion, '0.1.5-rc.2')
-  assert.equal(body.endpoints[0]!.dshCompatible, true, '0.1.5-rc.2 在矩阵 verified 行内，兼容性必须为 true')
+  assert.equal(body.endpoints[0]!.dshCompatible, true, '0.1.5-rc.2 is in a verified row of the matrix, so compatibility must be true')
   await app.close()
 })

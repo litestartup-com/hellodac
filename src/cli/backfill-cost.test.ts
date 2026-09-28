@@ -8,16 +8,16 @@ import { openDb } from '../db/index.js'
 import { backfillCosts } from './backfill-cost.js'
 
 /**
- * 债务 C2(重点):backfill-cost 是「写钱」的 CLI,此前零覆盖。
- * 红证:旧代码顶层直接执行 main() 且无 backfillCosts 导出(导入即炸/加载失败)。
- * 修复 = main 体抽成可注入路径的纯函数,isDirect 才执行(与 setup.ts 同模式)。
+ * Debt C2 (the important one): backfill-cost is a CLI that writes money, and it had zero coverage.
+ * Red proof: the old code ran main() at the top level and exported no backfillCosts (importing it blew up / failed to load).
+ * The fix = the body of main became a pure function with an injectable path, executed only under isDirect (the same pattern as setup.ts).
  */
 
-// 债务 D5:loadConfig 的 env 校验要求 SESSION_SECRET——本地靠仓库根的 .env
-// 掩盖,CI 干净 checkout 必炸(config.test/reconcile.test 同款兜底,此处补齐)。
+// Debt D5: loadConfig's env validation requires SESSION_SECRET -- the .env at the repo root hides that
+// locally, and a clean CI checkout blows up (the same fallback as config.test/reconcile.test, added here).
 if (process.env.SESSION_SECRET === undefined) process.env.SESSION_SECRET = 'x'.repeat(32)
 
-const TEST_RATE_INPUT = 1 // 美元/百万 token
+const TEST_RATE_INPUT = 1 // dollars per million tokens
 const TEST_RATE_OUTPUT = 2
 
 const makeEnv = (): { dir: string; configPath: string; dbPath: string } => {
@@ -29,7 +29,7 @@ const makeEnv = (): { dir: string; configPath: string; dbPath: string } => {
     stringify({
       listen: { host: '127.0.0.1', port: 8080 },
       endpoints: { A: { url: 'http://127.0.0.1:3080', driver: 'apiproxy' } },
-      agents: { personal: { name: '个人', endpoint: 'A', workspace: dir } },
+      agents: { personal: { name: 'Personal', endpoint: 'A', workspace: dir } },
       database: { path: dbPath },
       pricing: {
         models: {
@@ -47,7 +47,7 @@ const seed = (dbPath: string): ReturnType<typeof openDb> => {
   opened.sqlite
     .prepare(
       `INSERT INTO agent (id, name, workspace_path, endpoint, public, created_at)
-       VALUES ('personal', '个人', '.', 'A', 0, 1750000000000)`,
+       VALUES ('personal', 'Personal', '.', 'A', 0, 1750000000000)`,
     )
     .run()
   opened.sqlite
@@ -70,19 +70,19 @@ const seed = (dbPath: string): ReturnType<typeof openDb> => {
   return opened
 }
 
-test('债务 C2 回归: dry-run 不写;--apply 写入正确费用;无 rate 行跳过;已定价行不动', () => {
+test('Debt C2 regression: dry-run writes nothing; --apply writes the right cost; rows without a rate are skipped; already priced rows stay put', () => {
   const { dir, configPath, dbPath } = makeEnv()
   const opened = seed(dbPath)
   opened.sqlite.close()
 
   const dry = backfillCosts(configPath, false)
-  assert.equal(dry.rows, 2, '只扫 cost IS NULL 的行(已定价行不在其中)')
+  assert.equal(dry.rows, 2, 'only rows with cost IS NULL are scanned (priced rows are not among them)')
   assert.equal(dry.priced, 1)
   assert.equal(dry.stillUnpriced, 1)
   {
     const { sqlite } = openDb(dbPath)
     const priced = sqlite.prepare(`SELECT cost FROM usage_record WHERE run_id = 'r-priced'`).get() as { cost: number | null }
-    assert.equal(priced.cost, null, 'dry-run 绝不写钱')
+    assert.equal(priced.cost, null, 'dry-run never writes money')
     sqlite.close()
   }
 
@@ -95,20 +95,20 @@ test('债务 C2 回归: dry-run 不写;--apply 写入正确费用;无 rate 行�
     const priced = sqlite.prepare(`SELECT cost, peak_cost FROM usage_record WHERE run_id = 'r-priced'`).get() as { cost: number; peak_cost: number }
     // off-peak:1000/1e6*1 + 2000/1e6*2 = 0.005 USD = 5000 micro-USD
     assert.equal(priced.cost, 5_000)
-    assert.equal(priced.peak_cost, 0, '无峰值窗口 → peak_cost = 0')
+    assert.equal(priced.peak_cost, 0, 'no peak window -> peak_cost = 0')
     const unpriced = sqlite.prepare(`SELECT cost FROM usage_record WHERE run_id = 'r-unpriced'`).get() as { cost: number | null }
-    assert.equal(unpriced.cost, null, '仍无 rate 的行绝不乱标')
+    assert.equal(unpriced.cost, null, 'a row still without a rate is never given a made-up cost')
     const done = sqlite.prepare(`SELECT cost FROM usage_record WHERE run_id = 'r-done'`).get() as { cost: number | null }
-    assert.equal(done.cost, 777, '已定价的历史绝不重写')
+    assert.equal(done.cost, 777, 'already priced history is never rewritten')
     sqlite.close()
   }
   rmSync(dir, { recursive: true, force: true })
 })
 
-test('债务 C2 回归: 无未定价行时零操作', () => {
+test('Debt C2 regression: no unpriced rows means no operation at all', () => {
   const { dir, configPath, dbPath } = makeEnv()
   const opened = openDb(dbPath)
-  opened.sqlite.prepare(`INSERT INTO agent (id, name, workspace_path, endpoint, public, created_at) VALUES ('personal', '个人', '.', 'A', 0, 1750000000000)`).run()
+  opened.sqlite.prepare(`INSERT INTO agent (id, name, workspace_path, endpoint, public, created_at) VALUES ('personal', 'Personal', '.', 'A', 0, 1750000000000)`).run()
   opened.sqlite.prepare(`INSERT INTO run (id, agent_id, trigger, state, started_at) VALUES ('r-done2', 'personal', 'manual', 'done', 1750000000000)`).run()
   opened.sqlite.prepare(`INSERT INTO usage_record (run_id, provider, model, input_tokens, output_tokens, cost, at) VALUES ('r-done2', 'p', 'priced-model', 1, 2, 9, 1750000000000)`).run()
   opened.sqlite.close()

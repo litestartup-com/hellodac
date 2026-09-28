@@ -1,9 +1,9 @@
 /**
- * Per-chat send queue（蜂群 P5.4 修订）。
+ * Per-chat send queue (revised for Hive P5.4).
  *
- * 并发语义：**会话内串行、会话间并行**。同一个 gateway 会话同时只能跑一个
- * 回合，所以同一会话的新消息在本会话上一回合完成前排队（FIFO，跨页面一致）；
- * 不同会话互不阻塞——那才是 P5.4 要的并发。
+ * Concurrency semantics: **serial within a chat, parallel across chats**. One gateway chat can run
+ * only one turn at a time, so a new message for a chat queues until that chat's previous turn ends
+ * (FIFO, consistent across pages); different chats never block each other -- the concurrency P5.4 wants.
  *
  * In-memory only — a manager restart drops queued turns, which is no worse
  * than today's refusal (the sender re-sends).
@@ -46,7 +46,7 @@ export const drainChatQueue = (chatId: string): void => {
   }
   const next = q.shift()
   if (next === undefined) {
-    // 债务 E10:显式判空(前面查过 length>0,但 TS 收窄不到 shift 的返回)
+    // Debt E10: check for empty explicitly (length>0 was checked above, but TS cannot narrow shift's result)
     queues.delete(chatId)
     return
   }

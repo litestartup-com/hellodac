@@ -1,12 +1,12 @@
 /**
- * 债务 E2:回合编排从 routes/chat.ts 抽出——三层拆分(relay / 回合编排 /
- * CRUD 路由壳)的第二层。
+ * Debt E2: turn orchestration extracted from routes/chat.ts -- the middle layer of a three-way
+ * split (relay / turn orchestration / CRUD route shell).
  *
- * 编排职责(蜂群 P5.4 修订):**会话内串行、会话间并行**——同一个 gateway
- * 会话同时只能跑一个回合,所以每个 chat 同一时刻最多一个回合(chatTurns
- * 登记);同会话的新消息排进该 chat 的队列,前一个完成后自动接着跑;不同
- * chat 互不阻塞。会话名额(maxSessions)仍是全局上限,满了的失败如实透给
- * 用户。路由壳只解析请求,派工/队列衔接/收尾全在这里。
+ * Orchestration duties (Hive P5.4 revision): **serial within a chat, parallel across chats** -- one gateway
+ * session runs one turn at a time, so a chat runs at most one turn at any moment (registered in chatTurns);
+ * a new message for the same chat queues behind its turn and starts once the previous one finishes; different
+ * chats never block each other. The chat slot limit (maxSessions) is still the global cap and a failure when
+ * it is full is reported to the user as-is. The route shell only parses requests; dispatch, queue hand-off and teardown all live here.
  */
 import type { FastifyBaseLogger } from 'fastify'
 import type { AppConfig, ResolvedAgent } from '../config.js'
@@ -25,27 +25,27 @@ export interface TurnRunnerDeps {
   config: AppConfig
   log: FastifyBaseLogger
   publish: (chatId: string, payload: unknown) => void
-  /** 直播帧记忆(刷新后仍能拿到回合中帧);与 publish 一起挂在 onFrame 上。 */
+  /** Live-frame memory (frames of a running turn survive a refresh); mounted on onFrame together with publish. */
   rememberLiveFrame: (chatId: string, frame: Record<string, unknown>) => void
-  /** 历史缓存失效(回合新增事件 / 模型与沙箱切换后)。 */
+  /** Invalidate the history cache (after a turn adds events / a model or sandbox switch). */
   invalidateHistory: (sessionId: string) => void
 }
 
 export interface TurnOptions {
   /**
-   * 这一轮的账记在哪把对外钥匙上（对外 API 调用）。缺省 = 对内回合。
-   * 单独一个对象参数而不是第 7 个位置参数：调用点两种（对内、对外）差别只在这里，
-   * 位置参数一排到底最容易在某个调用点漏传。
+   * Which public key this turn is billed to (public API calls). Default = an internal turn.
+   * One object argument rather than a 7th positional parameter: the two call sites (internal, public) differ
+   * only here, and a run of positional parameters is exactly how one call site ends up missing a value.
    */
   apiKeyId?: string | null
 }
 
 export interface ChatTurnRunner {
-  /** 该 chat 是否有回合在跑(会话内串行判断)。 */
+  /** Whether this chat has a turn running (the serial-within-a-chat check). */
   hasRunningTurn: (chatId: string) => boolean
-  /** 中止在跑回合(abort 信号);true = 确实有回合被中止。 */
+  /** Abort the running turn (abort signal); true = a turn really was aborted. */
   abortTurn: (chatId: string) => boolean
-  /** 跑一轮并**等它跑完**：对外 API 要的是"这一轮的答复"，所以必须能拿到结果。 */
+  /** Run a turn and **wait for it to finish**: the public API wants "the answer to this turn", so the result must be available. */
   startChatTurn: (
     chat: ChatRow,
     agent: ResolvedAgent,
@@ -152,9 +152,10 @@ export const makeChatTurnRunner = (deps: TurnRunnerDeps): ChatTurnRunner => {
       try {
         return await runChatTurn(chat, agent, client, upstream, driver, text, controller.signal, options)
       } catch (error) {
-        // 后台界面靠 relay 收失败（没有哪个 HTTP 回复承载它）；但**必须同时把异常抛给
-        // 调用方**：对外 API 是同步问答，吞掉异常会让客户拿到一个"成功但空"的响应。
-        // 因此内部调用点统一 `.catch(() => undefined)`（帧已经发过了）。
+        // The admin UI receives failures through the relay (no HTTP reply carries them); but the exception
+        // **must also be rethrown to the caller**: the public API is synchronous Q&A, and swallowing it would
+        // hand the customer a "successful but empty" response. So internal call sites all use
+        // `.catch(() => undefined)` (the frames were already sent).
         const doneFrame = {
           kind: 'turn_done',
           state: 'failed',

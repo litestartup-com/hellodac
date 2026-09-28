@@ -5,16 +5,16 @@ import type { AppConfig } from '../config.js'
 import { currentHead } from '../workspace/snapshot.js'
 
 /**
- * 蜂群 P5.2：技能清单（v1 只读）。
+ * Hive P5.2: the skill list (v1 is read-only).
  *
- * 技能的真相源 = 每个 agent 工作区的 `.skills/<name>/SKILL.md`（文件即真相）；
- * 版本 = 工作区 git HEAD（2026-09-05 已修复工作区嵌套，运行审计与技能版本同源）。
- * 启停/分发/仓库化写入是 P5.5 配置写回机制的事——本页不放假按钮。
+ * A skill's source of truth = `.skills/<name>/SKILL.md` in each agent's workspace (the file is truth);
+ * the version = the workspace git HEAD (workspace nesting fixed 2026-09-05, same source as the run
+ * audit). Enabling/dispatching/repo writes belong to P5.5's config writeback -- no fake buttons here.
  */
 
 export interface SkillInfo {
   name: string
-  /** SKILL.md 的第一行标题（去掉 #），或空串。 */
+  /** The first-line title of SKILL.md (with the # stripped), or an empty string. */
   description: string
   file: string
 }
@@ -23,7 +23,7 @@ export interface AgentSkills {
   agentId: string
   agentName: string
   workspacePath: string
-  /** 工作区 git HEAD 短哈希；null = 不是 git 仓库（审计未生效）。 */
+  /** The workspace git HEAD short hash; null = not a git repo (audit not in effect). */
   version: string | null
   skills: SkillInfo[]
 }
@@ -67,7 +67,7 @@ export const registerSkillsRoutes = (app: FastifyInstance, config: AppConfig, re
       })),
     )
 
-    // 约定俗成的技能仓库位置（未来分发/同步的源）。现在只报状态，不写。
+    // The conventional skills repo location (the future source for dispatch/sync). Reports status only; writes nothing.
     const repo = existsSync(join(SKILLS_REPO, '.git'))
       ? {
           path: SKILLS_REPO,

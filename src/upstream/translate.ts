@@ -6,8 +6,8 @@
  * 1. mux frame payload / history entry → manager's HistoryEvent (same shape as GatewayEvent)
  * 2. manager inputs → apiproxy RPC params
  *
- * 债务 E16:wire 现实核实笔记已迁设计库事实卡 dsh-facts.md §9(translate 段)。
- * 本模块自实现 gateway eventPayload 的子集,不 import dsh-api-gateway(两仓解耦)。
+ * Debt E16: the notes verifying the wire reality moved to the design library's fact card dsh-facts.md §9 (translate section).
+ * This module implements its own subset of the gateway eventPayload and does not import dsh-api-gateway (which keeps the two repos decoupled).
  */
 
 import { z } from 'zod'
@@ -17,11 +17,11 @@ import { normalizeUsage, type TokenUsage, type GatewayFrame } from '../gateway/s
 // ---- mux frame → HistoryEvent ----
 
 /**
- * 债务 E8:帧体判别 schema——替代手工 `Record<string, unknown>` 拍平。
- * 形状逐帧对照 wire 现实(dsh-facts.md §9;dsh-api-gateway answerer/streams
- * 源码实证):payload.type 与信封 method 一致;未知帧型不在此判别之列
- * (session/subscribed、stream/error、session/queue、session/jobs 由信封层处理
- * 或丢弃),故判别联合无 catch-all——已知帧型形状不符 = fail-loud 丢弃,不猜。
+ * Debt E8: frame-body discriminated schemas -- they replace the hand-flattened `Record<string, unknown>`.
+ * Every shape was checked frame by frame against the wire reality (dsh-facts.md §9; verified in the
+ * dsh-api-gateway answerer/streams source): payload.type agrees with the envelope method; unknown frame
+ * types are not discriminated here (session/subscribed, stream/error, session/queue, session/jobs are
+ * handled or dropped by the envelope layer), so the union has no catch-all -- a known frame with the wrong shape is dropped fail-loud, not guessed at.
  */
 
 const questionItemSchema = z.object({ id: z.string(), question: z.string() }).passthrough()
@@ -29,7 +29,7 @@ const questionItemSchema = z.object({ id: z.string(), question: z.string() }).pa
 const sessionEventFrameSchema = z.object({
   type: z.literal('session/event'),
   sessionId: z.string(),
-  /** 事件深形状由 eventPayload 映射(返回 null = 无 wire 形式)。 */
+  /** The deep shape of an event is mapped by eventPayload (null = no wire form). */
   event: z.unknown(),
   view: z.unknown().optional(),
 }).passthrough()
@@ -80,10 +80,10 @@ export const muxFrameSchema = z.discriminatedUnion('type', [
   approvalResolvedFrameSchema,
 ])
 
-/** 债务 E8:判别后的帧体联合类型(替代旧 loose interface)。 */
+/** Debt E8: the discriminated frame-body union type (replacing the old loose interface). */
 export type MuxFrame = z.infer<typeof muxFrameSchema>
 
-/** 已知帧型严格判别;形状不符或未知帧型返回 null(由调用方丢弃)。 */
+/** Strict discrimination of known frame types; a wrong shape or an unknown frame type returns null (the caller drops it). */
 export const parseMuxPayload = (payload: unknown): MuxFrame | null => {
   const parsed = muxFrameSchema.safeParse(payload)
   return parsed.success ? parsed.data : null
@@ -106,9 +106,9 @@ const extractBlocks = (content: unknown): { text: string; reasoning: string } =>
   return { text, reasoning }
 }
 
-// 债务 E5:用量归一化不再本地复制(原 normalizeUsage 与 stream.ts 的
-// normalizeUsage 逐字重复,连 OPTIONAL_USAGE_KEYS 都两份)——直接复用 gateway
-// 侧单一实现,两侧行为永远一致。
+// Debt E5: usage normalization is no longer copied locally (the old normalizeUsage duplicated
+// stream.ts's normalizeUsage word for word, down to two copies of OPTIONAL_USAGE_KEYS) -- it reuses
+// the gateway's single implementation, so both sides always behave the same.
 
 const chunkJson = (chunk: unknown): Record<string, unknown> | null => {
   if (chunk === null || typeof chunk !== 'object') return null
@@ -273,11 +273,11 @@ export const extractProjectionTitle = (frame: MuxFrame): { sessionId: string; ti
   return { sessionId: frame.sessionId, title: frame.value }
 }
 
-// ---- goal 投影 → Ongoing Goal 条（2026-09-11：DSH web 的 GoalBar 同源数据） ----
+// ---- goal projection -> the Ongoing Goal bar (2026-09-11: the same source data as DSH web's GoalBar) ----
 
 /**
- * 宿主 `goal` 投影的 wire 形状（GoalProjection | null）中 manager 需要的部分。
- * phase=complete 时前端不渲染；blockedReason 仅 phase=blocked 时非空。
+ * The part of the host `goal` projection's wire shape (GoalProjection | null) that the manager needs.
+ * The frontend renders nothing at phase=complete; blockedReason is non-empty only at phase=blocked.
  */
 export interface UpstreamGoal {
   id: string
@@ -286,7 +286,7 @@ export interface UpstreamGoal {
   blockedReason: string | null
 }
 
-/** 宿主 `goal` 投影的 wire 形状（GoalProjection | null）中 manager 需要的部分（债务 E8:投影判别 schema）。 */
+/** The part of the host `goal` projection's wire shape (GoalProjection | null) that the manager needs (Debt E8: a discriminated projection schema). */
 const goalSchema = z.object({
   id: z.string(),
   objective: z.string(),
@@ -294,7 +294,7 @@ const goalSchema = z.object({
   blockedReason: z.object({ message: z.string().optional() }).passthrough().nullable().optional(),
 }).passthrough()
 
-/** 解析 goal 投影 wire 值；形状不符返回 null（前端视为无目标）。 */
+/** Parses a goal projection wire value; a wrong shape returns null (the frontend treats that as no goal). */
 export const goalOf = (value: unknown): UpstreamGoal | null => {
   const parsed = goalSchema.safeParse(value)
   if (!parsed.success) return null
@@ -303,8 +303,8 @@ export const goalOf = (value: unknown): UpstreamGoal | null => {
 }
 
 /**
- * `session/projection` key=goal 帧 → `{kind:'goal'}` GatewayFrame；
- * 其它 key 或形状不符返回 null（dispatch 丢弃）。
+ * A `session/projection` frame with key=goal -> a `{kind:'goal'}` GatewayFrame;
+ * any other key or a wrong shape returns null (dispatch drops it).
  */
 export const goalProjectionFrame = (payload: MuxFrame): GatewayFrame | null => {
   if (payload.type !== 'session/projection' || payload.key !== 'goal') return null
@@ -312,15 +312,15 @@ export const goalProjectionFrame = (payload: MuxFrame): GatewayFrame | null => {
   return { kind: 'goal', seq, goal: goalOf(payload.value) }
 }
 
-// ---- mux 问答/授权帧 → GatewayFrame（供 runner 与浏览器消费） ----
+// ---- mux question/approval frames -> GatewayFrame (consumed by the runner and the browser) ----
 
-/** 判别联合中 question/requested 变体的窄类型。 */
+/** The narrow type of the question/requested variant in the discriminated union. */
 export type QuestionRequestedFrame = Extract<MuxFrame, { type: 'question/requested' }>
-/** 判别联合中 question/resolved 变体的窄类型。 */
+/** The narrow type of the question/resolved variant in the discriminated union. */
 export type QuestionResolvedFrame = Extract<MuxFrame, { type: 'question/resolved' }>
-/** 判别联合中 approval/requested 变体的窄类型。 */
+/** The narrow type of the approval/requested variant in the discriminated union. */
 export type ApprovalRequestedFrame = Extract<MuxFrame, { type: 'approval/requested' }>
-/** 判别联合中 approval/resolved 变体的窄类型。 */
+/** The narrow type of the approval/resolved variant in the discriminated union. */
 export type ApprovalResolvedFrame = Extract<MuxFrame, { type: 'approval/resolved' }>
 
 /**
@@ -370,11 +370,11 @@ export const approvalResolvedFrame = (payload: ApprovalResolvedFrame, decisionId
   outcome: payload.outcome,
 })
 
-// ---- history / session.list 解包 ----
+// ---- history / session.list unwrapping ----
 
 /**
- * `session.history` 的 value 是 `{ events:[{ event, view? }], hasMore, projections? }`。
- * 拆出每项的 `event`（裸 session 事件），供 mapEvents 消费。
+ * The value of `session.history` is `{ events:[{ event, view? }], hasMore, projections? }`.
+ * Pulls out each item's `event` (the bare session event) for mapEvents to consume.
  */
 export const unwrapHistoryEvents = (value: unknown): unknown[] => {
   if (value === null || typeof value !== 'object') return []
@@ -390,8 +390,8 @@ export const unwrapHistoryEvents = (value: unknown): unknown[] => {
 }
 
 /**
- * `session.list` 的 value 是 `{ items:[{ sessionId, updatedAt, running, blank, projections? }] }`。
- * title 位于 `projections.values.title`（投影块形如 `{ asOfSeq, values }`）。
+ * The value of `session.list` is `{ items:[{ sessionId, updatedAt, running, blank, projections? }] }`.
+ * The title lives at `projections.values.title` (a projection block looks like `{ asOfSeq, values }`).
  */
 export interface SessionSummary {
   sessionId: string
@@ -401,7 +401,7 @@ export interface SessionSummary {
   blank: boolean
 }
 
-/** 债务 E8:session.list 投影判别 schema（wire 形状见模块头注释）。 */
+/** Debt E8: the session.list projection discriminated schema (wire shape in the module header). */
 const sessionListItemSchema = z.object({
   sessionId: z.string(),
   updatedAt: z.number().optional(),

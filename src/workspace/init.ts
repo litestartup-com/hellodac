@@ -76,9 +76,9 @@ const writeGitignore = (workspacePath: string): boolean => {
 }
 
 /**
- * 蜂群 P5.5：给向导新建的工作区一个最小 git 初始化——通用 AGENTS.md +
- * .gitignore + 首次提交，不写任何模板页面。工作区已在某个外层仓库内时不
- * 建嵌套仓，返回警告（与 initWorkspace 的收养警告同一口径）。
+ * Hive P5.5: a wizard-created workspace gets a minimal git init -- a generic AGENTS.md +
+ * .gitignore + the first commit, no template pages. Inside an outer repo no nested repo is
+ * created and a warning comes back (same wording as initWorkspace's adoption warning).
  */
 export const ensureWorkspaceGit = (
   workspacePath: string,
@@ -201,9 +201,9 @@ export const initWorkspace = ({ workspacePath, preset, useGit = true }: InitOpti
     warnings.push(`the workspace was created but a git command failed: ${(error as Error).message.split('\n')[0]}`)
   }
 
-  // 2026-09-05 真实踩坑：工作区目录位于另一个 git 仓库内部时，isGitRepo
-  // 沿父目录找到外层仓库而「收养」之——agent 的每次运行都没有独立提交，
-  // 若文件还被外层 .gitignore 忽略，改动完全不可追溯（主脑工作区实测如此）。
+  // Real trap hit on 2026-09-05: when the workspace directory sits inside another git repo,
+  // isGitRepo walks up and "adopts" the outer repo -- no agent run gets its own commit, and if
+  // the outer .gitignore ignores the files too the changes are untraceable (seen on the brain's workspace).
   if (!gitInitialised && isGitRepo(root) && !existsSync(join(root, '.git'))) {
     warnings.push(
       'This workspace has no git repository of its own (it is adopted by an outer repository), so each agent run leaves no independent commit trail. ' +

@@ -8,22 +8,22 @@ import { collectNodeHomes, lastNodeHomeArchive, packNodeHomes, restoreNodeHome }
 import { DockerRunner } from '../nodes/docker-runner.js'
 
 /**
- * `npm run backup` / `npm run restore -- [快照名|latest]` / `npm run backup -- list`
+ * `npm run backup` / `npm run restore -- [snapshot name|latest]` / `npm run backup -- list`
  *
- * 蜂群 P6 + 蜂群2计划 P4：数据库快照（加密）+ 配置副本（明文，仅供人工参考）
- * + 节点 home（加密归档）。恢复要求 manager 已停止（按配置端口探活）。
+ * Hive P6 + Hive plan 2 P4: a database snapshot (encrypted) + a config copy (plaintext, for human reference only)
+ * + the node homes (an encrypted archive). A restore requires the manager to be stopped (liveness is probed on the configured port).
  *
- * 债务 R3（2026-09-12）：DB 路径、备份目录、探活端口与密钥只来自一次成功的
- * loadConfig()——自定义 database.path / listen.port 不再备错/恢复错文件。
- * 恢复在配置不可读时大声拒绝，绝不静默回退默认库；备份保留 A5 的既定容错
- * （配置损坏时警告 + 回退 cwd 相对默认，备份主体不受阻）。
+ * Debt R3 (2026-09-12): the database path, the backup directory, the probe port and the secret all come from one
+ * successful loadConfig() -- a custom database.path / listen.port no longer backs up or restores the wrong file.
+ * A restore refuses loudly when the config is unreadable and never silently falls back to the default database; backup
+ * keeps the tolerance A5 established (warn on a broken config + fall back to the cwd-relative default, so the backup itself is not blocked).
  *
- * 债务 R4（2026-09-12）口径：`backups/current/manager.config.yaml` 与 `.env.enc`
- * 只是「同备份目录内的参考副本」，restore 只还原 DB 与节点 home——配置恢复
- * 是人工动作（对照参考副本重写真相源），本 CLI 不做自动配置恢复。
+ * Debt R4 (2026-09-12) position: `backups/current/manager.config.yaml` and `.env.enc` are only "reference copies inside
+ * the same backup directory", and restore puts back the database and the node homes alone -- restoring the config is a
+ * human action (rewrite the truth source against the reference copies), and this CLI does no automatic config restore.
  */
 
-/** 端口探活：通 = manager 在跑（恢复前必须停）。port 来自 loadConfig，不再写死 8080。 */
+/** Port probe: reachable = the manager is running (it must be stopped before a restore). The port comes from loadConfig, no longer hardcoded to 8080. */
 const probePort = (port: number): Promise<boolean> =>
   new Promise((done) => {
     const socket = new net.Socket()
@@ -39,7 +39,7 @@ const probePort = (port: number): Promise<boolean> =>
     socket.connect(port, '127.0.0.1')
   })
 
-/** 配置可读时收集节点 home + 必要的 docker runner（传入已加载的 config，不重复 loadConfig）。 */
+/** Collect the node homes and, when needed, a docker runner while the config is readable (passed the already loaded config, so loadConfig is not called twice). */
 const nodeContext = (config: AppConfig | null): { entries: ReturnType<typeof collectNodeHomes>; runner: DockerRunner | undefined } => {
   if (config === null) return { entries: [], runner: undefined }
   const entries = collectNodeHomes(config)
@@ -51,8 +51,8 @@ const main = async (): Promise<void> => {
   const [command, name] = process.argv.slice(2)
 
   if (command === 'restore') {
-    // 债务 R3：恢复要求一次成功的 loadConfig——配置不可读即拒绝，绝不静默
-    // 回退默认库（恢复错文件比不恢复更糟）。
+    // Debt R3: a restore requires one successful loadConfig -- an unreadable config is refused outright, never a
+    // silent fall back to the default database (restoring the wrong file is worse than not restoring).
     let cfg: AppConfig
     try {
       cfg = loadConfig()
@@ -74,16 +74,16 @@ const main = async (): Promise<void> => {
         process.exit(1)
       }
       console.log(result.detail)
-      // 债务 R4 口径：配置副本仅供人工参考，本 CLI 不自动恢复配置。
+      // Debt R4 position: the config copies are for human reference only; this CLI does not restore the config automatically.
       console.log('note: the config copies under backups/current/ (manager.config.yaml / .env.enc) are for reference only and were not restored automatically.')
     } catch (error) {
-      // 加密快照解密失败（篡改/密钥错）也会走到这里——显性失败，绝不静默。
+      // A failed decryption of the encrypted snapshot (tampering, or the wrong secret) also lands here -- a loud failure, never silent.
       console.error(`restore failed: ${(error as Error).message}`)
       process.exit(1)
     }
 
-    // 蜂群2计划 P4：节点 home 一并恢复（各节点取最新归档）。
-    // 评审 B4：目录形态恢复会清空目标——先列出将清空的目录，要求确认。
+    // Hive plan 2 P4: the node homes are restored along with it (each node takes its newest archive).
+    // Review B4: a directory-shaped restore wipes the target -- list the directories that will be wiped and ask for confirmation first.
     const { entries, runner } = nodeContext(cfg)
     const dirTargets = entries.filter((e) => e.kind === 'dir').map((e) => e.home)
     if (dirTargets.length > 0) {
@@ -117,8 +117,8 @@ const main = async (): Promise<void> => {
     return
   }
 
-  // 债务 R3：备份/list 的路径只来自一次成功的 loadConfig；配置损坏时大声
-  // 警告 + 回退 cwd 相对默认（A5 既定设计——数据保护不因配置损坏而停摆）。
+  // Debt R3: the paths for backup/list come from one successful loadConfig only; on a broken config it warns
+  // loudly and falls back to the cwd-relative default (the design A5 settled on -- data protection does not stall because the config is broken).
   let dbPath = resolve('data/manager.db')
   let dir = join(resolve('data'), 'backups')
   let cfg: AppConfig | null = null
@@ -144,12 +144,12 @@ const main = async (): Promise<void> => {
     return
   }
 
-  // 默认 = backup
+  // Default = backup
   if (!existsSync(dbPath)) {
     console.error(`no ${dbPath} — start the manager once before backing anything up.`)
     process.exit(1)
   }
-  // 债务 A5/R3：真相源路径从同一次 loadConfig 的结果取（单一来源）。
+  // Debt A5/R3: the truth-source paths come from that same loadConfig result (a single source).
   const configPath = cfg?.configPath ?? resolve('manager.config.yaml')
   const envPath = cfg?.envPath ?? resolve('.env')
   const result = await backupNow(dbPath, configPath, envPath, dir, cfg?.sessionSecret ?? '')
@@ -162,7 +162,7 @@ const main = async (): Promise<void> => {
     if (packed.length === 0) console.log('node homes: archived within the last 6 hours — skipping.')
     else console.log(`node home archives (encrypted): ${packed.join(', ')}`)
   } else if (cfg === null) {
-    console.warn('节点 home 备份跳过（配置不可读）。')
+    console.warn('node home backup skipped (the config is unreadable).')
   }
 }
 

@@ -55,7 +55,7 @@ const isDir = (path: string): boolean => {
 
 export const inspectWorkspace = async (
   workspacePath: string,
-  /** 债务 E12:治理规则随 agent 配置;缺省 = 通用凭证检查。 */
+  /** Debt E12: governance rules follow the agent config; the default is the generic credential check. */
   rules: ValidateRules = DEFAULT_RULES,
 ): Promise<WorkspaceReport> => {
   const exists = isDir(workspacePath)

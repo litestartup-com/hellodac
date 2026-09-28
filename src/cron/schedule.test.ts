@@ -7,7 +7,7 @@ import type { GatewayClient } from '../gateway/client.js'
 import { DEFAULT_PRICING } from '../pricing.js'
 import { type RunOutcome } from '../runner.js'
 import { Scheduler, missedBetween, scheduleProblem, type CronDeps } from './schedule.js'
-// 债务 C3:makeDb/agentFor 收敛进 test-harness(本地保留别名,行为不变)。
+// Debt C3: makeDb/agentFor moved into the test harness (local aliases kept, behavior unchanged).
 import { makeDb as makeHarnessDb, personalAgent } from '../test-harness.js'
 
 const AGENT: ResolvedAgent = { ...personalAgent('/tmp/ws') }
@@ -224,7 +224,7 @@ test('a success clears the failure count and the stale error', async () => {
   s.stop()
 })
 
-test('蜂群 P5.4：并发时代不再有 busy 跳过——cron 回合与任何回合一样直接跑', async () => {
+test('Hive P5.4: no more busy skips in the concurrent era -- a cron turn runs like any other turn', async () => {
   const db = makeDb()
   seedCron(db, { consecutiveFailures: 0 })
   let called = 0
@@ -236,7 +236,7 @@ test('蜂群 P5.4：并发时代不再有 busy 跳过——cron 回合与任何�
       },
     }),
   )
-  // 同一时刻两次 attempt（两个并发回合）：两次都真正执行，一次都不被跳过。
+  // Two attempts at the same moment (two concurrent turns): both really run, neither is skipped.
   const [a, b] = await Promise.all([s.attempt('c1'), s.attempt('c1')])
   assert.equal(a.ran, true)
   assert.equal(b.ran, true)

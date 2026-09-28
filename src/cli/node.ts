@@ -10,13 +10,13 @@ import type { NodeSupervisor } from '../nodes/supervisor.js'
 /**
  * `npm run nodes -- <up|down|list|logs> [endpoint-id]`
  *
- * 蜂群 P1：管理配置里 spawn.managed 的节点进程。
- * - list          列出所有被托管节点的状态（未托管端点不显示）
- * - up [id]       拉起节点并等待 live/offline（幂等：已在跑则直接报状态）
- * - down [id]     停止节点（幂等）
- * - logs [id]     打印该节点捕获的 stdout/stderr 缓冲
+ * Hive P1: node processes from spawn.managed in the manager config.
+ * - list          list every managed node's state (unmanaged endpoints are not shown)
+ * - up [id]       start a node and wait for live/offline (idempotent: an already running node just reports its state)
+ * - down [id]     stop a node (idempotent)
+ * - logs [id]     print the node's captured stdout/stderr buffer
  *
- * 债务 C2:纯函数导出供测试;main 只在直接执行时运行(与 setup 同模式)。
+ * Debt C2: pure functions are exported for tests; main runs only when executed directly (the same pattern as setup).
  */
 
 type Command = 'up' | 'down' | 'list' | 'logs'
@@ -90,8 +90,8 @@ const main = (): void => {
       return
     }
     for (const [id, node] of supervisors) {
-      // 跨进程推断：本 CLI 进程没拉过这个节点，但 pidfile 说明上次 detached
-      // 启动的进程可能还活着。
+      // Inferred across processes: this CLI process never started this node, but the pidfile says
+      // the process from an earlier detached start may still be alive.
       const spec = config.endpoints[id]?.spawn
       const pidFile = pidFileOf(spec?.logFile ?? null)
       if (node.current.state === 'cold' && pidFile !== null && existsSync(pidFile)) {
@@ -127,9 +127,9 @@ const main = (): void => {
         console.error(`node "${target}" looks like it is already running (pidfile: ${pidFile}). Run down before up.`)
         process.exit(2)
       }
-      // managed 且无 logFile 的节点是「manager 常驻托管」形态：CLI 拉起的子进程
-      // 随本进程退出变孤儿，manager 进程的状态机也不知情（侧栏仍是 offline）。
-      // 正确姿势是重启 manager 由其拉起；CLI 只适合 detached + log_file 的独立节点。
+      // A managed node with no logFile is the "the manager keeps it running" shape: a child started by the CLI
+      // turns into an orphan once this process exits, and the manager's state machine knows nothing about it (the sidebar stays offline).
+      // The right move is to restart the manager and let it start the node; the CLI suits only a standalone detached + log_file node.
       if (spec.logFile === null) {
         console.log(`note: ${target} is managed by the manager (no log_file). A process started from the CLI is not tracked by the manager,`)
         console.log('     so the sidebar will not reflect it — restart the manager and let it start the node; this command is for temporary debugging.')
@@ -140,8 +140,8 @@ const main = (): void => {
       process.exit(ok ? 0 : 1)
     } else if (command === 'down') {
       const pidFile = pidFileOf(spec.logFile)
-      // 跨进程路径：该 CLI 进程没拉过这个节点，但 pidfile 里有上次 detached
-      // 启动的 pid。
+      // The across-process path: this CLI process never started this node, but the pidfile holds
+      // the pid from an earlier detached start.
       if (node.current.state === 'cold' && pidFile !== null && existsSync(pidFile)) {
         if (killByPidFile(pidFile)) {
           console.log(`node ${target}: killed (pidfile ${pidFile})`)
@@ -155,7 +155,7 @@ const main = (): void => {
         printStatus(node)
       }
     } else {
-      // logs：内存缓冲（manager 常驻/刚 up 的节点）优先；没有则回退读日志文件。
+      // logs: the in-memory buffer comes first (a node kept by the manager, or one just brought up); otherwise fall back to reading the log file.
       const buffered = node.logs()
       if (buffered !== '') process.stdout.write(buffered)
       else if (spec.logFile !== null && existsSync(spec.logFile)) process.stdout.write(readFileSync(spec.logFile, 'utf8'))

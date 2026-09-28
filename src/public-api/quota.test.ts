@@ -6,17 +6,17 @@ import { mintApiKey, type ApiKey } from '../auth/api-key.js'
 import { activeRunsForKey, checkRunQuota, runsUsedToday, startOfLocalDay } from './quota.js'
 
 /**
- * 日配额与并发计数（设计稿 manager/topics/public-api.md §5）。
+ * Daily quota and concurrency counting (design doc manager/topics/public-api.md §5).
  *
- * 口径声明：**日界线 = manager 主机本地日**，与花费页（`strftime(..., 'localtime')`、
- * `dayRangeMs`）完全一致——配额若用另一个时区，界面显示的"今天用了多少"就会和
- * 拦不拦你对不上，排障成本远大于那点理论纯洁性。
+ * Stated convention: **the day boundary = the manager host's local day**, exactly matching the spend page
+ * (`strftime(..., 'localtime')`, `dayRangeMs`) -- if the quota used another time zone, the "how much have I used
+ * today" figure in the UI would not agree with whether you get blocked, which costs far more to debug than the theoretical purity is worth.
  *
- * 夹具用真钥匙行：`run.api_key_id` 有外键，测试也顺带钉住"账目必须挂在真钥匙上"。
+ * Fixtures use real key rows: `run.api_key_id` has a foreign key, and the test incidentally pins down "spend must hang off a real key".
  */
 const db = (): Db => {
   const d = openDb(':memory:').db
-  // run.agent_id 有外键指向 agent(id)：夹具也顺带钉住"活必须挂在真 agent 上"。
+  // run.agent_id has a foreign key to agent(id): the fixture incidentally pins down "work must hang off a real agent".
   d.insert(schema.agent)
     .values({ id: 'worker-1', name: 'worker-1', workspacePath: '.', endpoint: 'A', preset: null, gitRemote: null, public: 0, createdAt: Date.now() })
     .run()
@@ -49,8 +49,8 @@ const addRun = (d: Db, id: string, apiKeyId: string | null, startedAt: number, s
     .run()
 }
 
-test('日界线 = 主机本地日零点', () => {
-  const noon = new Date(2026, 8, 27, 12, 30, 0).getTime() // 2026-09-27 12:30 本地
+test('day boundary = the host local midnight', () => {
+  const noon = new Date(2026, 8, 27, 12, 30, 0).getTime() // 2026-09-27 12:30 local
   const start = startOfLocalDay(noon)
   assert.equal(new Date(start).getHours(), 0)
   assert.equal(new Date(start).getDate(), 27)
@@ -58,7 +58,7 @@ test('日界线 = 主机本地日零点', () => {
   assert.ok(start + 86_400_000 > noon)
 })
 
-test('日配额计数: 只数本钥匙、本日之后的 run（跨日/他人/无名钥匙都不算）', () => {
+test('daily quota counting: only runs of this key from today onward count (cross-day, other keys and nameless keys do not)', () => {
   const d = db()
   const now = new Date(2026, 8, 27, 12, 0, 0).getTime()
   const midnight = startOfLocalDay(now)
@@ -67,7 +67,7 @@ test('日配额计数: 只数本钥匙、本日之后的 run（跨日/他人/无
 
   addRun(d, 'r-today-1', k1.id, midnight + 1000)
   addRun(d, 'r-today-2', k1.id, now)
-  addRun(d, 'r-yesterday', k1.id, midnight - 1) // 昨天最后一毫秒
+  addRun(d, 'r-yesterday', k1.id, midnight - 1) // the last millisecond of yesterday
   addRun(d, 'r-other-key', k2.id, now)
   addRun(d, 'r-no-key', null, now)
 
@@ -75,7 +75,7 @@ test('日配额计数: 只数本钥匙、本日之后的 run（跨日/他人/无
   assert.equal(runsUsedToday(d, k2.id, now), 1)
 })
 
-test('配额判定: 不限 / 未超 / 已超 三态，超限给出重置时刻', () => {
+test('quota verdict: unlimited / under / over, and an overrun reports the reset time', () => {
   const d = db()
   const now = new Date(2026, 8, 27, 12, 0, 0).getTime()
 
@@ -99,23 +99,23 @@ test('配额判定: 不限 / 未超 / 已超 三态，超限给出重置时刻',
   if (!over.ok && over.reason === 'quota_exceeded') {
     assert.equal(over.used, 3)
     assert.equal(over.limit, 3)
-    assert.equal(over.resetsAt, startOfLocalDay(now) + 86_400_000, '重置时刻 = 下一个本地零点')
+    assert.equal(over.resetsAt, startOfLocalDay(now) + 86_400_000, 'the reset time = the next local midnight')
     assert.ok(over.resetsAt > now)
   } else {
-    assert.fail(`期望 quota_exceeded，实际 ${JSON.stringify(over)}`)
+    assert.fail(`expected quota_exceeded, got ${JSON.stringify(over)}`)
   }
 })
 
-test('并发上限: 在跑的活占满即拒（终态不占）', () => {
+test('concurrency ceiling: rejected once running work fills it up (terminal states do not hold a slot)', () => {
   const d = db()
   const now = Date.now()
   const k = mint(d, 'busy')
-  assert.equal(k.maxConcurrency, 4, '默认并发 4')
+  assert.equal(k.maxConcurrency, 4, 'default concurrency is 4')
 
   addRun(d, 'p1', k.id, now, 'pending')
   addRun(d, 'p2', k.id, now, 'running')
   assert.equal(activeRunsForKey(d, k.id), 2)
-  assert.equal(checkRunQuota(d, k, now).ok, true, '还有余量')
+  assert.equal(checkRunQuota(d, k, now).ok, true, 'there is still room')
 
   addRun(d, 'p3', k.id, now, 'running')
   addRun(d, 'p4', k.id, now, 'pending')
@@ -125,10 +125,10 @@ test('并发上限: 在跑的活占满即拒（终态不占）', () => {
     assert.equal(full.active, 4)
     assert.equal(full.limit, 4)
   } else {
-    assert.fail(`期望 concurrency_exceeded，实际 ${JSON.stringify(full)}`)
+    assert.fail(`expected concurrency_exceeded, got ${JSON.stringify(full)}`)
   }
 
-  // 终态释放名额
+  // a terminal state frees the slot
   d.update(schema.run).set({ state: 'done' }).where(eq(schema.run.id, 'p1')).run()
   assert.equal(activeRunsForKey(d, k.id), 3)
   assert.equal(checkRunQuota(d, k, now).ok, true)

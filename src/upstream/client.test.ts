@@ -5,7 +5,7 @@ import { UpstreamClient } from './client.js'
 import { UpstreamError } from './rpc.js'
 import type { ResolvedEndpoint } from '../config.js'
 
-/** 一次性 HTTP 服务：按脚本顺序回放响应。 */
+/** A one-shot HTTP server: it replays the responses in script order. */
 const serve = async (script: Array<{ status: number; body: string }>): Promise<{ base: string; hits: number[]; close: () => Promise<void> }> => {
   const hits: number[] = []
   const server: Server = createServer((req, res) => {
@@ -35,20 +35,20 @@ const ep = (base: string): ResolvedEndpoint => ({
   spawn: null, access: null,
 })
 
-test('蜂群2计划 P6 回归: 网关 settings 竞态的 401 hint 重试一次后成功（DSH-FACTS §7）', async () => {
+test('Hive plan 2 P6 regression: the gateway settings race -- a 401 hint retries once, then succeeds (DSH-FACTS section 7)', async () => {
   const { base, hits, close } = await serve([
     { status: 401, body: JSON.stringify({ error: 'unauthorized', hint: 'Provide X-API-Key. POST /api-gw/v1/key provisions a key (first call only).' }) },
     { status: 200, body: JSON.stringify({ ok: true }) },
   ])
   try {
     await new UpstreamClient(ep(base)).setSandboxMode('sess-1', 'workspace-write')
-    assert.equal(hits.length, 2, '竞态 hint → 重试一次')
+    assert.equal(hits.length, 2, 'a race hint -> retry once')
   } finally {
     await close()
   }
 })
 
-test('蜂群2计划 P6 回归: 其它 401（真钥匙错）不重试、原样抛出', async () => {
+test('Hive plan 2 P6 regression: any other 401 (a genuinely wrong key) is not retried, and is thrown as-is', async () => {
   const { base, hits, close } = await serve([
     { status: 401, body: JSON.stringify({ error: 'unauthorized', hint: 'Provide X-API-Key (or Authorization: Bearer <key>).' }) },
   ])
@@ -57,13 +57,13 @@ test('蜂群2计划 P6 回归: 其它 401（真钥匙错）不重试、原样抛
       () => new UpstreamClient(ep(base)).setSandboxMode('sess-2', 'workspace-write'),
       (error: unknown) => error instanceof UpstreamError && error.message.includes('sandbox-mode 401'),
     )
-    assert.equal(hits.length, 1, '非竞态 hint 不重试')
+    assert.equal(hits.length, 1, 'a non-race hint is not retried')
   } finally {
     await close()
   }
 })
 
-test('蜂群2计划 P6 回归: 首调即 200 只发一次', async () => {
+test('Hive plan 2 P6 regression: a first call that is already 200 is sent only once', async () => {
   const { base, hits, close } = await serve([{ status: 200, body: JSON.stringify({ ok: true }) }])
   try {
     await new UpstreamClient(ep(base)).setSandboxMode('sess-3', 'read-only')

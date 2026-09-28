@@ -10,15 +10,15 @@ import { DEFAULT_PRICING } from '../pricing.js'
 import { registerUsageRoutes } from './usage.js'
 
 /**
- * 债务 C2:usage 路由此前零覆盖。覆盖:默认月/指定月/非法月 400/
- * byModel 的 rateConfigured 标志/byAgent 名称兜底/peak 窗口映射。
+ * Debt C2: the usage route had zero coverage before. Covers: default month / explicit month / 400 on an invalid month /
+ * the byModel rateConfigured flag / the byAgent name fallback / the peak window mapping.
  */
 
 const setup = (): { dir: string; db: Db; app: ReturnType<typeof Fastify>; cleanup: () => void } => {
   const dir = mkdtempSync(join(tmpdir(), 'usage-route-'))
   const dbPath = join(dir, 'test.db')
   const { db, sqlite } = openDb(dbPath)
-  sqlite.prepare(`INSERT INTO agent (id, name, workspace_path, endpoint, public, created_at) VALUES ('personal', '个人', '.', 'A', 0, 1)`).run()
+  sqlite.prepare(`INSERT INTO agent (id, name, workspace_path, endpoint, public, created_at) VALUES ('personal', 'Personal', '.', 'A', 0, 1)`).run()
   sqlite.prepare(`INSERT INTO run (id, agent_id, trigger, state, started_at) VALUES ('r1', 'personal', 'manual', 'done', 1)`).run()
   sqlite
     .prepare(
@@ -29,7 +29,7 @@ const setup = (): { dir: string; db: Db; app: ReturnType<typeof Fastify>; cleanu
   const config: AppConfig = {
     listen: { host: '127.0.0.1', port: 0 },
     endpoints: {},
-    agents: { personal: { id: 'personal', name: '个人', endpoint: 'A', workspacePath: dir, public: false, preset: null, gitRemote: null, provider: null, model: null, sandboxMode: null, validate: null } },
+    agents: { personal: { id: 'personal', name: 'Personal', endpoint: 'A', workspacePath: dir, public: false, preset: null, gitRemote: null, provider: null, model: null, sandboxMode: null, validate: null } },
     runner: { timeoutMs: 1_000, silenceMs: 0, maxConsecutiveFailures: 3, dailyBudgetMicroUsd: null },
     databasePath: dbPath,
     pricing: DEFAULT_PRICING,
@@ -46,7 +46,7 @@ const setup = (): { dir: string; db: Db; app: ReturnType<typeof Fastify>; cleanu
   return { dir, db, app, cleanup }
 }
 
-test('债务 C2: /api/usage 返回月账结构,非法月 400', async () => {
+test('Debt C2: /api/usage returns the monthly structure and 400s on an invalid month', async () => {
   const { app, cleanup } = setup()
   const ok = await app.inject({ method: 'GET', url: '/api/usage' })
   assert.equal(ok.statusCode, 200)
@@ -63,9 +63,9 @@ test('债务 C2: /api/usage 返回月账结构,非法月 400', async () => {
   assert.ok(body.months.length >= 1)
   assert.equal(body.totals.runs, 1)
   assert.equal(body.totals.costMicroUsd, 1000)
-  assert.deepEqual(body.byAgent.map((a) => a.name), ['个人'], 'agent 名从 config 兜底')
+  assert.deepEqual(body.byAgent.map((a) => a.name), ['Personal'], 'agent name falls back to config')
   const flash = body.byModel.find((m) => m.model === 'deepseek-v4-flash')
-  assert.ok(flash !== undefined && flash.rateConfigured, '默认价格表里 flash 已配置')
+  assert.ok(flash !== undefined && flash.rateConfigured, 'flash is configured in the default pricing table')
   assert.equal(body.byDay.length, 1)
   assert.equal(body.peakWindowsUtc.length, DEFAULT_PRICING.peakWindows.length)
 
@@ -78,7 +78,7 @@ test('债务 C2: /api/usage 返回月账结构,非法月 400', async () => {
   cleanup()
 })
 
-test('债务 C2: 指定历史月返回该月(无数据 = 零)', async () => {
+test('Debt C2: an explicit past month returns that month (no data = zero)', async () => {
   const { app, cleanup } = setup()
   const res = await app.inject({ method: 'GET', url: '/api/usage?month=2020-01' })
   assert.equal(res.statusCode, 200)

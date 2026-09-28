@@ -1,15 +1,15 @@
 /**
- * 债务 B2(半项):会话历史缓存的「容量上限 LRU + 惰性 TTL」。
+ * Debt B2 (half of it): the chat history cache's "capped LRU + lazy TTL".
  *
- * 旧实现是 routes/chat.ts 闭包里的裸 Map:只在读取时惰性过期、无容量上限、
- * 无后台清扫。键是会话 id、值是整段历史事件数组(全项目最贵的对象)——
- * 大量「读过一次、不再跑回合」的会话会让它单调增长,直到进程重启。
+ * The old implementation was a bare Map in a routes/chat.ts closure: lazy expiry on read only, no capacity cap,
+ * no background sweep. The key is the chat id and the value is a whole history event array (the most expensive
+ * object in the project) -- chats that are "read once and never run another turn" made it grow until a restart.
  *
- * 本类:
- * - `max`:容量封顶,超出驱逐最旧(Map 迭代序 = 插入序);
- * - `get` 命中即 LRU 提升,超 TTL 返回 null 并删除(惰性清扫,与旧语义一致);
- * - `set` 同键重设也提升序位。
- * AppContext 依赖注入容器(全局状态整体收口)仍是 B2 的另半项,留待排期。
+ * This class:
+ * - `max`: a hard capacity cap; anything beyond it evicts the oldest (Map iteration order = insertion order);
+ * - `get` promotes on a hit (LRU), returns null and deletes past the TTL (lazy sweep, same semantics as before);
+ * - `set` on the same key also promotes its position.
+ * The AppContext dependency-injection container (one home for all global state) is still the other half of B2, unscheduled for now.
  */
 export class HistoryCache<V> {
   private readonly map = new Map<string, { v: V; at: number }>()
@@ -28,7 +28,7 @@ export class HistoryCache<V> {
       this.map.delete(sessionId)
       return null
     }
-    // LRU 提升:删除后重插 = 移到迭代序末尾
+    // LRU promotion: delete and re-insert = move to the end of the iteration order
     this.map.delete(sessionId)
     this.map.set(sessionId, hit)
     return hit.v

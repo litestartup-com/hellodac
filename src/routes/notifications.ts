@@ -4,7 +4,7 @@ import type { Db } from '../db/index.js'
 import { schema } from '../db/index.js'
 
 /**
- * 蜂群 P5.3：站内通知路由（铃铛）。列表、单条已读、全部已读。
+ * Hive P5.3: the in-app notification routes (the bell). List, mark one read, mark all read.
  */
 export const registerNotificationRoutes = (app: FastifyInstance, db: Db, requireUser: preHandlerHookHandler): void => {
   app.get('/api/notifications', { preHandler: requireUser }, async () => {

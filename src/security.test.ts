@@ -7,18 +7,18 @@ import Fastify from 'fastify'
 import { registerSecurityHeaders } from './security.js'
 
 /**
- * P1-1 回归：安全响应头。
+ * P1-1 regression: security response headers.
  *
- * 现场：manager 一个安全头都不发 —— 无 CSP、无 X-Content-Type-Options、
- * 无 Referrer-Policy。前端有 52 处 innerHTML 直接吃模型输出/工作区文件/节点日志，
- * 唯一防线是手写的 escape-first 渲染器；CSP 是这层之外的第二道闸。
+ * The situation: the manager sent no security header at all -- no CSP, no X-Content-Type-Options,
+ * no Referrer-Policy. The frontend has 52 innerHTML sites that consume model output/workspace files/node logs
+ * directly, and the only line of defence was a hand-written escape-first renderer; CSP is the second gate beyond it.
  *
- * 两条部署形态的约束（不能踩）：
- *  - 明文 HTTP 也是受支持的部署（nginx 三模式之一）→ 绝不能发
- *    upgrade-insecure-requests，也不能在非 TLS 下发 HSTS，否则浏览器会把
- *    可用的 HTTP 站点升级/钉死成不可访问的 HTTPS。
- *  - 内联样式属性在 board/spend 的渲染里在用 → style-src 必须放行 unsafe-inline，
- *    但 script-src 绝不放行。
+ * Two deployment-shape constraints (do not step on them):
+ *  - plain HTTP is a supported deployment too (one of the three nginx modes) -> never send
+ *    upgrade-insecure-requests, and never send HSTS without TLS, or the browser upgrades/pins a
+ *    working HTTP site into an unreachable HTTPS one.
+ *  - inline style attributes are in use in the board/spend rendering -> style-src must allow unsafe-inline,
+ *    but script-src must never allow it.
  */
 
 const publicDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'public')
@@ -36,36 +36,36 @@ const headersOf = async (secure: boolean): Promise<Record<string, string>> => {
   return out
 }
 
-test('P1-1: CSP 禁止内联脚本，且不含会打断明文 HTTP 部署的指令', async () => {
+test('P1-1: the CSP forbids inline scripts and carries no directive that would break a plain-HTTP deployment', async () => {
   const headers = await headersOf(false)
   const csp = headers['content-security-policy'] ?? ''
-  assert.ok(csp !== '', '必须发 Content-Security-Policy')
-  assert.match(csp, /script-src [^;]*'self'/, "script-src 必须限定 'self'")
-  assert.doesNotMatch(csp, /script-src [^;]*'unsafe-inline'/, 'script-src 绝不放行内联脚本')
+  assert.ok(csp !== '', 'Content-Security-Policy must be sent')
+  assert.match(csp, /script-src [^;]*'self'/, "script-src must be limited to 'self'")
+  assert.doesNotMatch(csp, /script-src [^;]*'unsafe-inline'/, 'script-src must never allow inline scripts')
   assert.doesNotMatch(csp, /script-src [^;]*'unsafe-eval'/)
-  assert.doesNotMatch(csp, /upgrade-insecure-requests/, '明文 HTTP 部署会被它打断')
+  assert.doesNotMatch(csp, /upgrade-insecure-requests/, 'it would break a plain-HTTP deployment')
   assert.match(csp, /default-src 'self'/)
   assert.match(csp, /object-src 'none'/)
-  // 前端在用内联 style 属性（board/spend）——放行样式，但只放行样式
+  // The frontend uses inline style attributes (board/spend) -- allow styles, but only styles
   assert.match(csp, /style-src [^;]*'unsafe-inline'/)
 })
 
-test('P1-1: 基础安全头齐备；HSTS 只在 TLS 形态下发', async () => {
+test('P1-1: the basic security headers are all present; HSTS only under TLS', async () => {
   const plain = await headersOf(false)
   assert.equal(plain['x-content-type-options'], 'nosniff')
   assert.ok((plain['referrer-policy'] ?? '') !== '')
   assert.ok((plain['x-frame-options'] ?? '') !== '' || /frame-ancestors/.test(plain['content-security-policy'] ?? ''))
-  assert.equal(plain['strict-transport-security'], undefined, '明文 HTTP 下发 HSTS 会把站点钉死在 HTTPS')
+  assert.equal(plain['strict-transport-security'], undefined, 'sending HSTS over plain HTTP pins the site to HTTPS')
 
   const tls = await headersOf(true)
   assert.match(tls['strict-transport-security'] ?? '', /max-age=\d+/)
 })
 
-test('P1-1: 登录页不得含内联脚本（否则 CSP 会拦掉登录）', () => {
+test('P1-1: the login page must not contain inline scripts (otherwise the CSP blocks logging in)', () => {
   const html = readFileSync(join(publicDir, 'login.html'), 'utf8')
-  // 只允许带 src 的 <script>
+  // only <script> tags that carry a src are allowed
   for (const tag of html.match(/<script\b[^>]*>/g) ?? []) {
-    assert.match(tag, /\ssrc=/, `login.html 的 ${tag} 必须外链`)
+    assert.match(tag, /\ssrc=/, `${tag} in login.html must be an external file`)
   }
-  assert.ok(html.includes('/assets/login.js'), '登录逻辑应在 /assets/login.js')
+  assert.ok(html.includes('/assets/login.js'), 'the login logic should live in /assets/login.js')
 })

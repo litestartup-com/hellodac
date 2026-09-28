@@ -6,7 +6,7 @@
  * maintains one connection per endpoint and distributes frames to per-session
  * listeners.
  *
- * 债务 E16:wire 现实核实笔记已迁设计库事实卡 dsh-facts.md §9(mux 段)。
+ * Debt E16: the notes verifying the wire reality moved to the design library's fact card dsh-facts.md §9 (the mux section).
  */
 
 import type { UpstreamEndpoint } from './rpc.js'
@@ -27,11 +27,11 @@ export interface WireEnvelope {
   type: 'server-request'
   rpcId: string
   method: string
-  /** 帧体:信封层不判形状(stream/error 等无判别 schema),dispatch 内经 parseMuxPayload 判别。 */
+  /** The frame body: the envelope layer does not judge its shape (stream/error and friends have no discriminated schema); dispatch judges it through parseMuxPayload. */
   payload: Record<string, unknown>
 }
 
-/** 债务 E8:envelope 判别 schema(payload 细形状在 translate.ts 的帧判别里)。 */
+/** Debt E8: the envelope's discriminated schema (the payload's fine shape lives in translate.ts's frame discrimination). */
 const wireEnvelopeSchema = z.object({
   type: z.literal('server-request'),
   rpcId: z.string().optional().default(''),
@@ -47,21 +47,21 @@ interface MuxConnection {
   reconnectTimer: ReturnType<typeof setTimeout> | null
   /** approvalId → the rpcId of the original approval/requested frame. */
   approvalRpcIds: Map<string, string>
-  /** 债务 A4:曾连上过(重连成功后要向订阅者广播 stream_reconnected)。 */
+  /** Debt A4: it has connected at least once (after a successful reconnect, stream_reconnected is broadcast to subscribers). */
   wasConnected: boolean
-  /** 债务 A4:连续断线计数,驱动指数退避;连上即清零。 */
+  /** Debt A4: the consecutive-disconnect count that drives exponential backoff; reset to zero on connect. */
   reconnectAttempt: number
 }
 
 const connections = new Map<string, MuxConnection>()
 
-/** 债务 B6:重连累计计数(metrics 展示;每次断线重连 +1)。 */
+/** Debt B6: the cumulative reconnect count (shown in metrics; +1 for every disconnect-reconnect). */
 let reconnectCount = 0
 export const getMuxReconnects = (): number => reconnectCount
 
 /**
- * 债务卡片链(2026-09-17):帧丢弃与重连的诊断日志。生产由 index.ts 注入
- * app.log.warn;未注入时静默(测试不刷屏)。
+ * Debt card chain (2026-09-17): the diagnostic log for dropped frames and reconnects. Production injects
+ * app.log.warn from index.ts; without an injection it stays silent (tests do not flood the output).
  */
 let muxLog: (line: string) => void = () => {}
 export const setMuxLogger = (log: (line: string) => void): void => {
@@ -72,8 +72,8 @@ const RECONNECT_BASE_MS = 3_000
 const RECONNECT_MAX_MS = 30_000
 
 /**
- * 债务 A4:指数退避 + ±25% 抖动(纯函数,可测)。
- * 固定 3s 无退避会在上游抖动时形成重连风暴。
+ * Debt A4: exponential backoff plus ±25% jitter (a pure function, testable).
+ * A fixed 3s with no backoff turns upstream flapping into a reconnect storm.
  */
 export const nextReconnectDelay = (attempt: number): number => {
   const exp = Math.min(RECONNECT_BASE_MS * 2 ** Math.max(attempt - 1, 0), RECONNECT_MAX_MS)
@@ -120,12 +120,12 @@ const emit = (conn: MuxConnection, sessionId: string, gw: GatewayFrame): void =>
 }
 
 const dispatch = (conn: MuxConnection, env: WireEnvelope): void => {
-  // 债务 E8:帧体判别——已知帧型形状不符或未知帧型一律丢弃(fail-loud,不猜)。
+  // Debt E8: frame-body discrimination -- a known frame type with the wrong shape or an unknown frame type is dropped (fail loud, no guessing).
   const frame = parseMuxPayload(env.payload)
   if (frame === null) {
-    // 债务卡片链:丢弃必须留痕——question/approval 帧被 schema 拒掉时,卡片
-    // 不显示且 ask_user_question 挂起,没有这行日志就无法区分「没收到」与
-    // 「收到但被判别丢弃」。
+    // Debt card chain: a drop must leave a trace -- when a question/approval frame is rejected by the schema the
+    // card never shows and ask_user_question hangs, and without this log line there is no way to tell "never
+    // arrived" from "arrived but was dropped by the discrimination".
     muxLog(`mux ${conn.ep.base}: dropped frame (shape mismatch or unknown type) method=${env.method} payload=${JSON.stringify(env.payload).slice(0, 300)}`)
     return
   }
@@ -158,7 +158,7 @@ const dispatch = (conn: MuxConnection, env: WireEnvelope): void => {
       return
     }
     case 'session/projection': {
-      // goal 投影 → Ongoing Goal 条（2026-09-11）；其余 key 仍丢弃。
+      // goal projection -> the Ongoing Goal bar (2026-09-11); the other keys are still dropped.
       const gw = goalProjectionFrame(frame)
       if (gw !== null) emit(conn, sessionId, gw)
       return
@@ -179,21 +179,21 @@ const attach = (conn: MuxConnection): void => {
   const ws = socketFactory(conn)
   conn.ws = ws
 
-  // 债务 R5:只有真实 onopen 过的 socket 才算「曾连接」。首连失败(握手被拒/
-  // 网络不通)同样触发 onclose,若在 onclose 里无条件置 wasConnected,下一次
-  // 首次成功连接就会被当成「重连」广播 stream_reconnected,runner 据此把
-  // 好好的 run 错标为「结果未知」失败。判据必须是每个 socket 自己的 onopen。
+  // Debt R5: only a socket that really fired onopen counts as "has connected". A failed first connect (handshake
+  // refused / network down) fires onclose too, and if onclose set wasConnected unconditionally, the next first
+  // successful connection would be taken for a "reconnect" and broadcast stream_reconnected, on which the runner
+  // would mislabel a perfectly good run as an "outcome unknown" failure. The criterion has to be each socket's own onopen.
   let opened = false
 
   ws.onopen = () => {
     opened = true
-    // 债务 A4:重连成功即向所有活跃订阅者广播 stream_reconnected——
-    // 断线期间丢掉的 turn_end 不会无声无息,上层按通知显性失败/对账。
-    // 首连(wasConnected=false)不发。
+    // Debt A4: a successful reconnect broadcasts stream_reconnected to every active subscriber --
+    // a turn_end lost during the outage does not go unremarked, and the layer above fails loudly / reconciles on
+    // that notice. The first connect (wasConnected=false) sends nothing.
     conn.reconnectAttempt = 0
     if (!conn.wasConnected) return
-    // 债务卡片链:断线窗口内广播的 question/approval 帧已经丢了(上游只发一次),
-    // 重连必须留痕——排障时这行与 facade 的「unanswered, delegating」配对定位。
+    // Debt card chain: the question/approval frames broadcast inside the outage window are already gone (the upstream
+    // sends them once), so a reconnect must leave a trace -- in debugging this line pairs with the facade's "unanswered, delegating" to locate it.
     muxLog(`mux ${conn.ep.base}: reconnected (${conn.listeners.size} session(s) subscribed)`)
     for (const sessionId of conn.listeners.keys()) {
       emit(conn, sessionId, { kind: 'stream_reconnected', seq: 0 })
@@ -204,8 +204,8 @@ const attach = (conn: MuxConnection): void => {
     const data = typeof event.data === 'string' ? event.data : String(event.data)
     const env = parseMuxFrame(data)
     if (env === null) {
-      // 非 server-request 信封(或坏 JSON)——老契约里 mux 只下行 server-request,
-      // 出现别的形状值得留一行(节流:截断前 200 字符)。
+      // Not a server-request envelope (or broken JSON) -- under the old contract the mux only sends server-request
+      // downstream, so another shape is worth a line (throttled: the first 200 characters).
       muxLog(`mux ${conn.ep.base}: dropped envelope: ${data.slice(0, 200)}`)
       return
     }
@@ -224,12 +224,12 @@ const attach = (conn: MuxConnection): void => {
 
   ws.onclose = () => {
     if (conn.closed) return
-    // 债务 R5:「曾连接」只由真实 onopen 确立(见 attach 顶部注释)。
+    // Debt R5: "has connected" is established only by a real onopen (see the comment at the top of attach).
     if (opened) conn.wasConnected = true
     // Auto-reconnect if there are still listeners.
     if (conn.listeners.size > 0) {
       reconnectCount += 1
-      // 债务卡片链:断线留痕(带订阅会话数)——卡片帧只广播一次,断线窗口即丢失窗口。
+      // Debt card chain: leave a trace of the disconnect (with the subscribed chat count) -- a card frame is broadcast once, so the outage window is the loss window.
       muxLog(`mux ${conn.ep.base}: connection lost (${conn.listeners.size} session(s) subscribed), reconnecting in ${nextReconnectDelay(Math.max(conn.reconnectAttempt - 1, 0))}ms`)
       if (conn.reconnectTimer === null) {
         const delay = nextReconnectDelay(conn.reconnectAttempt)
@@ -261,11 +261,11 @@ const openSocket = (conn: MuxConnection): WebSocket => {
   return ws
 }
 
-/** 连接工厂(测试注入假 socket 用);生产走真实 WebSocket。 */
+/** The connection factory (tests inject a fake socket); production goes through a real WebSocket. */
 type SocketFactory = (conn: MuxConnection) => WebSocket
 let socketFactory: SocketFactory = openSocket
 
-/** Testing only:替换连接工厂,验证重连通知/退订修复等连接级行为。 */
+/** Testing only: replace the connection factory to verify connection-level behaviour such as reconnect notices and the unsubscribe fix. */
 export const _setSocketFactory = (factory: SocketFactory): void => {
   socketFactory = factory
 }
@@ -305,17 +305,17 @@ export const subscribe = (ep: UpstreamEndpoint, sessionId: string, listener: Mux
 
   return () => {
     set.delete(listener)
-    // 债务 A4:只有当 map 里挂着的还是本订阅创建的 set 时才删除——旧 unsub
-    // 在「退订后又重新订阅」之后调用,会把新订阅的 set 从 map 误删。
+    // Debt A4: delete only when the set hanging in the map is still the one this subscription created -- an old unsub
+    // called after "unsubscribe, then subscribe again" would wrongly delete the new subscription's set from the map.
     if (set.size === 0 && conn.listeners.get(sessionId) === set) conn.listeners.delete(sessionId)
     maybeClose(conn, ep.base)
   }
 }
 
 /**
- * 债务 E13:subscribeAll(全局订阅)已删除——全仓无生产调用者,是进入公共
- * barrel 的死接口,读者会误以为「全局订阅」是被使用的特性。需要时再加回
- * 并补测试。
+ * Debt E13: subscribeAll (global subscription) was deleted -- there is no production caller anywhere in the repo, it
+ * was a dead interface that had reached the public barrel, and readers would wrongly assume "global subscription" is
+ * a used feature. Add it back with tests when it is needed.
  */
 
 const maybeClose = (conn: MuxConnection, key: string): void => {

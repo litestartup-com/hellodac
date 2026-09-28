@@ -17,7 +17,7 @@ export const registerWorkspaceRoutes = (
     async (request, reply) => {
       const agent = findAgent(config, request.params.id)
       if (agent === null) return reply.code(404).send({ error: 'unknown_agent' })
-      // 债务 E12:体检规则随 agent 配置(缺省 = 通用凭证检查)
+      // Debt E12: the inspection rules follow the agent config (the default is the generic credential check)
       const report = await inspectWorkspace(agent.workspacePath, agent.validate ?? DEFAULT_RULES)
       return reply.send({ agent: { id: agent.id, name: agent.name }, ...report })
     },
@@ -32,7 +32,7 @@ export const registerWorkspaceRoutes = (
       const { data, loaded, problems } = readNoteData(agent.workspacePath)
       // Reported alongside the data rather than blocking the read: the dashboard
       // should still render what exists, with the problems visible.
-      // 债务 E12:违规校验随 agent 规则(缺省 = 通用凭证检查)
+      // Debt E12: the violation check follows the agent rules (the default is the generic credential check)
       const violations = validateNoteData(data, { rules: agent.validate ?? DEFAULT_RULES })
       return reply.send({ loaded, problems, violations, data })
     },

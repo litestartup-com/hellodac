@@ -1,3 +1,3 @@
-// 生成文件,勿手改:构建期由 scripts/inject-version.mjs 从 package.json 注入。
-// 债务 D5:manager 自身版本的运行时真相源(DSH 兼容版本见 dsh-matrix.ts,两者勿混淆)。
+// Generated file, do not edit by hand: injected at build time by scripts/inject-version.mjs from package.json.
+// Debt D5: the runtime source of truth for the manager's own version (the DSH compatibility versions live in dsh-matrix.ts, do not confuse the two).
 export const MANAGER_VERSION = '1.0.0'

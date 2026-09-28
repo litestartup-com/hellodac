@@ -4,8 +4,8 @@ import { schema, type Db } from '../db/index.js'
 /**
  * Spend, read back out of the ledger.
  *
- * 债务 E16:两条贯穿规则(缺费率不是零 / 月是本地)的论证已固化进
- * docs/adr/0002-usage-accounting-rules.md,源码只留此引用。
+ * Debt E16: the reasoning behind the two cross-cutting rules (a missing rate is not zero /
+ * a month is local) now lives in docs/adr/0002-usage-accounting-rules.md; the source only points there.
  */
 
 /** `strftime` over an epoch-milliseconds column, in local time. */
@@ -13,9 +13,9 @@ const localBucket = (format: string): SQL<string> =>
   sql.raw(`strftime('${format}', at / 1000, 'unixepoch', 'localtime')`) as SQL<string>
 
 /**
- * 债务 B5:分桶过滤不再用 strftime(索引用不上,全表扫)——把本地月/日分桶
- * 换算成 epoch 毫秒半开区间,`at >= start AND at < end` 命中 usage_at 索引。
- * 与 strftime '%Y-%m'/'%Y-%m-%d' 分桶在本地时区语义上完全等价。
+ * Debt B5: bucket filtering no longer uses strftime (the index goes unused, so it full-scans) --
+ * the local month/day bucket becomes a half-open epoch-millisecond interval, and `at >= start AND at < end`
+ * hits the usage_at index. Exactly equivalent to strftime '%Y-%m'/'%Y-%m-%d' bucketing in local-time semantics.
  */
 export const monthRangeMs = (month: string): { start: number; end: number } => {
   const [y, m] = month.split('-').map(Number)
@@ -57,9 +57,9 @@ export interface DailySpend {
 }
 
 /**
- * 债务 E9:聚合列片段——从 raw 文本(A GGREGATES)改 drizzle 片段:表引用由
- * drizzle 按 schema 生成并自动限定,join 场景不会再出现「未限定列名静默
- * 解析到错误表」的坑;类型随 builder 走,不再手写 RawTotals 泛型。
+ * Debt E9: aggregate column fragments -- from raw text (AGGREGATES) to drizzle fragments: the table
+ * reference is generated and qualified by drizzle from the schema, so a join can no longer silently
+ * resolve an unqualified column name to the wrong table; types follow the builder, no hand-written RawTotals generic.
  *
  * `SUM(cost)` skips NULLs, which is exactly right -- an unknown cost must not
  * be added in as zero -- but it also means the total alone cannot tell you
@@ -105,7 +105,7 @@ export const spendMonths = (db: Db): string[] => {
   return rows.map((r) => r.month)
 }
 
-/** 债务 E15:美元 ↔ 微美元换算因子(钱领域唯一来源,不再散落 1e6 字面量)。 */
+/** Debt E15: the dollar <-> micro-dollar factor (the one source in the money domain, no more scattered 1e6 literals). */
 export const USD_TO_MICRO = 1_000_000
 
 export const monthTotals = (db: Db, month: string): SpendTotals => {
@@ -122,8 +122,8 @@ export const monthTotals = (db: Db, month: string): SpendTotals => {
  * Spend per agent for a month.
  *
  * The agent is reached through `run`, since `usage_record` only knows its run.
- * 债务 E9:drizzle join 生成全限定列名——旧手写 SQL 靠人工逐列加表前缀,
- * 漏一处就是静默错误答案。
+ * Debt E9: a drizzle join generates fully qualified column names -- the old hand-written SQL
+ * relied on adding a table prefix to every column by hand, and one miss is a silently wrong answer.
  */
 export const monthByAgent = (db: Db, month: string): AgentSpend[] => {
   const range = monthRangeMs(month)
@@ -133,8 +133,8 @@ export const monthByAgent = (db: Db, month: string): AgentSpend[] => {
     .innerJoin(schema.run, eq(schema.run.id, schema.usageRecord.runId))
     .where(and(gte(schema.usageRecord.at, range.start), lt(schema.usageRecord.at, range.end)))
     .groupBy(schema.run.agentId)
-    // 排序用裸别名(raw):drizzle 的 sql 模板会加引号,SQLite 会当成列名而非
-    // SELECT 别名("no such column: costMicroUsd")。
+    // The ordering uses the bare alias (raw): drizzle's sql template adds quotes, and SQLite then
+    // reads it as a column name rather than a SELECT alias ("no such column: costMicroUsd").
     .orderBy(sql.raw('costMicroUsd DESC, runs DESC'))
     .all()
   return rows.map((r) => ({ agentId: r.agentId, ...toTotals(r) }))

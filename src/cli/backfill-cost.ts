@@ -20,8 +20,8 @@ import { computeCost, formatMicroUsd } from '../pricing.js'
  * Dry run unless `--apply` is passed. Writing money figures is not something to
  * do as a side effect of curiosity.
  *
- * 债务 C2:main 体抽成可注入 configPath 的纯函数(写钱逻辑必须有测试);
- * 顶层只在直接执行时运行(与 setup.ts 同模式)。
+ * Debt C2: the main body is extracted into a pure function with an injectable configPath (money-writing logic must have tests);
+ * the top level only runs when executed directly (the same pattern as setup.ts).
  */
 
 export interface BackfillResult {

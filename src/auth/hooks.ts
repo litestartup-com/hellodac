@@ -22,7 +22,7 @@ export const makeRequireUser =
       await reply.code(401).send({ error: 'unauthorized' })
       return
     }
-    // 蜂群2计划 P3：强制改密期间，除「自身信息 / 登出 / 改密」外的 API 一律 403
+    // Hive plan 2 P3: while a password change is forced, every API except self-info / logout / password change gets 403
     if (user.mustChangePassword) {
       const url = (request.url ?? '').split('?')[0] ?? ''
       const allowed = url === '/api/me' || url === '/api/logout' || url === '/api/account/password'

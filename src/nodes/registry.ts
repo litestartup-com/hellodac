@@ -1,5 +1,5 @@
 /**
- * Node registry — builds a NodeSupervisor per managed endpoint (蜂群 P1).
+ * Node registry — builds a NodeSupervisor per managed endpoint (Hive P1).
  *
  * The probe is the endpoint health check the manager already knows how to run:
  * apiproxy → host.describe (hostVersion), gateway → /health. Nothing in here
@@ -17,20 +17,20 @@ export interface NodeRegistryDeps {
   gateway: (id: string) => GatewayClient | undefined
   upstream: (id: string) => SessionDriver | undefined
   log?: (line: string) => void
-  /** 蜂群2计划 P2b：docker runner（有 runner=docker 的 endpoint 才需要）。 */
+  /** Hive plan 2 P2b: the docker runner (only needed by endpoints with runner=docker). */
   docker?: DockerRunner
-  /** 能力四（M1-4）：agent runner 三件套（runner=agent 的 endpoint 才需要）。 */
+  /** Capability four (M1-4): the agent runner trio (only needed by endpoints with runner=agent). */
   agentCommand?: (agentId: string, type: string, payload: unknown) => number
   agentResult?: (commandId: number, cb: (ok: boolean) => void) => () => void
   agentLog?: (agentId: string, nodeId: string) => string
-  /** 能力四（M1-6）：fleet.md 内容生成（派生下发载荷）。 */
+  /** Capability four (M1-6): fleet.md content generation (the payload of the derived push). */
   fleetDoc?: () => string
-  /** 舰队 M3：agent 节点开锁全量沙箱（绑定工作区的 sandboxMode=danger-full-access）
-   * —— spawn 载荷带 ALLOW_FULL_ACCESS，agent 写进 facade settings（allowFullAccess）。 */
+  /** Fleet M3: an agent node unlocked to the full sandbox (a bound workspace with sandboxMode=danger-full-access)
+   * -- the spawn payload carries ALLOW_FULL_ACCESS and the agent writes it into the facade settings (allowFullAccess). */
   agentFullAccess?: boolean
 }
 
-/** 蜂群 P5.5：单节点监督器构造（boot 全量构建与运行时热加载共用）。 */
+/** Hive P5.5: building one node supervisor (shared by the full boot build and runtime hot loads). */
 export const makeSupervisor = (endpoint: ResolvedEndpoint, deps: NodeRegistryDeps): NodeSupervisor =>
   new NodeSupervisor(endpoint.id, {
     probe: async (): Promise<NodeProbeResult> => {
@@ -55,9 +55,9 @@ export const makeSupervisor = (endpoint: ResolvedEndpoint, deps: NodeRegistryDep
     ...(deps.agentResult === undefined ? {} : { agentResult: deps.agentResult }),
     ...(deps.agentLog === undefined ? {} : { agentLog: deps.agentLog }),
     ...(deps.fleetDoc === undefined ? {} : { fleetDoc: deps.fleetDoc }),
-    // 能力四（M1-6）：agent 节点的 spawn 载荷附加环境——GW_KEY 走 gateway 沙箱
-    // 密钥（agent 写 DSH_HOME/settings.yaml），模型 key 走继承环境。
-    // 舰队 M3：agentFullAccess = ops 节点开锁信号（agent 写 facade allowFullAccess）。
+    // Capability four (M1-6): extra environment on an agent node's spawn payload -- GW_KEY is the gateway
+    // sandbox key (the agent writes DSH_HOME/settings.yaml), the model key comes from the inherited environment.
+    // Fleet M3: agentFullAccess = the unlock signal for an ops node (the agent writes the facade allowFullAccess).
     agentEnv: () => ({
       GW_KEY: endpoint.sandboxKey,
       ...(deps.agentFullAccess === true ? { ALLOW_FULL_ACCESS: 'true' } : {}),
@@ -65,9 +65,9 @@ export const makeSupervisor = (endpoint: ResolvedEndpoint, deps: NodeRegistryDep
         ? { DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY }
         : {}),
     }),
-    // 蜂群2计划 P2b：节点容器的环境 —— GW_KEY 走 gateway 沙箱密钥（与 settings
-    // 注入一致），模型 key 走继承环境（DSH 凭据分层里优先级最高）。
-    // MANAGER_URL：主脑技能手册调内部 API 用（容器里 127.0.0.1 是节点自己，不是 manager）。
+    // Hive plan 2 P2b: a node container's environment -- GW_KEY is the gateway sandbox key (the same one
+    // settings injection uses), the model key comes from the inherited environment (highest in DSH's credential layering).
+    // MANAGER_URL: for the brain's skill manual calling the internal API (inside the container 127.0.0.1 is the node itself, not the manager).
     dockerEnv: () => ({
       DSH_HOME: '/data',
       GW_KEY: endpoint.sandboxKey,
@@ -81,9 +81,9 @@ export const makeSupervisor = (endpoint: ResolvedEndpoint, deps: NodeRegistryDep
 export const buildNodeSupervisors = (config: AppConfig, deps: NodeRegistryDeps): Map<string, NodeSupervisor> => {
   const map = new Map<string, NodeSupervisor>()
   for (const endpoint of Object.values(config.endpoints)) {
-    // 蜂群2计划 P2b：docker runner 的节点也是托管节点（manager 经 socket 拉容器）
+    // Hive plan 2 P2b: a docker-runner node is a managed node too (the manager pulls the container over the socket)
     if (endpoint.spawn === null || !endpoint.spawn.managed) continue
-    // 舰队 M3：该端点绑定的工作区里任一是 danger-full-access = 开锁信号
+    // Fleet M3: any workspace bound to this endpoint being danger-full-access = the unlock signal
     const fullAccess = Object.values(config.agents).some(
       (a) => a.endpoint === endpoint.id && a.sandboxMode === 'danger-full-access',
     )

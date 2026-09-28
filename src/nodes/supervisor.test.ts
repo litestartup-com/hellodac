@@ -24,7 +24,7 @@ const spec = (over: Partial<ResolvedSpawnSpec> = {}): ResolvedSpawnSpec => ({
   ...over,
 })
 
-/** 蜂群2计划 P2b：docker runner 节点规格（快速退避，测试友好）。 */
+/** Hive plan 2 P2b: the docker runner node spec (fast backoff, friendly to tests). */
 const dockerSpec = (): ResolvedSpawnSpec =>
   spec({
     command: '',
@@ -74,9 +74,9 @@ const sleepMs = (ms: number): Promise<void> => new Promise((resolve) => setTimeo
 const keepAliveScript = 'console.log("hello-node"); setInterval(() => {}, 1000)'
 
 /**
- * 债务 C3:假子进程——EventEmitter + 假 stdout/stderr 流;kill 或注入的
- * killTree 手动 emit exit。与假 spawn/killTree 搭配,supervisor 测试全程
- * 不起真进程(win32 taskkill 对假 pid 无效,必须经 killTree 注入落 exit)。
+ * Debt C3: fake child process -- an EventEmitter plus fake stdout/stderr streams; kill or an injected
+ * killTree emits exit by hand. Together with the fake spawn/killTree, the supervisor tests never start a
+ * real process (win32 taskkill does nothing to a fake pid, so exit has to land through the injected killTree).
  */
 const fakeChild = () =>
   Object.assign(new EventEmitter(), {
@@ -87,15 +87,15 @@ const fakeChild = () =>
     kill: () => true,
   }) as unknown as import('node:child_process').ChildProcess
 
-/** 假 spawn:每次调用返回同一个假子进程(重启循环复用,可重复 emit exit)。 */
+/** Fake spawn: every call returns the same fake child (reused across the restart loop, so exit can be emitted repeatedly). */
 const fakeSpawnFor = (child: import('node:child_process').ChildProcess): SpawnFn => (() => child) as SpawnFn
 
-/** 假 killTree:直接 emit exit 走 onExit(与 win32 taskkill 真路径同落点)。 */
+/** Fake killTree: emit exit directly into onExit (the same landing point as the real win32 taskkill path). */
 const fakeKillTree = (child: import('node:child_process').ChildProcess): void => {
   child.emit('exit', 0, null)
 }
 
-test('修路 A3: probeLive——live 态连续失败转 offline（进程仍在 = 僵节点场景），成功归零', async () => {
+test('Repair A3: probeLive -- consecutive failures in live turn it offline (the process is still there = a stuck node), and one success resets to zero', async () => {
   let probeOk = true
   const child = fakeChild()
   const node = new NodeSupervisor('E', {
@@ -109,16 +109,16 @@ test('修路 A3: probeLive——live 态连续失败转 offline（进程仍在 =
 
   probeOk = false
   await node.probeLive()
-  assert.equal(node.current.state, 'live', '1 次失败不转')
+  assert.equal(node.current.state, 'live', 'one failure does not flip it')
   await node.probeLive()
-  assert.equal(node.current.state, 'live', `${LIVE_PROBE_THRESHOLD - 1} 次失败不转`)
+  assert.equal(node.current.state, 'live', `${LIVE_PROBE_THRESHOLD - 1} failures do not flip it`)
   await node.probeLive()
-  assert.equal(node.current.state, 'offline', `${LIVE_PROBE_THRESHOLD} 次连续失败转 offline`)
+  assert.equal(node.current.state, 'offline', `${LIVE_PROBE_THRESHOLD} consecutive failures turn it offline`)
   assert.match(node.current.lastError ?? '', new RegExp(`${LIVE_PROBE_THRESHOLD}/${LIVE_PROBE_THRESHOLD}`))
   node.stop()
   await waitFor(() => node.current.state === 'cold', 5_000, 'cold')
 
-  // 成功一次即归零
+  // One success resets the count to zero
   const child2 = fakeChild()
   const node2 = new NodeSupervisor('E2', {
     probe: async () => ({ ok: true, detail: '' }),
@@ -128,12 +128,12 @@ test('修路 A3: probeLive——live 态连续失败转 offline（进程仍在 =
   node2.start(spec())
   await waitFor(() => node2.current.state === 'live', 5_000, 'node2 live')
   for (let i = 0; i < 10; i += 1) await node2.probeLive()
-  assert.equal(node2.current.state, 'live', '成功的探活永不转离线')
+  assert.equal(node2.current.state, 'live', 'a successful probe never turns it offline')
   node2.stop()
   await waitFor(() => node2.current.state === 'cold', 5_000, 'node2 cold')
 })
 
-test('修路 A3: probeLive——docker 分支转 offline 时清 containerId，restart 直接重建（不 stop 死容器）', async () => {
+test('Repair A3: probeLive -- the docker branch clears containerId when it turns offline, so restart rebuilds directly (no stop on a dead container)', async () => {
   let probeOk = true
   const { runner, calls } = stubDocker()
   const node = new NodeSupervisor('D', { probe: async () => ({ ok: probeOk, detail: 'down' }), docker: runner })
@@ -147,7 +147,7 @@ test('修路 A3: probeLive——docker 分支转 offline 时清 containerId，re
   const startsBefore = calls.start
   node.restart(dockerSpec())
   await waitFor(() => calls.start > startsBefore, 5_000, 'recreate started')
-  assert.equal(calls.stop, 0, 'containerId 已清：restart 走直接 start，不去 stop 已死的容器')
+  assert.equal(calls.stop, 0, 'containerId already cleared: restart goes straight to start instead of stopping a dead container')
   node.stop()
   await waitFor(() => node.current.state === 'cold', 5_000, 'node stopped')
 })
@@ -189,7 +189,7 @@ test('a managed node goes live, buffers logs, and stops to cold', async () => {
     await waitFor(() => node.current.state === 'live', 10_000, 'live')
     assert.ok(node.current.pid !== null)
     assert.equal(node.current.attempts, 0)
-    // stdout 是假流:手动喂一行,验证 pushLog 缓冲路径照常工作。
+    // stdout is a fake stream: feed one line by hand to check the pushLog buffer path still works.
     child.stdout?.emit('data', Buffer.from('hello-node\n'))
     await waitFor(() => node.logs().includes('hello-node'), 5_000, 'captured log')
   } finally {
@@ -219,7 +219,7 @@ test('a node that never becomes ready is killed and restarted with backoff until
 })
 
 test('a spawn failure (ENOENT) settles to offline after the cap', async () => {
-  // 债务 C3:spawn 失败路径——注入直接 emit error 的假 spawn,不再真起进程。
+  // Debt C3: the spawn failure path -- inject a fake spawn that emits error directly instead of starting a process.
   const node = new NodeSupervisor('C', {
     probe: badProbe,
     spawn: (() => {
@@ -241,9 +241,9 @@ test('a spawn failure (ENOENT) settles to offline after the cap', async () => {
 })
 
 test('a detached node writes to its log file, leaves a pidfile, and cleans it on stop', async () => {
-  // 债务 C3:spawn + killTree 注入——不再真起 node -e 进程;假子进程写日志
-  // 内容、报 pid,假 killTree 直接 emit exit 走 onExit 落 cold(win32 真实现
-  // 走 taskkill,假子进程永远收不到)。
+  // Debt C3: spawn plus killTree injected -- no more real `node -e` process; the fake child writes the log
+  // content and reports a pid, and the fake killTree emits exit straight into onExit to settle cold (the real
+  // win32 implementation goes through taskkill, which a fake child never receives).
   const dir = mkdtempSync(join(tmpdir(), 'node-sup-'))
   const logFile = join(dir, 'node.log')
   let exited = false
@@ -280,27 +280,27 @@ test('a detached node writes to its log file, leaves a pidfile, and cleans it on
     node.stop()
     await waitFor(() => node.current.state === 'cold', 10_000, 'cold')
   }
-  assert.equal(exited, true, 'killTree 注入必须被 stop 调用')
+  assert.equal(exited, true, 'the injected killTree must be called by stop')
   assert.equal(existsSync(logFile + '.pid'), false, 'pidfile removed on stop')
   rmSync(dir, { recursive: true, force: true })
 })
 
-// ---- 蜂群2计划 P2b：docker runner 模式 ----
+// ---- Hive plan 2 P2b: docker runner mode ----
 
-test('P2b: docker 节点启动→探活→停止走 runner，不碰子进程', async () => {
+test('P2b: starting, probing and stopping a docker node all go through the runner and never touch a child process', async () => {
   const { runner, calls } = stubDocker()
   const node = new NodeSupervisor('E', { probe: okProbe, docker: runner, dockerEnv: () => ({ DSH_HOME: '/data', GW_KEY: 'k' }) })
   node.start(dockerSpec())
   await waitFor(() => node.current.state === 'live', 5_000, 'docker live')
   assert.equal(calls.ensureImage, 1)
   assert.equal(calls.start, 1)
-  assert.equal(node.current.pid, null, 'docker 模式没有进程 pid')
+  assert.equal(node.current.pid, null, 'docker mode has no process pid')
   node.stop()
   await waitFor(() => node.current.state === 'cold', 5_000, 'docker cold')
   assert.equal(calls.stop, 1)
 })
 
-test('P2b: adopt 认领在跑容器，探活通过即 live，绝不重复拉起', async () => {
+test('P2b: adopt claims a running container, goes live once the probe passes, and never starts it a second time', async () => {
   const { runner, calls } = stubDocker()
   const node = new NodeSupervisor('E', { probe: okProbe, docker: runner })
   node.adopt(dockerSpec(), 'cid-adopted')
@@ -309,7 +309,7 @@ test('P2b: adopt 认领在跑容器，探活通过即 live，绝不重复拉起'
   assert.equal(calls.ensureImage, 0)
 })
 
-test('P2b: docker 启动连续失败按退避重试，超过次数停用', async () => {
+test('P2b: consecutive docker start failures retry with backoff and disable the node past the cap', async () => {
   const { runner } = stubDocker(true)
   const node = new NodeSupervisor('E', { probe: okProbe, docker: runner })
   node.start(dockerSpec())
@@ -318,7 +318,7 @@ test('P2b: docker 启动连续失败按退避重试，超过次数停用', async
   assert.match(node.current.lastError ?? '', /no docker/)
 })
 
-test('P2b: dockerLogs 无容器返回 null；认领后走 runner.logs', async () => {
+test('P2b: dockerLogs returns null with no container; after adopt it goes through runner.logs', async () => {
   const { runner, calls } = stubDocker()
   const node = new NodeSupervisor('E', { probe: okProbe, docker: runner })
   assert.equal(await node.dockerLogs(), null)
@@ -327,7 +327,7 @@ test('P2b: dockerLogs 无容器返回 null；认领后走 runner.logs', async ()
   assert.equal(calls.logs, 1)
 })
 
-test('P6 评审 B3: 启动等待期间 stop——在途链作废、孤儿容器被补刀清理、不采纳容器', async () => {
+test('P6 review B3: stop while the start is still waiting -- the in-flight chain is voided, the orphan container it started is finished off, and the container is not adopted', async () => {
   let releaseGate: () => void = () => undefined
   const gate = new Promise<void>((resolveGate) => {
     releaseGate = resolveGate
@@ -355,12 +355,12 @@ test('P6 评审 B3: 启动等待期间 stop——在途链作废、孤儿容器�
   assert.equal(node.current.state, 'cold')
   releaseGate()
   await new Promise((resolveWait) => setTimeout(resolveWait, 100))
-  assert.equal(node.current.state, 'cold', '过期链不得改变状态')
-  assert.equal(calls.stop, 1, '过期链拉起的孤儿容器被补刀清理')
-  assert.equal(await node.dockerLogs(), null, '过期链不得采纳 containerId')
+  assert.equal(node.current.state, 'cold', 'an expired chain must not change the state')
+  assert.equal(calls.stop, 1, 'the orphan container started by the expired chain is finished off')
+  assert.equal(await node.dockerLogs(), null, 'an expired chain must not adopt the containerId')
 })
 
-test('P6 评审 B3: docker 就绪超时——停容器并走失败决策链（不卡 starting）', async () => {
+test('P6 review B3: docker readiness timeout -- stop the container and take the failure decision chain (never stuck in starting)', async () => {
   const calls = { start: 0, stop: 0 }
   const runner = {
     ensureImage: async () => undefined,
@@ -375,13 +375,13 @@ test('P6 评审 B3: docker 就绪超时——停容器并走失败决策链（�
     listManaged: async () => [],
   } as unknown as DockerRunner
   const node = new NodeSupervisor('E', { probe: badProbe, docker: runner })
-  node.start(dockerSpec()) // readyTimeoutMs 2s，maxAttempts 2，退避 10/20ms
+  node.start(dockerSpec()) // readyTimeoutMs 2s, maxAttempts 2, backoff 10/20ms
   await waitFor(() => node.current.state === 'offline', 15_000, 'offline after probe timeouts')
   assert.equal(node.current.attempts, 2)
-  assert.ok(calls.stop >= 2, '每次就绪超时都停容器')
+  assert.ok(calls.stop >= 2, 'every readiness timeout stops the container')
 })
 
-// ---- 能力四（M1-4）：agent runner 分支 ----
+// ---- Capability four (M1-4): the agent runner branch ----
 
 const agentSpec = (): ResolvedSpawnSpec =>
   spec({
@@ -420,7 +420,7 @@ const supervisorWith = (deps: AgentDeps, probe: () => Promise<{ ok: boolean; det
     fleetDoc: () => 'fleet-content',
   })
 
-test('能力四 M1-4: agent start——入队 node.spawn（载荷含 nodeId/args/env/钉版/派生件），探活 ok 即 live', async () => {
+test('Capability four M1-4: agent start -- enqueues node.spawn (payload carries nodeId/args/env/pinned version/derived files) and goes live as soon as the probe is ok', async () => {
   const deps = agentDeps()
   const s = supervisorWith(deps, okProbe)
   s.start(agentSpec())
@@ -438,17 +438,17 @@ test('能力四 M1-4: agent start——入队 node.spawn（载荷含 nodeId/args
   assert.equal(payload.nodeId, 'ops01')
   assert.deepEqual(payload.args, ['--profile', 'ops01', '--port', '3081', '--no-open'])
   assert.equal(payload.dshVersion, '0.1.5-rc.2')
-  assert.equal(payload.env.GW_KEY, 'apigw-super', 'agentEnv 注入 GW_KEY')
-  assert.equal(payload.fleetMd, 'fleet-content', 'fleet.md 随载荷下发')
-  assert.equal(payload.profile.dir, 'profiles/ops01', 'profile 目录 = --profile 名')
-  assert.match(payload.profile.files['package.json'] ?? '', /"@deepseek-ai\/dsh-base": "0.1.5-rc.2"/, 'profile 钉版与载荷一致')
-  assert.match(payload.profile.files['package.json'] ?? '', /#b592b4f/, 'facade ref 进 profile')
-  assert.equal((payload.profile.files['.seed-version'] ?? '').trim().length, 40, '种子标记随载荷')
+  assert.equal(payload.env.GW_KEY, 'apigw-super', 'agentEnv injects GW_KEY')
+  assert.equal(payload.fleetMd, 'fleet-content', 'fleet.md ships with the payload')
+  assert.equal(payload.profile.dir, 'profiles/ops01', 'profile directory = the --profile name')
+  assert.match(payload.profile.files['package.json'] ?? '', /"@deepseek-ai\/dsh-base": "0.1.5-rc.2"/, 'the profile pins the same version as the payload')
+  assert.match(payload.profile.files['package.json'] ?? '', /#b592b4f/, 'the facade ref goes into the profile')
+  assert.equal((payload.profile.files['.seed-version'] ?? '').trim().length, 40, 'the seed marker ships with the payload')
   deps.resultCallbacks.get(1)?.(true)
   await waitFor(() => s.current.state === 'live', 3_000, 'agent node live')
 })
 
-test('能力四 M2 回归: agent 就绪探活必须在 spawn 结果之后（远端冷安装期间不误杀）', async () => {
+test('Capability four M2 regression: the agent readiness probe must come after the spawn result (never kill it during a cold remote install)', async () => {
   const deps = agentDeps()
   let probes = 0
   const s = supervisorWith(deps, async () => {
@@ -457,34 +457,34 @@ test('能力四 M2 回归: agent 就绪探活必须在 spawn 结果之后（远�
   })
   s.start(agentSpec())
   await sleepMs(50)
-  assert.equal(probes, 0, 'spawn 结果未回报前绝不探活（安装可能几分钟）')
-  assert.equal(s.current.state, 'starting', '期间保持 starting')
+  assert.equal(probes, 0, 'never probe before the spawn result is reported (the install may take minutes)')
+  assert.equal(s.current.state, 'starting', 'it stays starting in the meantime')
   deps.resultCallbacks.get(1)?.(true)
-  await waitFor(() => s.current.state === 'live', 3_000, '结果 ok 后才探活 → live')
-  assert.ok(probes >= 1, '结果 ok 后探活启动')
+  await waitFor(() => s.current.state === 'live', 3_000, 'only probe after an ok result -> live')
+  assert.ok(probes >= 1, 'the probe starts once the result is ok')
 })
 
-test('能力四 M1-4: agent spawn 失败回报 → 快速失败重试链（不等待就绪超时）', async () => {
+test('Capability four M1-4: an agent spawn failure report -> the fast-fail retry chain (without waiting for the readiness timeout)', async () => {
   const deps = agentDeps()
   const s = supervisorWith(deps, badProbe)
   s.start(agentSpec())
   deps.resultCallbacks.get(1)?.(false)
   await waitFor(() => deps.enqueued.length >= 2, 2_000, 'retry enqueued after failure report')
-  assert.equal(deps.enqueued[1]?.type, 'node.spawn', '重试 = 再次入队 spawn')
-  assert.equal(s.current.attempts >= 1, true, '失败计attempts')
+  assert.equal(deps.enqueued[1]?.type, 'node.spawn', 'a retry = enqueue spawn again')
+  assert.equal(s.current.attempts >= 1, true, 'the failure counts an attempt')
 })
 
-test('能力四 M1-4: 就绪超时入队 node.stop + 失败链；stop → node.stop + 冷态；restart → stop+spawn 链', async () => {
+test('Capability four M1-4: a readiness timeout enqueues node.stop plus the failure chain; stop -> node.stop plus cold; restart -> stop+spawn chain', async () => {
   const deps = agentDeps()
   const s = supervisorWith(deps, badProbe)
   s.start(agentSpec())
-  // M2 回归：每次重试的 spawn 都要有结果回报才继续（结果前不探活）。
-  // 指令 id 含 node.stop 在内（spawn=1 → stop=2 → spawn=3），按「未回报过的回调」推进。
+  // M2 regression: every retry's spawn needs its result reported before anything continues (no probing before the result).
+  // Command ids include node.stop (spawn=1 -> stop=2 -> spawn=3), so advance by "the callback not reported yet".
   const fired = new Set<number>()
   for (let i = 0; i < 2; i += 1) {
     await waitFor(() => [...deps.resultCallbacks.keys()].some((k) => !fired.has(k)), 2_000, 'spawn enqueued + result cb registered')
     const id = [...deps.resultCallbacks.keys()].find((k) => !fired.has(k))
-    assert.ok(id !== undefined, '有未回报的 spawn 回调')
+    assert.ok(id !== undefined, 'there is an unreported spawn callback')
     fired.add(id)
     deps.resultCallbacks.get(id)?.(true)
     await waitFor(
@@ -494,10 +494,10 @@ test('能力四 M1-4: 就绪超时入队 node.stop + 失败链；stop → node.s
     )
   }
   assert.equal(s.current.state, 'offline', 'agent offline after retries')
-  assert.ok(deps.enqueued.filter((e) => e.type === 'node.stop').length >= 2, '每次超时入队 stop')
+  assert.ok(deps.enqueued.filter((e) => e.type === 'node.stop').length >= 2, 'every timeout enqueues a stop')
 
   s.stop()
-  assert.equal(s.current.state, 'cold', 'stop 后落冷')
+  assert.equal(s.current.state, 'cold', 'cold after stop')
 
   const deps2 = agentDeps()
   const s2 = supervisorWith(deps2, okProbe)
@@ -513,11 +513,11 @@ test('能力四 M1-4: 就绪超时入队 node.stop + 失败链；stop → node.s
   )
 })
 
-test('能力四 M1-4: 未接线 agentCommand → fail-loud offline；agentLogs 走注入源', () => {
+test('Capability four M1-4: agentCommand not wired up -> fail-loud offline; agentLogs goes through the injected source', () => {
   const s = new NodeSupervisor('ops01', { probe: badProbe })
   s.start(agentSpec())
-  assert.equal(s.current.state, 'offline', '缺 agentCommand = offline')
-  assert.equal(s.agentLogs(), '', '无 spec 回空')
+  assert.equal(s.current.state, 'offline', 'a missing agentCommand = offline')
+  assert.equal(s.agentLogs(), '', 'no spec returns empty')
 
   const withLog = new NodeSupervisor('ops01', {
     probe: badProbe,
@@ -528,21 +528,21 @@ test('能力四 M1-4: 未接线 agentCommand → fail-loud offline；agentLogs �
   assert.equal(withLog.agentLogs(), 'agent-abc123/ops01/log')
 })
 
-// ---- 事故回归（2026-09-25 ubuntu-focal 失联）：agent 重连后的节点续跑 ----
+// ---- Incident regression (ubuntu-focal lost contact on 2026-09-25): nodes carry on running after the agent reconnects ----
 
-test('事故回归: resume 把 cold 节点重新拉起——重启后节点正是 cold，healOnly 会跳过它', () => {
+test('Incident regression: resume brings a cold node back up -- right after a restart the node is cold, and healOnly would skip it', () => {
   const deps = agentDeps()
   const s = supervisorWith(deps, okProbe)
 
-  // 刚开机的样子：还没人 start 过，状态是 cold
+  // What a freshly booted machine looks like: nobody has started it yet, so the state is cold
   assert.equal(s.current.state, 'cold')
-  // healOnly 的 skip 语义就是照 cold 跳过的——所以 resume 必须自己动手
+  // The skip semantics of healOnly pass over anything cold -- so resume has to do the work itself
   s.resume(agentSpec())
-  assert.equal(s.current.state, 'starting', 'cold → resume 必须真的拉起')
-  assert.equal(deps.enqueued.filter((e) => e.type === 'node.spawn').length, 1, '入队一条 node.spawn')
+  assert.equal(s.current.state, 'starting', 'cold -> resume must really bring it up')
+  assert.equal(deps.enqueued.filter((e) => e.type === 'node.spawn').length, 1, 'one node.spawn enqueued')
 })
 
-test('事故回归: resume 不打扰 live 节点——机器重连但节点还活着时不得重复 spawn', () => {
+test('Incident regression: resume leaves a live node alone -- a machine that reconnects while the node is still alive must not spawn it again', () => {
   const deps = agentDeps()
   const s = supervisorWith(deps, okProbe)
 
@@ -550,18 +550,18 @@ test('事故回归: resume 不打扰 live 节点——机器重连但节点还�
   deps.resultCallbacks.get(1)?.(true)
   return waitFor(() => s.current.state === 'live', 2_000, 'first resume reaches live').then(() => {
     const spawnedBefore = deps.enqueued.filter((e) => e.type === 'node.spawn').length
-    // 节点还活着（KillMode=process 让它在 agent 自更新时存活）——再来一次 resume
+    // The node is still alive (KillMode=process keeps it alive across an agent self-update) -- resume once more
     s.resume(agentSpec())
-    assert.equal(s.current.state, 'live', 'live 保持 live')
+    assert.equal(s.current.state, 'live', 'live stays live')
     assert.equal(
       deps.enqueued.filter((e) => e.type === 'node.spawn').length,
       spawnedBefore,
-      'live 节点不得被重复 spawn（否则抢同一端口 = EADDRINUSE）',
+      'a live node must not be spawned again (otherwise two processes fight over the same port = EADDRINUSE)',
     )
   })
 })
 
-test('事故回归: resume 不抢人手动停掉的节点——手动 stop 后机器重连也不得拉起', () => {
+test('Incident regression: resume does not grab a node a human stopped by hand -- reconnecting the machine after a manual stop must not bring it up', () => {
   const deps = agentDeps()
   const s = supervisorWith(deps, okProbe)
 
@@ -569,11 +569,11 @@ test('事故回归: resume 不抢人手动停掉的节点——手动 stop 后�
   deps.resultCallbacks.get(1)?.(true)
   return waitFor(() => s.current.state === 'live', 2_000, 'live before stop').then(() => {
     s.stop()
-    assert.equal(s.current.state, 'cold', '手动 stop 落冷')
+    assert.equal(s.current.state, 'cold', 'a manual stop settles cold')
     const spawnedBefore = deps.enqueued.filter((e) => e.type === 'node.spawn').length
 
     s.resume(agentSpec())
-    assert.equal(s.current.state, 'cold', '手动停掉的节点绝不因 resume 复活（债务 R9 同款红线）')
-    assert.equal(deps.enqueued.filter((e) => e.type === 'node.spawn').length, spawnedBefore, '不得入队 spawn')
+    assert.equal(s.current.state, 'cold', 'a node stopped by hand must never come back through resume (the same red line as Debt R9)')
+    assert.equal(deps.enqueued.filter((e) => e.type === 'node.spawn').length, spawnedBefore, 'must not enqueue a spawn')
   })
 })

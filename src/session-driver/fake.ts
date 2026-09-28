@@ -1,11 +1,11 @@
 /**
- * FakeSessionDriver —— 拔插头验收的「插头三替身」（纯内存假翻译员）。
+ * FakeSessionDriver -- the "third plug stand-in" for the plug-swap acceptance (a pure in-memory fake translator).
  *
- * 它只实现 SessionDriver 端口，不 import 任何 wire 模块（rpc/mux/respond 都不碰）。
- * 用它驱动 runner/chat 全链路，证明上层在运行时也只依赖端口：
- * 换插头 = 换这个实现，上层零改动（TRANSLATOR-OPTIONS §5 验收标准）。
+ * It implements the SessionDriver port only and imports no wire module (it touches neither rpc, mux nor respond).
+ * Driving the whole runner/chat path with it proves the upper layer depends on the port alone at runtime too:
+ * swapping the plug = swapping this implementation, with zero changes above (TRANSLATOR-OPTIONS section 5 acceptance criterion).
  *
- * 脚本化：frames 按序泵给订阅者（prompt 时触发），其余操作只记录。
+ * Scripted: the frames are pumped to subscribers in order (triggered by prompt), while every other operation is only recorded.
  */
 import type { SessionDriver } from './port.js'
 import type { MuxListener } from '../upstream/mux.js'
@@ -15,13 +15,13 @@ import type { RpcReceipt } from '../upstream/respond.js'
 import type { GatewayFrame } from '../gateway/stream.js'
 
 export interface FakeScript {
-  /** prompt 后按序泵给订阅者的帧。 */
+  /** The frames pumped to subscribers in order after prompt. */
   frames: GatewayFrame[]
-  /** prompt 是否被接受（默认 true）。 */
+  /** Whether prompt is accepted (true by default). */
   promptAccepted?: boolean
-  /** 非空 = prompt 抛出该错误（模拟上游 5xx）。 */
+  /** Non-empty = prompt throws that error (simulating an upstream 5xx). */
   promptError?: string
-  /** createSession 的返回事实（默认 null = 用入参）。 */
+  /** What createSession returns (null by default = use the arguments). */
   preset?: string | null
   provider?: string | null
   model?: string | null
@@ -30,13 +30,13 @@ export interface FakeScript {
     context?: { usedTokens: number; contextWindow: number; breakdown?: { systemTokens: number; toolsTokens: number; messageTokens: number } } | null
     accessMode?: 'read-only' | 'workspace-write' | 'danger-full-access' | null
   }
-  /** 脚本可控：全量沙箱开锁状态（capabilities.fullAccess）。 */
+  /** Script-controlled: the full sandbox unlock state (capabilities.fullAccess). */
   fullAccess?: boolean
-  /** 卡片链：pendingAsks 的返回值；函数形态可按调用次序返回不同结果（如首查空、重连查有）。 */
+  /** The card chain: the pendingAsks return value; the function form can return different results per call order (empty on the first lookup, present on a reconnect). */
   pendingAsks?: GatewayFrame[] | (() => GatewayFrame[])
-  /** 脚本可控：setSandboxMode 抛 session_not_live（模拟会话转冷的 409）。 */
+  /** Script-controlled: setSandboxMode throws session_not_live (simulating a 409 from a chat that went cold). */
   sandboxNotLive?: boolean
-  /** 脚本可控：host goal 投影（history 里的 goal 字段）。 */
+  /** Script-controlled: the host goal projection (the goal field of history). */
   goal?: UpstreamGoal | null
   models?: {
     current: { provider: string; model: string; reasoningEffort?: string } | null
@@ -52,9 +52,9 @@ export interface FakeScript {
     }>
     failures: Array<{ id: string; name: string; message: string }>
   }
-  /** 非空 = createSession 抛出该错误（模拟上游 5xx）。 */
+  /** Non-empty = createSession throws that error (simulating an upstream 5xx). */
   createError?: string
-  /** probeVersion 返回值；null = 抛出（不可达）。 */
+  /** The probeVersion return value; null = throw (unreachable). */
   probeVersion?: string | null
 }
 
@@ -92,7 +92,7 @@ export class FakeSessionDriver implements SessionDriver {
     this.prompts.push(text)
     if (this.script.promptError !== undefined) throw new Error(this.script.promptError)
     if (this.script.promptAccepted === false) return { accepted: false }
-    // 异步泵帧：与真实插头的流式投递同序（订阅先于 prompt 已成立）。
+    // The frames are pumped asynchronously: same order as a real plug's streaming delivery (subscribing before prompt already holds).
     queueMicrotask(() => {
       for (const frame of this.script.frames) {
         for (const listener of this.listeners.get(sessionId) ?? []) listener(sessionId, frame)
@@ -111,7 +111,7 @@ export class FakeSessionDriver implements SessionDriver {
     }
   }
 
-  /** 测试观察面：某会话当前挂着的订阅数（债务 R8 用，生产不调用）。 */
+  /** The test observation surface: how many subscribers a chat currently holds (used by Debt R8, never called in production). */
   activeSubscriberCount(sessionId: string): number {
     return this.listeners.get(sessionId)?.size ?? 0
   }
@@ -170,12 +170,12 @@ export class FakeSessionDriver implements SessionDriver {
     this.released.push(sessionId)
   }
 
-  /** 脚本可控的全量沙箱开锁状态（测试 capabilities.fullAccess 用）。 */
+  /** The script-controlled full sandbox unlock state (used by tests for capabilities.fullAccess). */
   async allowsFullAccess(): Promise<boolean> {
     return this.script.fullAccess === true
   }
 
-  /** 卡片链：脚本可控的挂起问答恢复结果（缺省空 = 无恢复能力）。 */
+  /** The card chain: the script-controlled result of resuming a pending question (empty by default = no resume capability). */
   async pendingAsks(_sessionId: string): Promise<GatewayFrame[]> {
     const pending = this.script.pendingAsks
     if (pending === undefined) return []

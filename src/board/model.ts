@@ -228,7 +228,7 @@ export const parseBlock = (raw: unknown): { block: RenderableBlock; problem: str
   const type = (raw as { type?: unknown } | null)?.type
   const title = (raw as { title?: unknown } | null)?.title
   const titleText = typeof title === 'string' ? title.slice(0, 200) : undefined
-  // exactOptionalPropertyTypes: title 只在有值时出现,不传显式 undefined。
+  // exactOptionalPropertyTypes: title is present only when it has a value; an explicit undefined is never passed.
   const unsupported = (reason: string) => ({
     type: 'unsupported' as const,
     ...(titleText === undefined ? {} : { title: titleText }),

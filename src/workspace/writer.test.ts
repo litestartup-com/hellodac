@@ -8,7 +8,7 @@ import { NOTE_DATA_DIR, readNoteData } from './notedata.js'
 import { WriteRejected, appendMarkdown, applyWrites, resolveInside, writeNoteData, type ApplyOptions } from './writer.js'
 import type { ValidateRules } from './validate.js'
 
-/** 债务 E12:note-kaka 规则(外置后由调用方传入)。 */
+/** Debt E12: the note-kaka rules (externalized, now passed in by the caller). */
 const RULES: ValidateRules = {
   windows: [
     { path: 'trade.history', max: 8, archive: 'E03.10.01-交易大盘.md' },
@@ -23,8 +23,8 @@ const git = (cwd: string, ...args: string[]): string =>
   execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
 
 const TRADE_JS = `// ============================================================
-// Note Kaka 数据文件 · trade（交易快照）
-// 治理：快照历史只渲染最近 8 条
+// Note Kaka data file · trade (trading snapshot)
+// Governance: the snapshot history renders only the 8 most recent records
 // ============================================================
 window.NOTE_DATA = window.NOTE_DATA || {};
 
@@ -64,13 +64,13 @@ const opts = { message: 'test write' }
 
 test('rejects paths that escape the workspace', () => {
   const root = makeRepo()
-  // 平台无关的逃逸：`../` 与 POSIX 绝对路径在 win32 / posix 下都判为绝对。
-  // 注意 `resolveInside` 用平台原生 isAbsolute：`/etc/hosts` 在 win32 下
-  // 同样 isAbsolute（驱动器根路径），两边都会拒绝。
+  // Platform-independent escapes: `../` and a POSIX absolute path count as absolute on both win32 and posix.
+  // Note that `resolveInside` uses the platform's native isAbsolute: on win32 `/etc/hosts` is
+  // isAbsolute too (a drive-root path), so both platforms reject it.
   const alwaysRejected = ['../escape.md', '../../etc/hosts', 'a/../../escape.md', '/etc/hosts']
-  // Windows 驱动器绝对路径只在 win32 上是绝对路径；在 posix 上它是工作区内
-  // 合法相对路径（写成 <root>/C:/...），没有逃逸风险，应当放行——CI 在 Linux
-  // 上跑，这里必须按平台断言，否则整条套件 Linux-only 红（蜂群2计划 P6 回归）。
+  // A Windows drive-absolute path is absolute only on win32; on posix it is a legal relative
+  // path inside the workspace (written as <root>/C:/...), with no escape risk, so it must be allowed -- CI runs
+  // on Linux, so this has to assert per platform or the whole suite goes red on Linux only (Hive plan 2 P6 regression).
   const winOnlyRejected = ['C:/Windows/System32/x.md', 'D:\\outside\\x.md']
 
   for (const bad of alwaysRejected) {
@@ -299,19 +299,19 @@ test('applyWrites rejects an empty batch', async () => {
   await assert.rejects(() => applyWrites(root, [], opts), WriteRejected)
 })
 
-test('债务 R7: applyWrites 落盘后二次校验必须按传入规则拒绝(不得退化为 DEFAULT_RULES)', async () => {
+test('Debt R7: after applyWrites lands data, the second validation must reject by the rules passed in (it must not degrade to DEFAULT_RULES)', async () => {
   const root = makeRepo()
   const overflowing =
     'window.NOTE_DATA = window.NOTE_DATA || {};\nwindow.NOTE_DATA.trade = { history: [' +
     Array.from({ length: 9 }, (_, i) => `{ d:"08-${String(i + 1).padStart(2, '0')}", pos:${i}, cash:1, note:"n" }`).join(', ') +
     '] };\n'
-  // 变量形态携带额外 rules 字段(与 ApplyOptions 结构兼容),旧实现会忽略它
-  // 改用 DEFAULT_RULES 回读校验 → 违规数据照样落盘 → 本测试红。
+  // The variable form carries an extra rules field (structurally compatible with ApplyOptions) and the old
+  // implementation ignored it, re-reading for validation with DEFAULT_RULES -> violating data landed anyway -> this test went red.
   const r7opts: ApplyOptions & { rules?: ValidateRules } = { message: 'r7', commit: false, rules: RULES }
   await assert.rejects(
     () => applyWrites(root, [{ relPath: `${NOTE_DATA_DIR}/trade.js`, contents: overflowing }], r7opts),
     (error: unknown) =>
       error instanceof WriteRejected && error.violations.some((v) => v.rule === 'governance-window'),
-    '带治理规则的写,落盘内容违规必须按规则拒绝',
+    'a write with governance rules must reject landed content that violates them',
   )
 })

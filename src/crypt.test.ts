@@ -11,18 +11,18 @@ const SECRET = 'test-secret-0123456789abcdef0123456789abcdef'
 const plainText = (): string => 'hello world '.repeat(20)
 
 /**
- * 债务 A1:备份加密从 CBC(无认证)升级 GCM。
- * 红证 = 篡改 IV 一字节后解密必须失败:旧 CBC 下 IV 篡改只污染第一个
- * block、padding 在最后 block 不受影响 → 解密"成功"输出垃圾(测试红)。
+ * Debt A1: backup encryption goes from CBC (unauthenticated) to GCM.
+ * The red proof = decrypting must fail once one byte of the IV is tampered with: under the old CBC an IV change
+ * only corrupts the first block, while the padding in the last block is untouched -> decryption "succeeds" and emits garbage (a red test).
  */
-test('债务 A1 回归: 篡改 IV 必须解密失败(GCM 认证)', async () => {
+test('Debt A1 regression: a tampered IV must fail to decrypt (GCM authentication)', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'crypt-'))
   const plain = join(dir, 'plain.txt')
   writeFileSync(plain, plainText(), 'utf8')
   const enc = join(dir, 'out.enc')
   await encryptFile(plain, enc, SECRET)
 
-  // 篡改 IV 区(旧 v1 布局 IV 在 0-15;新 v2 布局 IV 在 magic(8B)之后)——offset 10 两边都在 IV 内
+  // Tamper with the IV area (the old v1 layout has the IV at 0-15; the new v2 layout has it after the magic (8B)) -- offset 10 is inside the IV in both
   const fd = openSync(enc, 'r+')
   const b = Buffer.alloc(1)
   readSync(fd, b, 0, 1, 10)
@@ -33,18 +33,18 @@ test('债务 A1 回归: 篡改 IV 必须解密失败(GCM 认证)', async () => {
   await assert.rejects(
     () => decryptFile(enc, out, SECRET),
     /./,
-    '篡改后的归档必须解密失败,绝不允许静默解出被改过的数据',
+    'a tampered archive must fail to decrypt; silently decoding altered data is never allowed',
   )
 })
 
-test('债务 A1 回归: 篡改认证标签必须解密失败', async () => {
+test('Debt A1 regression: a tampered authentication tag must fail to decrypt', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'crypt-tag-'))
   const plain = join(dir, 'plain.txt')
   writeFileSync(plain, plainText(), 'utf8')
   const enc = join(dir, 'out.enc')
   await encryptFile(plain, enc, SECRET)
 
-  // 翻转最后一个字节(v2 = authTag 尾部;v1 = 密文最后 block)
+  // Flip the last byte (v2 = the tail of the authTag; v1 = the last block of ciphertext)
   const size = readFileSync(enc).length
   const fd = openSync(enc, 'r+')
   const b = Buffer.alloc(1)
@@ -55,7 +55,7 @@ test('债务 A1 回归: 篡改认证标签必须解密失败', async () => {
   await assert.rejects(() => decryptFile(enc, join(dir, 'out.txt'), SECRET), /./)
 })
 
-/** 用 v1 算法手工构造旧格式归档(16B IV + CBC 密文,legacy 派生密钥)——模拟线上既有备份物。 */
+/** Build an old-format archive by hand with the v1 algorithm (16B IV + CBC ciphertext, legacy derived key) -- to imitate the backups already out there. */
 const makeV1Archive = (dir: string, content: string): string => {
   const enc = join(dir, 'v1.enc')
   const legacyKey = deriveLegacyBackupKey(SECRET)
@@ -66,7 +66,7 @@ const makeV1Archive = (dir: string, content: string): string => {
   return enc
 }
 
-test('债务 A1 回归: v1 旧归档(CBC)仍可解密——升级不打断恢复链', async () => {
+test('Debt A1 regression: an old v1 archive (CBC) still decrypts -- the upgrade does not break the recovery chain', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'crypt-v1-'))
   const enc = makeV1Archive(dir, 'legacy archive content')
   const out = join(dir, 'out.txt')
@@ -74,7 +74,7 @@ test('债务 A1 回归: v1 旧归档(CBC)仍可解密——升级不打断恢复
   assert.equal(readFileSync(out, 'utf8'), 'legacy archive content')
 })
 
-test('债务 A1 回归: v2 加密 → 解密往返一致', async () => {
+test('Debt A1 regression: v2 encrypt -> decrypt round-trips identically', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'crypt-rt-'))
   const plain = join(dir, 'plain.txt')
   writeFileSync(plain, plainText(), 'utf8')

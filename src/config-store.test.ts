@@ -6,8 +6,8 @@ import { join } from 'node:path'
 import { mutateYamlFile, withConfigLock, writeFileAtomic } from './config-store.js'
 
 /**
- * 债务 A3:真相源 manager.config.yaml 的原子写。
- * 旧代码 read→parse(JS 对象)→stringify→直写:丢注释、崩溃截断、无写后校验。
+ * Debt A3: atomic writes to the source of truth manager.config.yaml.
+ * The old code went read -> parse (JS object) -> stringify -> write: comments lost, truncation on a crash, no post-write check.
  */
 
 const dir = mkdtempSync(join(tmpdir(), 'cfgstore-'))
@@ -21,12 +21,12 @@ const withEnv = (): void => {
 
 const seedConfig = (): string => {
   const text = [
-    '# 顶层注释——这是手改入口的文档本体,绝不能丢',
+    '# Top-level comment -- this is the documentation body of the manual-edit entry point and must never be lost',
     'listen:',
     '  host: 127.0.0.1',
     '  port: 8080',
     '',
-    '# 端点 A:loopback 直连',
+    '# Endpoint A: loopback direct connection',
     'endpoints:',
     '  A:',
     '    url: http://127.0.0.1:3080',
@@ -44,20 +44,20 @@ const seedConfig = (): string => {
   return text
 }
 
-test('债务 A3 回归: 注释与手工格式保留——mutate 后原注释一字不丢', () => {
+test('Debt A3 regression: comments and manual formatting survive -- a mutate loses not a single character of the original comments', () => {
   withEnv()
   const before = seedConfig()
   mutateYamlFile(configPath, (doc) => {
     doc.setIn(['agents', 'product'], { name: '产品', endpoint: 'A', workspace: './workspaces/product' })
   })
   const after = readFileSync(configPath, 'utf8')
-  assert.ok(after.includes('# 顶层注释——这是手改入口的文档本体,绝不能丢'), '顶层注释必须保留')
-  assert.ok(after.includes('# 端点 A:loopback 直连'), '段内注释必须保留')
-  assert.ok(after.includes('product'), '新增 key 必须生效')
+  assert.ok(after.includes('# Top-level comment -- this is the documentation body of the manual-edit entry point and must never be lost'), 'the top-level comment must survive')
+  assert.ok(after.includes('# Endpoint A: loopback direct connection'), 'the in-section comment must survive')
+  assert.ok(after.includes('product'), 'the newly added key must take effect')
   assert.notEqual(after, before)
 })
 
-test('债务 A3 回归: full 校验失败 → 自动还原上一版并抛错,坏配置绝不落盘', () => {
+test('Debt A3 regression: a failed full validation -> the previous revision is restored and an error is thrown; a bad config never lands on disk', () => {
   withEnv()
   const before = seedConfig()
   assert.throws(
@@ -66,32 +66,32 @@ test('债务 A3 回归: full 校验失败 → 自动还原上一版并抛错,坏
     }, { validate: 'full' }),
     /validation failed|at least one endpoint/,
   )
-  assert.equal(readFileSync(configPath, 'utf8'), before, '校验失败必须还原原文')
+  assert.equal(readFileSync(configPath, 'utf8'), before, 'a failed validation must restore the original text')
 })
 
-test('债务 A3 回归: 原子写不残留 .tmp;内容完整落盘', () => {
+test('Debt A3 regression: an atomic write leaves no .tmp behind; the content lands on disk in full', () => {
   const out = join(dir, 'atom.txt')
   writeFileAtomic(out, 'hello-atomic', 0o600)
   assert.equal(readFileSync(out, 'utf8'), 'hello-atomic')
-  assert.equal(existsSync(`${out}.tmp`), false, '不得残留 .tmp')
+  assert.equal(existsSync(`${out}.tmp`), false, 'no .tmp may be left behind')
 })
 
-test('债务 R10 回归: rename 顶不动挂载点(EBUSY)时回落原地写——内容落盘且不残留 .tmp', () => {
+test('Debt R10 regression: when rename cannot replace a mount point (EBUSY) it falls back to writing in place -- the content lands and no .tmp is left', () => {
   const out = join(dir, 'mounted.env')
   writeFileSync(out, 'OLD=1\n', 'utf8')
   const body = 'SESSION_SECRET=store-test-secret-0123456789abcdef0123456789abcdef\nNEW=2\n'
   writeFileAtomic(out, body, 0o600, {
-    // 容器形态的文件级 bind mount（./.env:/app/.env）在 Linux 上不能被 rename
-    // 顶替（EBUSY）——compose-e2e 实证：POST /api/nodes 500 EBUSY rename .env.tmp
+    // A file-level bind mount in the container form (./.env:/app/.env) cannot be replaced by rename on
+    // Linux (EBUSY) -- proven by compose-e2e: POST /api/nodes returned 500 EBUSY rename .env.tmp
     rename: () => {
       throw Object.assign(new Error('EBUSY: resource busy or locked, rename'), { code: 'EBUSY' })
     },
   })
-  assert.equal(readFileSync(out, 'utf8'), body, '回落原地写必须完整落盘')
-  assert.equal(existsSync(`${out}.tmp`), false, '回落路径不得残留 .tmp')
+  assert.equal(readFileSync(out, 'utf8'), body, 'the in-place fallback must land the content in full')
+  assert.equal(existsSync(`${out}.tmp`), false, 'the fallback path must leave no .tmp behind')
 })
 
-test('债务 A3 回归: 并发写经锁串行——两处更新都不丢', async () => {
+test('Debt A3 regression: concurrent writes serialize through the lock -- neither update is lost', async () => {
   withEnv()
   seedConfig()
   await Promise.all([
@@ -103,10 +103,10 @@ test('债务 A3 回归: 并发写经锁串行——两处更新都不丢', async
     })),
   ])
   const after = readFileSync(configPath, 'utf8')
-  assert.ok(after.includes('company') && after.includes('product'), '两个并发更新都必须落盘')
+  assert.ok(after.includes('company') && after.includes('product'), 'both concurrent updates must land on disk')
 })
 
-test('债务 R6: 带语法错误的既有 YAML 必须拒绝改写——errors 不得被静默丢弃', () => {
+test('Debt R6: an existing YAML with a syntax error must refuse the rewrite -- errors must not be dropped silently', () => {
   withEnv()
   const broken = 'listen:\n  port: 8080\nendpoints:\n  A:\n    url: http://x\n   bad_indent: [unclosed\n'
   writeFileSync(configPath, broken, 'utf8')
@@ -116,10 +116,10 @@ test('债务 R6: 带语法错误的既有 YAML 必须拒绝改写——errors �
     }),
     /syntax/,
   )
-  assert.equal(readFileSync(configPath, 'utf8'), broken, '带语法错误的配置不得被改写(错误片段会被丢弃)')
+  assert.equal(readFileSync(configPath, 'utf8'), broken, 'a config with a syntax error must not be rewritten (the erroneous fragment would be dropped)')
 })
 
-// 收尾:测试文件结束前清理临时目录(测试间共享 dir,顺序执行)
+// Wrap-up: clean the temp directory before the test file ends (the dir is shared between tests, which run in order)
 after(() => {
   rmSync(dir, { recursive: true, force: true })
 })

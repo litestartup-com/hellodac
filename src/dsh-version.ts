@@ -1,8 +1,8 @@
 /**
- * 蜂群2计划 P1：DSH 版本治理单一真相源（re-export 垫片）。
+ * Hive plan 2 P1: the single source of truth for DSH version governance (a re-export shim).
  *
- * 能力二（2026-09-20）：常量与矩阵已迁至 dsh-matrix.ts（版本配对表 =
- * 真相源）。本文件保留既有导入面——全部常量照旧可用。
+ * Capability two (2026-09-20): the constants and the matrix moved to dsh-matrix.ts (the version pair
+ * table is the source of truth). This file keeps the existing import surface -- every constant still works.
  */
 export {
   COMPAT_DSH_PACKAGE, COMPAT_DSH_VERSION, DSH_INSTALL_COMMAND,

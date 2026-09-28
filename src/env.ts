@@ -1,10 +1,10 @@
 /**
- * 债务 D5:env 集中 zod 校验——.env 变量单一 schema,boot 一次 fail loud。
+ * Debt D5: env validated centrally with zod -- one schema for the .env variables, failing loud once at boot.
  *
- * 旧实现只手工校验 SESSION_SECRET(长度)与端点 key_ref(非空),其余变量
- * 零校验、`.env.example`/gen-env.sh 靠人工对齐。本 schema 收口已知变量
- * 的形状与缺省;`GW_KEY_*` 等 key_ref 动态寻址的变量经 passthrough 原样
- * 保留(由 loadConfig 的端点解析继续逐个校验非空)。
+ * The old implementation hand-checked only SESSION_SECRET (length) and the endpoint key_ref (non-empty); every other
+ * variable went unvalidated and `.env.example` / gen-env.sh were kept aligned by hand. This schema closes over the
+ * shape and defaults of the known variables; dynamically addressed key_refs such as `GW_KEY_*` pass through as they
+ * are (loadConfig's endpoint parsing still checks each one for non-emptiness).
  */
 import { z } from 'zod'
 

@@ -16,5 +16,5 @@ export {
   UpstreamClient, buildUpstreamClients,
   type UpstreamSessionHistory, type UpstreamCreatedSession,
 } from './client.js'
-// 修路阶段：端口是上层唯一依赖面；从这里再出口，方便单一 import 点。
+// Repair phase: the port is the only surface the layers above depend on; re-exported from here for a single import point.
 export type { SessionDriver } from '../session-driver/port.js'

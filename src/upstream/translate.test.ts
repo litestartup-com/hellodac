@@ -122,14 +122,14 @@ describe('eventPayload', () => {
   })
 })
 
-// ---- muxFrameSchema（债务 E8:帧体判别,wire 形状对照 dsh-facts.md §9） ----
+// ---- muxFrameSchema (Debt E8: frame-body discrimination, wire shapes cross-checked against dsh-facts.md §9) ----
 
 describe('muxFrameSchema', () => {
   it('accepts a session/event frame', () => {
     assert.ok(muxFrameSchema.safeParse({ type: 'session/event', sessionId: 's1', event: { type: 'turn/start', seq: 1, time: 0, data: {} } }).success)
   })
 
-  it('accepts a session/projection frame (seq 可缺省)', () => {
+  it('accepts a session/projection frame (seq may be omitted)', () => {
     assert.ok(muxFrameSchema.safeParse({ type: 'session/projection', sessionId: 's1', key: 'goal', value: null }).success)
     assert.ok(muxFrameSchema.safeParse({ type: 'session/projection', sessionId: 's1', key: 'title', value: 'x', seq: 41 }).success)
   })
@@ -144,7 +144,7 @@ describe('muxFrameSchema', () => {
     assert.ok(muxFrameSchema.safeParse({ type: 'question/resolved', sessionId: 's1', questionRpcId: 'rpc-1', outcome: 'answered' }).success)
   })
 
-  it('accepts approval/requested (callId/reason 可 null)', () => {
+  it('accepts approval/requested (callId/reason may be null)', () => {
     assert.ok(muxFrameSchema.safeParse({
       type: 'approval/requested', sessionId: 's1', approvalId: 'ap-1', toolName: 'write_file', callId: null, reason: null,
     }).success)
@@ -154,19 +154,19 @@ describe('muxFrameSchema', () => {
     assert.ok(muxFrameSchema.safeParse({ type: 'approval/resolved', sessionId: 's1', approvalId: 'ap-1', outcome: 'allowed-once' }).success)
   })
 
-  it('rejects unknown frame types (由信封 method 层处理/忽略)', () => {
+  it('rejects unknown frame types (the envelope method layer handles/ignores those)', () => {
     assert.equal(parseMuxPayload({ type: 'stream/error', detail: 'host failing' }), null)
     assert.equal(parseMuxPayload({ type: 'session/subscribed', sessionId: 's1' }), null)
   })
 
-  it('rejects malformed known frames (fail-loud,不猜上游)', () => {
-    // question/requested 缺 questions
+  it('rejects malformed known frames (fail-loud, never guess at the upstream)', () => {
+    // question/requested without questions
     assert.equal(muxFrameSchema.safeParse({ type: 'question/requested', sessionId: 's1' }).success, false)
-    // approval/resolved 缺 approvalId
+    // approval/resolved without approvalId
     assert.equal(muxFrameSchema.safeParse({ type: 'approval/resolved', sessionId: 's1', outcome: 'x' }).success, false)
-    // session/event 缺 sessionId
+    // session/event without sessionId
     assert.equal(muxFrameSchema.safeParse({ type: 'session/event', event: {} }).success, false)
-    // session/projection 缺 key
+    // session/projection without key
     assert.equal(muxFrameSchema.safeParse({ type: 'session/projection', sessionId: 's1', value: 'x' }).success, false)
   })
 
@@ -401,7 +401,7 @@ describe('approvalResolvedFrame', () => {
   })
 })
 
-// ---- history / session.list 解包 ----
+// ---- history / session.list unwrapping ----
 
 describe('unwrapHistoryEvents', () => {
   it('unwraps the { event, view? } entries', () => {
@@ -441,18 +441,18 @@ describe('mapSessionList', () => {
   })
 })
 
-// ---- goal 投影（Ongoing Goal 条，2026-09-11） ----
+// ---- goal projection (the Ongoing Goal bar, 2026-09-11) ----
 
 describe('goalOf', () => {
   it('parses an active goal', () => {
-    assert.deepEqual(goalOf({ id: 'g1', objective: '发布 v1', phase: 'active', revision: 2, maxGoalRounds: 8 }), {
-      id: 'g1', objective: '发布 v1', phase: 'active', blockedReason: null,
+    assert.deepEqual(goalOf({ id: 'g1', objective: 'ship v1', phase: 'active', revision: 2, maxGoalRounds: 8 }), {
+      id: 'g1', objective: 'ship v1', phase: 'active', blockedReason: null,
     })
   })
 
   it('carries the blocked reason only for blocked goals', () => {
-    assert.deepEqual(goalOf({ id: 'g2', objective: '迁移', phase: 'blocked', revision: 3, maxGoalRounds: 4, blockedReason: { code: 'stalled', message: '三轮无进展' } }), {
-      id: 'g2', objective: '迁移', phase: 'blocked', blockedReason: '三轮无进展',
+    assert.deepEqual(goalOf({ id: 'g2', objective: 'migrate', phase: 'blocked', revision: 3, maxGoalRounds: 4, blockedReason: { code: 'stalled', message: 'no progress in three rounds' } }), {
+      id: 'g2', objective: 'migrate', phase: 'blocked', blockedReason: 'no progress in three rounds',
     })
   })
 
@@ -472,8 +472,8 @@ describe('goalOf', () => {
 
 describe('goalProjectionFrame', () => {
   it('maps a session/projection goal frame', () => {
-    const frame = goalProjectionFrame({ type: 'session/projection', sessionId: 's1', key: 'goal', value: { id: 'g1', objective: '上线', phase: 'active', revision: 1, maxGoalRounds: 8 }, seq: 41 })
-    assert.deepEqual(frame, { kind: 'goal', seq: 41, goal: { id: 'g1', objective: '上线', phase: 'active', blockedReason: null } })
+    const frame = goalProjectionFrame({ type: 'session/projection', sessionId: 's1', key: 'goal', value: { id: 'g1', objective: 'go live', phase: 'active', revision: 1, maxGoalRounds: 8 }, seq: 41 })
+    assert.deepEqual(frame, { kind: 'goal', seq: 41, goal: { id: 'g1', objective: 'go live', phase: 'active', blockedReason: null } })
   })
 
   it('passes a cleared goal through as goal:null', () => {

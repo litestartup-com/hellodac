@@ -11,7 +11,7 @@ import type { AppConfig } from './config.js'
 
 const SECRET = 'test-secret-0123456789abcdef0123456789abcdef'
 
-test('蜂群2计划 P4: collectNodeHomes 收集三种形态（process 目录 / docker 卷 / 额外卷）', () => {
+test('Hive plan 2 P4: collectNodeHomes gathers all three forms (process directory / docker volume / extra volume)', () => {
   const config = {
     endpoints: {
       personal: { spawn: { runner: 'process', env: { DSH_HOME: '/homes/personal' } } },
@@ -27,7 +27,7 @@ test('蜂群2计划 P4: collectNodeHomes 收集三种形态（process 目录 / d
   ])
 })
 
-test('蜂群2计划 P4: 节点 home 打包→灾难→恢复 全链路（排除 node_modules 与 pidfile）', async () => {
+test('Hive plan 2 P4: the full round trip for a node home -- pack -> disaster -> restore (node_modules and pidfile excluded)', async () => {
   const root = mkdtempSync(join(tmpdir(), 'nodebackup-'))
   const backupDir = join(root, 'backups')
   const home = join(root, 'home')
@@ -47,14 +47,14 @@ test('蜂群2计划 P4: 节点 home 打包→灾难→恢复 全链路（排除 
     await restoreNodeHome(entry, archive, backupDir, SECRET, undefined)
 
     assert.equal(readFileSync(join(home, 'sessions', 't.json'), 'utf8'), '{"ok":1}')
-    assert.equal(existsSync(join(home, 'profiles', 'web', 'node_modules', 'junk.js')), false, 'node_modules 被排除')
-    assert.equal(existsSync(join(home, 'x.pid')), false, 'pidfile 被排除')
+    assert.equal(existsSync(join(home, 'profiles', 'web', 'node_modules', 'junk.js')), false, 'node_modules is excluded')
+    assert.equal(existsSync(join(home, 'x.pid')), false, 'the pidfile is excluded')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
 })
 
-test('蜂群2计划 P4: 6 小时内已有归档则跳过', async () => {
+test('Hive plan 2 P4: an archive from within the last 6 hours means skip', async () => {
   const root = mkdtempSync(join(tmpdir(), 'nodebackup-skip-'))
   const backupDir = join(root, 'backups')
   const home = join(root, 'home')
@@ -64,38 +64,38 @@ test('蜂群2计划 P4: 6 小时内已有归档则跳过', async () => {
     const entry: NodeHomeEntry = { nodeId: 'personal', kind: 'dir', home }
     const now = Date.now()
     assert.equal((await packNodeHomes([entry], backupDir, SECRET, undefined, now)).length, 1)
-    assert.equal((await packNodeHomes([entry], backupDir, SECRET, undefined, now + 60_000)).length, 0, '6 小时内跳过')
+    assert.equal((await packNodeHomes([entry], backupDir, SECRET, undefined, now + 60_000)).length, 0, 'skipped within 6 hours')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
 })
 
-test('蜂群2计划 P4: 保留策略 24h 全留 → 每节点每日一份 → 更早按周', () => {
+test('Hive plan 2 P4: retention -- keep everything for 24h -> one per node per day -> weekly for anything older', () => {
   const root = mkdtempSync(join(tmpdir(), 'nodebackup-prune-'))
   try {
-    // 固定「现在」= 2026-01-10 12:00，避免测试跨午夜抖动
+    // Pin "now" to 2026-01-10 12:00 so the test cannot wobble across midnight
     const now = new Date(2026, 0, 10, 12, 0, 0).getTime()
     const make = (file: string, ageMs: number): void => {
       const path = join(root, file)
       writeFileSync(path, 'x', 'utf8')
       utimesSync(path, new Date(now - ageMs), new Date(now - ageMs))
     }
-    make('node-personal-20260110-110000.tar.gz.enc', 60 * 60_000) // 1h 前：全留
-    make('node-personal-20260109-090000.tar.gz.enc', 27 * 60 * 60_000) // 前一日第一份：留
-    make('node-personal-20260109-110000.tar.gz.enc', 25 * 60 * 60_000) // 前一日第二份：删
-    make('node-personal-20251201-120000.tar.gz.enc', 40 * 24 * 60 * 60_000) // 更早，当周第一份：留
+    make('node-personal-20260110-110000.tar.gz.enc', 60 * 60_000) // 1h ago: keep everything
+    make('node-personal-20260109-090000.tar.gz.enc', 27 * 60 * 60_000) // first of the previous day: keep
+    make('node-personal-20260109-110000.tar.gz.enc', 25 * 60 * 60_000) // second of the previous day: delete
+    make('node-personal-20251201-120000.tar.gz.enc', 40 * 24 * 60 * 60_000) // older, first of that week: keep
 
     const removed = pruneNodeHomeArchives(root, now)
-    assert.deepEqual(removed, ['node-personal-20260109-110000.tar.gz.enc'], '同日重复只留最早一份')
+    assert.deepEqual(removed, ['node-personal-20260109-110000.tar.gz.enc'], 'duplicates on the same day keep only the earliest')
     for (const file of ['node-personal-20260110-110000.tar.gz.enc', 'node-personal-20260109-090000.tar.gz.enc', 'node-personal-20251201-120000.tar.gz.enc']) {
-      assert.ok(existsSync(join(root, file)), `${file} 应保留`)
+      assert.ok(existsSync(join(root, file)), `${file} should have been kept`)
     }
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
 })
 
-test('债务 R10 回归: docker 卷形态打包/恢复经 runToolIo 流式传输（只绑卷，不 bind 备份目录）', async () => {
+test('Debt R10 regression: packing/restoring a docker volume streams through runToolIo (bind the volume only, never the backup directory)', async () => {
   const root = mkdtempSync(join(tmpdir(), 'nodebackup-docker-'))
   const backupDir = join(root, 'backups')
   const volumeDir = join(root, 'vol')
@@ -104,7 +104,7 @@ test('债务 R10 回归: docker 卷形态打包/恢复经 runToolIo 流式传输
     writeFileSync(join(volumeDir, 'sessions', 's.json'), '{"v":1}', 'utf8')
 
     const calls: Array<{ image: string; cmd: string[]; binds: Array<{ from: string; to: string }>; io: { stdin?: string; stdout?: string } }> = []
-    // 桩：用本机 tar 模拟工具容器——stdout 写 io.stdout / stdin 读 io.stdin（与 runToolIo 契约一致）
+    // Stub: the local tar stands in for the tool container -- stdout writes io.stdout and stdin reads io.stdin (matching the runToolIo contract)
     const stubRunner = {
       runToolIo: async (
         image: string,
@@ -126,22 +126,22 @@ test('债务 R10 回归: docker 卷形态打包/恢复经 runToolIo 流式传输
     assert.equal(packed.length, 1)
     const archive = packed[0] ?? ''
 
-    assert.equal(calls[0]?.cmd.slice(0, 3).join(' '), 'tar czf -', '打包必须打到 stdout 流（-），而不是容器内备份路径')
-    assert.deepEqual(calls[0]?.binds, [{ from: 'dac-personal', to: '/data' }], '只绑命名卷——备份目录不做宿主路径 bind（ENOENT 根因）')
-    assert.ok(calls[0]?.io.stdout !== undefined && calls[0].io.stdout !== '', 'stdout 必须落到 manager 侧的临时文件')
+    assert.equal(calls[0]?.cmd.slice(0, 3).join(' '), 'tar czf -', 'packing must go to the stdout stream (-), not to an in-container backup path')
+    assert.deepEqual(calls[0]?.binds, [{ from: 'dac-personal', to: '/data' }], 'bind the named volume only -- the backup directory is never bound as a host path (the ENOENT root cause)')
+    assert.ok(calls[0]?.io.stdout !== undefined && calls[0].io.stdout !== '', 'stdout must land in a manager-side temporary file')
 
-    // 卷内容被改 → restore 流回卷 → 内容还原
+    // The volume content is changed -> restore streams it back -> the content is back
     writeFileSync(join(volumeDir, 'sessions', 's.json'), 'changed', 'utf8')
     await restoreNodeHome(entry, archive, backupDir, SECRET, stubRunner)
-    assert.equal(readFileSync(join(volumeDir, 'sessions', 's.json'), 'utf8'), '{"v":1}', 'restore 必须经 stdin 流解回卷')
-    assert.equal(calls[1]?.cmd[1], 'xzf', '恢复走解包命令')
-    assert.ok(calls[1]?.io.stdin !== undefined && calls[1].io.stdin !== '', 'stdin 必须指向 manager 侧解密的临时 tar.gz')
+    assert.equal(readFileSync(join(volumeDir, 'sessions', 's.json'), 'utf8'), '{"v":1}', 'restore must unpack back into the volume through the stdin stream')
+    assert.equal(calls[1]?.cmd[1], 'xzf', 'the restore runs the unpack command')
+    assert.ok(calls[1]?.io.stdin !== undefined && calls[1].io.stdin !== '', 'stdin must point at the decrypted manager-side temporary tar.gz')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
 })
 
-test('蜂群2计划 P4: 密钥错误时解密抛错（备份不可解 = 诚实失败）', async () => {
+test('Hive plan 2 P4: a wrong secret makes decryption throw (an unreadable backup = an honest failure)', async () => {
   const root = mkdtempSync(join(tmpdir(), 'nodebackup-key-'))
   try {
     const plain = join(root, 'plain.txt')
@@ -155,7 +155,7 @@ test('蜂群2计划 P4: 密钥错误时解密抛错（备份不可解 = 诚实�
   }
 })
 
-test('P6 评审 B4: 恢复目标守卫——非绝对/根/家目录/备份目录内一律拒绝', async () => {
+test('P6 review B4: the restore target guard -- rejects anything non-absolute, the root, a home directory, or a path inside the backup directory', async () => {
   const root = mkdtempSync(join(tmpdir(), 'nodebackup-guard-'))
   const backupDir = join(root, 'backups')
   mkdirSync(backupDir, { recursive: true })
@@ -170,7 +170,7 @@ test('P6 评审 B4: 恢复目标守卫——非绝对/根/家目录/备份目录
       await assert.rejects(
         () => restoreNodeHome({ nodeId: 'x', kind: 'dir', home: c.home }, 'dummy.tar.gz.enc', backupDir, SECRET, undefined),
         c.match,
-        `应拒绝 ${c.home}`,
+        `should have rejected ${c.home}`,
       )
     }
   } finally {

@@ -304,15 +304,15 @@ export class Scheduler {
           kind: 'cron_done',
           title: `scheduled task finished: ${row.name}`,
           body: outcome.summary ?? '(no output text)',
-          // 公开版精简（DAC v1.0.0）：定时任务页已下线，通知改指任务页看这次运行。
+          // Public-edition trim (DAC v1.0.0): the scheduled-tasks page is gone, so the notice points at the runs page to see this run.
           link: '/runs',
         })
         return { cronId, ran: true, skipped: null, runId: outcome.runId, state: 'done', message: null }
       }
       return this.countFailure(row, outcome.error ?? 'the run failed without a reason', outcome.runId)
     } catch (error) {
-      // 蜂群 P5.4：不再有「agent 忙」的拒绝——cron 与任何回合一样直接并发跑，
-      // 上限由 gateway 名额约束。这里的 catch 只剩真正的故障。
+      // Hive P5.4: there is no more "agent busy" rejection -- cron runs concurrently like any other turn,
+      // with the ceiling set by the gateway's seats. The catch here is left with real failures only.
       return this.countFailure(row, error instanceof Error ? error.message : String(error), null)
     }
   }
@@ -332,7 +332,7 @@ export class Scheduler {
       kind: 'cron_failed',
       title: `scheduled task failed: ${row.name}${disable ? ' (disabled automatically)' : ''}`,
       body: message,
-      // 同上：/crons 页已下线，失败详情去任务页看这一次运行。
+      // Same as above: the /crons page is gone, so the failure detail lives on the runs page for this run.
       link: '/runs',
     })
     this.deps.db

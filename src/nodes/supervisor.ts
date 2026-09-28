@@ -1,5 +1,5 @@
 /**
- * NodeSupervisor — process lifecycle for one managed DSH node (蜂群 P1).
+ * NodeSupervisor — process lifecycle for one managed DSH node (Hive P1).
  *
  * State machine:
  *
@@ -8,7 +8,7 @@
  *     │                │  └─exit (crash)─▶ restarting ──backoff──▶ starting
  *     │                └─probe timeout→kill─▶ (exit path, counts as one attempt)
  *     │                                             │ attempts ≥ maxAttempts
- *     └────────────stop() ◀─────────────────────────┴──▶ offline（连续失败自动停用）
+ *     └────────────stop() ◀─────────────────────────┴──▶ offline (auto-disabled after repeated failures)
  *
  * Pure decisions (`backoffDelayMs` / `decideAfterExit`) are extracted so the
  * retry policy is directly unit-testable; the class itself is thin plumbing.
@@ -48,36 +48,36 @@ export interface NodeStatus {
   stateSince: number
 }
 
-/** spawn 的可注入面:缺省 = node:child_process 的 spawn。 */
+/** The injectable spawn surface: defaults to node:child_process spawn. */
 export type SpawnFn = typeof spawn
 
 export interface SupervisorDeps {
   /** Endpoint health probe; must resolve quickly and never throw. */
   probe: (id: string) => Promise<NodeProbeResult>
   log?: (line: string) => void
-  /** 蜂群2计划 P2b：docker runner（runner=docker 的节点用）；缺 = 该模式不可用。 */
+  /** Hive plan 2 P2b: the docker runner (used by nodes with runner=docker); missing = that mode is unavailable. */
   docker?: DockerRunner
-  /** docker 容器的附加环境（GW_KEY / DEEPSEEK_API_KEY 等，由 wiring 层按 endpoint 提供）。 */
+  /** Extra environment for the docker container (GW_KEY / DEEPSEEK_API_KEY and friends, supplied by the wiring layer per endpoint). */
   dockerEnv?: () => Record<string, string>
-  /** 债务 C3:spawn 注入(测试传假 ChildProcess,不真起进程);缺省 = 真实 spawn。 */
+  /** Debt C3: an injected spawn (tests pass a fake ChildProcess rather than starting a real process); defaults to the real spawn. */
   spawn?: SpawnFn
   /**
-   * 债务 C3:killTree 注入——win32 真实现走 taskkill,假子进程收不到 exit;
-   * 测试注入此函数直接 emit exit 走 onExit 落 cold。缺省 = 平台原生 killTree。
+   * Debt C3: an injected killTree -- the real win32 implementation goes through taskkill, and a fake child process
+   * never receives exit; the test injects this function to emit exit directly and drive onExit into cold. Defaults to the platform's native killTree.
    */
   killTree?: (child: ChildProcess) => void
   /**
-   * 能力四（舰队 M1-4）：agent runner 的指令入队（返回指令 id）；
-   * 缺 = agent 模式不可用（fail-loud offline）。
+   * Capability four (Fleet M1-4): command queuing for the agent runner (returns the command id);
+   * missing = agent mode is unavailable (fail-loud offline).
    */
   agentCommand?: (agentId: string, type: string, payload: unknown) => number
-  /** 能力四：订阅指令结果（ok 布尔）；返回退订函数。 */
+  /** Capability four: subscribe to command results (an ok boolean); returns the unsubscribe function. */
   agentResult?: (commandId: number, cb: (ok: boolean) => void) => () => void
-  /** 能力四：agent 节点的回传日志（manager 侧环形缓冲）。 */
+  /** Capability four: the log sent back by an agent node (a ring buffer on the manager side). */
   agentLog?: (agentId: string, nodeId: string) => string
-  /** 能力四（M1-6）：spawn 载荷的附加环境（GW_KEY 等，wiring 按 endpoint 提供）。 */
+  /** Capability four (M1-6): extra environment for the spawn payload (GW_KEY and friends, supplied by wiring per endpoint). */
   agentEnv?: () => Record<string, string>
-  /** 能力四（M1-6）：fleet.md 内容（派生下发，wiring 供 renderFleetDoc）。 */
+  /** Capability four (M1-6): the fleet.md content (a derived hand-out, wired from renderFleetDoc). */
   fleetDoc?: () => string
 }
 
@@ -94,29 +94,29 @@ export const decideAfterExit = (attempts: number, maxAttempts: number, manual: b
 const PROBE_POLL_MS = 1_000
 /** A node's captured output is kept as lines, bounded to roughly this many bytes. */
 const LOG_BUFFER_BYTES = 64 * 1024
-/** 修路 A3：live 态探活连续失败多少次转 offline（交给周期对账自愈）。 */
+/** Road-building A3: how many consecutive failed liveness probes in live state flip the node to offline (the periodic reconcile then heals it). */
 export const LIVE_PROBE_THRESHOLD = 3
 
 export class NodeSupervisor {
   readonly id: string
   private readonly deps: SupervisorDeps
   private child: ChildProcess | null = null
-  /** 蜂群2计划 P2b：docker runner 模式下当前容器 id（process 模式恒为 null）。 */
+  /** Hive plan 2 P2b: the current container id in docker runner mode (always null in process mode). */
   private containerId: string | null = null
-  /** 最近一次 start/restart 的规格：stop/restart 的 docker 分支要用。 */
+  /** The spec of the last start/restart: the docker branch of stop/restart needs it. */
   private lastSpec: ResolvedSpawnSpec | null = null
-  /** 启动代号：每次 start/stop/adopt 递增，过期异步链直接弃用（发布前评审 B3）。 */
+  /** Launch generation: incremented by every start/stop/adopt, so a stale async chain is discarded outright (pre-release review B3). */
   private launchGen = 0
   private readyTimer: NodeJS.Timeout | null = null
   private restartTimer: NodeJS.Timeout | null = null
   private manualStop = false
-  /** 蜂群 P5.1：主动重启标记——stop 后进程消失时再拉起，而不是进入冷态。 */
+  /** Hive P5.1: an intentional-restart flag -- bring the process back once it disappears after a stop instead of going cold. */
   private restartRequested = false
   private lastError: string | null = null
   private pidFile: string | null = null
   private logLines: string[] = []
   private logBytes = 0
-  /** 修路 A3：live 态探活连续失败计数（非 live 态归零）。 */
+  /** Road-building A3: consecutive failed liveness probes in live state (reset to zero outside live). */
   private liveProbeFailures = 0
   private status: NodeStatus
 
@@ -161,7 +161,7 @@ export class NodeSupervisor {
   /** Stop the node; settles to cold when the process is actually gone. */
   stop(): void {
     this.manualStop = true
-    this.launchGen += 1 // 蜂群2计划 P6 评审 B3：作废所有在途启动链
+    this.launchGen += 1 // Hive plan 2 P6 review B3: invalidate every launch chain in flight
     if (this.restartTimer !== null) {
       clearTimeout(this.restartTimer)
       this.restartTimer = null
@@ -170,11 +170,11 @@ export class NodeSupervisor {
       clearTimeout(this.readyTimer)
       this.readyTimer = null
     }
-    // 蜂群2计划 P2b：docker 模式 —— 停容器即停节点（状态都在卷里）
+    // Hive plan 2 P2b: docker mode -- stopping the container stops the node (all state lives in the volume)
     const spec = this.lastSpec
     if (spec !== null && spec.runner === 'agent') {
-      // 能力四：远端进程无本地 exit 事件——停 = 入队 node.stop（best-effort），
-      // 状态即刻落冷（探活自会反映远端真相）。
+      // Capability four: a remote process has no local exit event -- stopping means enqueuing node.stop (best-effort)
+      // and going cold immediately (the liveness probe will report the remote truth on its own).
       this.enqueueAgent('node.stop')
       if (this.restartRequested) {
         this.restartRequested = false
@@ -223,17 +223,17 @@ export class NodeSupervisor {
     this.killTree()
   }
 
-  /** 蜂群 P5.1：主动重启。stop 之后进程消失时自动重新拉起，清零重试计数。 */
+  /** Hive P5.1: intentional restart. Once the process disappears after a stop it is brought back automatically and the retry count is cleared. */
   restart(spec: ResolvedSpawnSpec): void {
     this.lastSpec = spec
-    // 能力四：agent 节点无本地进程可观察——重启恒走 stop→start 链（入队
-    // node.stop + node.spawn），否则 live 态会被「无 child」短路成直接 start。
+    // Capability four: an agent node has no local process to observe -- a restart always runs the stop->start chain
+    // (enqueue node.stop + node.spawn); otherwise live state would be short-circuited into a plain start by "no child".
     if (spec.runner === 'agent') {
       this.restartRequested = true
       this.stop()
       return
     }
-    // 没有进程在跑 = 直接启动；否则等进程消失后再拉起，避免残留标记。
+    // No process running = start right away; otherwise wait for the process to disappear before bringing it back, so no stale flag is left behind.
     if (this.child === null && this.containerId === null && this.restartTimer === null) {
       this.start(spec)
       return
@@ -243,13 +243,13 @@ export class NodeSupervisor {
   }
 
   /**
-   * 事故回归（2026-09-25 ubuntu-focal 失联）：宿主机重新上线后的节点续跑。
+   * Incident regression (2026-09-25, ubuntu-focal lost): a node resumes running after its host comes back online.
    *
-   * 与 healOnly 对账的区别在 cold 态：healOnly 故意跳过 cold（保护人手动停的
-   * 节点，债务 R9），但机器重启后节点**正是 cold**——照 skip 就等于永远不起。
-   * 这里专门给「agent 掉线后重新上线」这一条边沿用：cold 主动拉起，live 不打扰
-   * （KillMode=process 让节点可能在 agent 自更新时存活，重复 spawn 会抢同一端口
-   * 报 EADDRINUSE），而 `manualStop` 标记过的人为停止仍然不动。
+   * The difference from a healOnly reconcile is the cold state: healOnly deliberately skips cold (protecting the
+   * nodes a human stopped by hand, Debt R9), but after a machine reboot the node **is** cold -- skipping it means it
+   * never comes up. This path is dedicated to the "agent dropped and came back online" edge: bring cold up and
+   * leave live alone (KillMode=process means the node can survive an agent self-update, and a duplicate spawn would
+   * fight for the same port and report EADDRINUSE), while a stop marked with `manualStop` is still left untouched.
    */
   resume(spec: ResolvedSpawnSpec): void {
     this.lastSpec = spec
@@ -277,10 +277,10 @@ export class NodeSupervisor {
     return this.logLines.join('')
   }
   /**
-   * 修路 A3：live 态健康探活（周期对账调用）。只在 state==='live' 时探测；
-   * 连续 LIVE_PROBE_THRESHOLD 次失败 → 转 offline 交给对账自愈。
-   * docker 分支同时清 containerId——容器已被外部杀掉时 stop(旧 id) 会失败
-   * 而卡死 restart 链，清掉后 restart 走「直接 start」重建。
+   * Road-building A3: a health probe for live state (called by the periodic reconcile). It probes only while
+   * state==='live'; LIVE_PROBE_THRESHOLD consecutive failures -> flip to offline and let the reconcile heal it.
+   * The docker branch also clears containerId -- when the container was killed externally, stop(with the old id)
+   * fails and wedges the restart chain, so clearing it makes a restart rebuild by starting directly.
    */
   async probeLive(): Promise<void> {
     if (this.status.state !== 'live') {
@@ -300,7 +300,7 @@ export class NodeSupervisor {
     this.deps.log?.(`node ${this.id}: offline after ${this.liveProbeFailures} consecutive live probe failures`)
   }
 
-  /** 蜂群2计划 P2b：docker 模式的日志走 docker logs；不可用返回 null（调用方回退缓冲）。 */
+  /** Hive plan 2 P2b: docker-mode logs go through docker logs; null when unavailable (the caller falls back to the buffer). */
   async dockerLogs(): Promise<string | null> {
     if (this.deps.docker === undefined || this.containerId === null) return null
     try {
@@ -311,18 +311,18 @@ export class NodeSupervisor {
     }
   }
 
-  /** 节点容器当前使用的镜像标签（如 hellodac/dac-node:0.1.2-rc.1）；非 docker 形态或查不到返回 null。 */
+  /** The image tag the node container currently uses (e.g. hellodac/dac-node:0.1.2-rc.1); null for a non-docker shape or when it cannot be found. */
   async containerImage(): Promise<string | null> {
     if (this.deps.docker === undefined || this.containerId === null) return null
     return this.deps.docker.containerImage(this.containerId)
   }
 
-  /** 蜂群2计划 P2b：启动对账——认领已在跑的托管容器（不重复拉起）。 */
+  /** Hive plan 2 P2b: startup reconcile -- adopt a managed container that is already running (never start a second one). */
   adopt(spec: ResolvedSpawnSpec, containerId: string): void {
     this.lastSpec = spec
     this.containerId = containerId
     this.manualStop = false
-    this.launchGen += 1 // 作废在途启动链（评审 B3）
+    this.launchGen += 1 // invalidate launch chains in flight (review B3)
     this.status = { ...this.status, state: 'starting', lastError: null, stateSince: Date.now() }
     this.deps.log?.(`node ${this.id}: adopting container ${containerId}`)
     this.armReadyProbe(spec)
@@ -395,11 +395,11 @@ export class NodeSupervisor {
           this.lastError = `not ready within ${spec.readyTimeoutMs}ms: ${result.detail}`
           this.deps.log?.(`node ${this.id}: ${this.lastError}`)
           if (spec.runner === 'agent') {
-            // 能力四：远端进程无本地句柄——入队 node.stop 后走失败决策链
+            // Capability four: a remote process has no local handle -- enqueue node.stop and then run the failure decision chain
             this.enqueueAgent('node.stop')
             this.afterAgentFailure(spec)
           } else if (spec.runner === 'docker') {
-            // 评审 B3：docker 模式没有子进程可杀——停容器后走失败决策链
+            // Review B3: docker mode has no child process to kill -- stop the container and then run the failure decision chain
             const cid = this.containerId
             this.containerId = null
             if (cid !== null && this.deps.docker !== undefined) {
@@ -427,13 +427,13 @@ export class NodeSupervisor {
     }
     this.status = { ...this.status, state: 'starting', lastError: null, stateSince: Date.now() }
     const env = { ...(this.deps.dockerEnv?.() ?? {}), ...spec.env }
-    const gen = ++this.launchGen // 蜂群2计划 P6 评审 B3：过期链弃用
+    const gen = ++this.launchGen // Hive plan 2 P6 review B3: the chain is discarded once it goes stale
     void runner
       .ensureImage(spec.docker.image)
       .then(() => runner.start(spec, this.id, env))
       .then((containerId) => {
         if (gen !== this.launchGen || this.status.state !== 'starting') {
-          // 等待期间被 stop/重启/认领：刚拉起的容器成为孤儿，补刀清掉
+          // A stop/restart/adopt during the wait: the container just started is orphaned, so finish it off
           void runner.stop(containerId).catch(() => undefined)
           return
         }
@@ -442,7 +442,7 @@ export class NodeSupervisor {
         this.armReadyProbe(spec)
       })
       .catch((error: unknown) => {
-        if (gen !== this.launchGen) return // 过期链的失败不是失败
+        if (gen !== this.launchGen) return // a failure from a stale chain is not a failure
         this.lastError = error instanceof Error ? error.message : String(error)
         this.deps.log?.(`node ${this.id}: docker start failed: ${this.lastError}`)
         if (this.status.state !== 'starting') return
@@ -450,12 +450,12 @@ export class NodeSupervisor {
       })
   }
 
-  /** docker 启动失败后的重试/停用决策（复用 process 模式的同一策略函数）。 */
+  /** Retry/disable decision after a failed docker start (reuses the same policy function as process mode). */
   private afterDockerFailure(spec: ResolvedSpawnSpec): void {
     this.failAndRetry(spec, 'docker start failed', () => this.startDocker(spec))
   }
 
-  /** 能力四：agent 启动失败后的重试/停用决策（与 docker 同策略，重试走 startAgent）。 */
+  /** Capability four: retry/disable decision after a failed agent start (the same policy as docker; a retry goes through startAgent). */
   private afterAgentFailure(spec: ResolvedSpawnSpec): void {
     this.failAndRetry(spec, 'agent start failed', () => this.startAgent(spec))
   }
@@ -489,7 +489,7 @@ export class NodeSupervisor {
     }, delay)
   }
 
-  /** 能力四：agent 节点的启动链——入队 node.spawn，结果与就绪双信号。 */
+  /** Capability four: the launch chain for an agent node -- enqueue node.spawn, signalled by both the result and readiness. */
   private startAgent(spec: ResolvedSpawnSpec): void {
     const enqueue = this.deps.agentCommand
     if (enqueue === undefined || spec.host === null) {
@@ -499,8 +499,8 @@ export class NodeSupervisor {
       return
     }
     this.status = { ...this.status, state: 'starting', lastError: null, stateSince: Date.now() }
-    const gen = ++this.launchGen // 蜂群2计划 P6 评审 B3：过期链弃用
-    // M1-6：派生下发载荷——profile 文件 + 种子 + fleet.md 随 spawn 一次送达
+    const gen = ++this.launchGen // Hive plan 2 P6 review B3: the chain is discarded once it goes stale
+    // M1-6: the derived hand-out payload -- profile file + seed + fleet.md delivered with the spawn in one go
     const argAfter = (flag: string): string | null => {
       const i = spec.args.indexOf(flag)
       const raw = i >= 0 ? spec.args[i + 1] : undefined
@@ -510,8 +510,8 @@ export class NodeSupervisor {
     const port = Number(argAfter('--port') ?? 3080)
     const dshVersion = spec.dshVersion ?? defaultDshVersion()
     const gatewayRef = spec.gatewayRef ?? GATEWAY_REF
-    // agent 节点在远端服务器：webserver 绑 0.0.0.0 供 manager 跨机探活
-    // （安全面 = Q5 防火墙白名单 + 0.1.5 token；GUI 走用户侧隧道不变）。
+    // An agent node on a remote server: the webserver binds 0.0.0.0 so the manager can probe it across machines
+    // (the security surface = the Q5 firewall allowlist + the 0.1.5 token; the GUI still goes through the user-side tunnel).
     const profileFilesPayload = profileFiles({ name: profileName, port }, gatewayRef, dshVersion, '0.0.0.0')
     profileFilesPayload['.seed-version'] = profileSeed(dshVersion, gatewayRef) + '\n'
     const fleetMd = this.deps.fleetDoc?.() ?? null
@@ -533,14 +533,14 @@ export class NodeSupervisor {
         this.afterAgentFailure(spec)
         return
       }
-      // M2 回归：就绪探活从 spawn 结果后才开始——远端冷安装可能几分钟，
-      // 立即探活会在安装期间把窗口烧穿（误杀 stop + 重试风暴）。
+      // M2 regression: the readiness probe only starts after the spawn result -- a remote cold install can take
+      // minutes, and probing immediately would burn through the window during the install (a mistaken stop + a retry storm).
       this.deps.log?.(`node ${this.id}: the agent reported a finished spawn (command #${commandId}) — probing readiness`)
       this.armReadyProbe(spec)
     })
   }
 
-  /** 能力四：入队一条 agent 指令（stop 语义的共用入口；未接线 = 静默留痕）。 */
+  /** Capability four: enqueue one agent command (the shared entry point for stop semantics; unwired = leave a trace silently). */
   private enqueueAgent(type: 'node.stop'): void {
     const spec = this.lastSpec
     const enqueue = this.deps.agentCommand
@@ -548,7 +548,7 @@ export class NodeSupervisor {
     enqueue(spec.host, type, { nodeId: this.id })
   }
 
-  /** 能力四：agent 节点的回传日志（事件通道 → manager 侧环形缓冲）。 */
+  /** Capability four: the log sent back by an agent node (event channel -> ring buffer on the manager side). */
   agentLogs(): string {
     const spec = this.lastSpec
     if (spec === null || spec.runner !== 'agent' || spec.host === null) return ''
@@ -564,7 +564,7 @@ export class NodeSupervisor {
     const exitNote = `exited code=${String(code)} signal=${String(signal)}`
     if (this.manualStop) {
       this.clearPidFile()
-      // 蜂群 P5.1：主动重启——进程消失即重新拉起，而不是停在冷态。
+      // Hive P5.1: intentional restart -- bring the process back as soon as it disappears instead of leaving it cold.
       if (this.restartRequested) {
         this.restartRequested = false
         this.manualStop = false

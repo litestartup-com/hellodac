@@ -6,18 +6,18 @@ import { switchLocale } from './locale-switch.js'
 import { LOCALE_COOKIE } from './i18n/index.js'
 
 /**
- * 事故回归（2026-09-25 用户报「语言选择切换点了没反应」）：
- * `?lang=` 切换必须**先于认证守卫**发生，否则未登录/会话过期时被守卫的 302 吞掉。
+ * Incident regression (2026-09-25, a user reported "clicking the language switcher does nothing"): the `?lang=`
+ * switch must happen **before the auth guard**, otherwise it is swallowed by the guard's 302 when signed out.
  *
- * 实测对照（修前）：
- *   GET /login?lang=zh-CN → 302 且 Set-Cookie: dac_lang=zh-CN  ✅（公开页）
- *   GET /nodes?lang=zh-CN → 302 且**无 cookie**                ❌（受保护页）
+ * Measured comparison (before the fix):
+ *   GET /login?lang=zh-CN → 302 with Set-Cookie: dac_lang=zh-CN  ✅ (public page)
+ *   GET /nodes?lang=zh-CN → 302 and **no cookie**               ❌ (protected page)
  *
- * 这里用真实 Fastify 复现「受保护路由 = 一个会 302 的 preHandler」这一形状，
- * 并断言钩子版与处理函数版的差别——就是生产代码里那个修法。
+ * A real Fastify app reproduces the shape "protected route = a preHandler that redirects 302",
+ * and asserts the difference between the hook version and the handler version -- the fix in production code.
  */
 
-/** 与 index.ts 同构：全局 onRequest 钩子 + 一个会重定向的认证 preHandler。 */
+/** Same shape as index.ts: a global onRequest hook plus an auth preHandler that redirects. */
 const bootApp = (mode: 'hook' | 'inHandler'): ReturnType<typeof Fastify> => {
   const app = Fastify()
   void app.register(cookie, { secret: 'x'.repeat(32) })
@@ -27,7 +27,7 @@ const bootApp = (mode: 'hook' | 'inHandler'): ReturnType<typeof Fastify> => {
       if (switched !== null) return reply
     })
   }
-  // 认证守卫：形状与 makeRequirePage 一致——没有会话就 302 到登录页。
+  // The auth guard: same shape as makeRequirePage -- no chat means a 302 to the login page.
   const requirePage = async (_request: unknown, reply: FastifyReply): Promise<void> => {
     await reply.redirect('/login', 302)
   }
@@ -54,76 +54,76 @@ const cookieOf = (res: { headers: Record<string, unknown> }): string => {
   return list.find((c) => c.startsWith(LOCALE_COOKIE)) ?? ''
 }
 
-test('事故回归: 受保护页面的 ?lang= 也必须写 cookie（钩子在认证守卫之前）', async () => {
+test('Incident regression: ?lang= on a protected page must also write the cookie (the hook runs before the auth guard)', async () => {
   const app = bootApp('hook')
   const res = await app.inject({ method: 'GET', url: '/nodes?lang=zh-CN' })
-  // 顺序：onRequest 钩子先跑 → 写 cookie + 302 回干净 URL `/nodes`。
-  // 认证守卫要到**下一次**请求（那个没有 lang 的 /nodes）才起作用——这正是我们要的：
-  // 语言偏好先被记下来，用户随后被送去登录页时已经是目标语言。
+  // Order: the onRequest hook runs first -> it writes the cookie and 302s back to the clean URL `/nodes`.
+  // The auth guard only takes effect on the **next** request (the /nodes without lang) -- which is what we want:
+  // the language preference is recorded first, so by the time the user is sent to the login page it is already in the target language.
   assert.equal(res.statusCode, 302)
-  assert.equal(res.headers.location, '/nodes', '回跳干净 URL（守卫在下一跳才介入）')
-  assert.match(cookieOf(res) || '', /^dac_lang=zh-CN/, '关键：语言 cookie 必须已经写下去')
+  assert.equal(res.headers.location, '/nodes', 'redirects back to the clean URL (the guard only steps in on the next hop)')
+  assert.match(cookieOf(res) || '', /^dac_lang=zh-CN/, 'the key point: the language cookie must already be written')
   await app.close()
 })
 
-test('事故回归: cookie 落定后，后续请求的守卫重定向也不影响语言已生效', async () => {
+test('Incident regression: once the cookie has landed, a later guard redirect does not undo the language taking effect', async () => {
   const app = bootApp('hook')
-  // 第一次：切换（写 cookie、回跳）
+  // First request: the switch (writes the cookie, redirects back)
   await app.inject({ method: 'GET', url: '/nodes?lang=zh-CN' })
-  // 第二次：带着 cookie 请求——没有 lang 参数，钩子不介入，守卫正常重定向
+  // Second request: sent with the cookie, no lang parameter -- the hook stays out and the guard redirects as usual
   const second = await app.inject({
     method: 'GET',
     url: '/nodes',
     headers: { cookie: `${LOCALE_COOKIE}=zh-CN` },
   })
   assert.equal(second.statusCode, 302)
-  assert.equal(second.headers.location, '/login', '这次才轮到认证守卫')
+  assert.equal(second.headers.location, '/login', 'now the auth guard has its turn')
   await app.close()
 })
 
-test('事故回归: 把切换写在处理函数里就会被守卫吞掉——这就是当初的 bug', async () => {
+test('Incident regression: putting the switch in the handler means the guard swallows it -- that was the original bug', async () => {
   const app = bootApp('inHandler')
   const res = await app.inject({ method: 'GET', url: '/nodes?lang=zh-CN' })
   assert.equal(res.statusCode, 302)
-  assert.equal(cookieOf(res), '', '处理函数根本没执行 → 没有 cookie（修复前的实况）')
+  assert.equal(cookieOf(res), '', 'the handler never ran -> no cookie (the state of things before the fix)')
   await app.close()
 })
 
-test('语言切换: 302 回干净 URL，lang 参数不留在地址栏', async () => {
+test('Language switch: 302 back to the clean URL, the lang parameter does not stay in the address bar', async () => {
   const app = bootApp('hook')
   const res = await app.inject({ method: 'GET', url: '/login?lang=zh-CN' })
   assert.equal(res.statusCode, 302)
-  assert.equal(res.headers.location, '/login', '去掉 lang')
+  assert.equal(res.headers.location, '/login', 'lang stripped')
   assert.match(cookieOf(res) || '', /^dac_lang=zh-CN/)
   await app.close()
 })
 
-test('语言切换: 保留其它查询参数，只摘掉 lang', async () => {
+test('Language switch: other query parameters are kept, only lang is stripped', async () => {
   const app = bootApp('hook')
   const res = await app.inject({ method: 'GET', url: '/runs?state=failed&lang=zh-CN&agent=ops33' })
   assert.equal(res.statusCode, 302)
   const loc = String(res.headers.location)
-  assert.ok(loc.startsWith('/runs?'), `回跳目标应仍是 /runs（实际 ${loc}）`)
-  assert.ok(!loc.includes('lang='), 'lang 已摘掉')
-  assert.ok(loc.includes('state=failed') && loc.includes('agent=ops33'), '其它参数保留')
+  assert.ok(loc.startsWith('/runs?'), `the redirect target should still be /runs (actually ${loc})`)
+  assert.ok(!loc.includes('lang='), 'lang is stripped')
+  assert.ok(loc.includes('state=failed') && loc.includes('agent=ops33'), 'other parameters are kept')
   await app.close()
 })
 
-test('语言切换: 非法或缺失 lang 一律忽略，不写 cookie 也不重定向', async () => {
+test('Language switch: an invalid or missing lang is ignored outright -- no cookie and no redirect', async () => {
   const app = bootApp('hook')
   for (const url of ['/login', '/login?lang=zz', '/login?lang=', '/login?lang=en%3Cscript%3E']) {
     const res = await app.inject({ method: 'GET', url })
-    assert.equal(res.statusCode, 200, `${url} 不该被重定向（非法值不生效、不回显）`)
-    assert.equal(cookieOf(res), '', `${url} 不该写 cookie`)
+    assert.equal(res.statusCode, 200, `${url} must not be redirected (an invalid value neither takes effect nor echoes back)`)
+    assert.equal(cookieOf(res), '', `${url} must not write a cookie`)
   }
   await app.close()
 })
 
-test('语言切换: cookie 带 path=/ 与 lax（换页仍生效、跨站不带出去）', async () => {
+test('Language switch: the cookie carries path=/ and lax (it survives navigation but is not sent cross-site)', async () => {
   const app = bootApp('hook')
   const res = await app.inject({ method: 'GET', url: '/login?lang=zh-CN' })
   const c = cookieOf(res)
-  assert.ok(c.includes('Path=/'), `path=/（否则子路径下切换会失效）：${c}`)
-  assert.ok(/SameSite=Lax/i.test(c), `SameSite=Lax：${c}`)
+  assert.ok(c.includes('Path=/'), `path=/ (otherwise the switch breaks under a sub-path): ${c}`)
+  assert.ok(/SameSite=Lax/i.test(c), `SameSite=Lax: ${c}`)
   await app.close()
 })

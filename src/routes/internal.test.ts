@@ -9,7 +9,7 @@ import { GatewayClient } from '../gateway/client.js'
 import { startFakeGateway, type FakeGateway, type FakeScript } from '../gateway/fake.js'
 import { registerInternalRoutes } from './internal.js'
 import type { Scheduler } from '../cron/schedule.js'
-// 债务 C3:agent 构造/临时目录/测试库收敛进 test-harness。
+// Debt C3: agent construction / temp dirs / the test DB consolidate into the test harness.
 import { agentWith, makeDbWithAgents, tempDir } from '../test-harness.js'
 
 const API_KEY = 'test-key'
@@ -31,7 +31,7 @@ const endpoint = (gw: FakeGateway): ResolvedEndpoint => ({
 })
 
 const agentFor = (workspacePath: string): ResolvedAgent =>
-  agentWith({ id: 'personal', name: '个人', workspacePath })
+  agentWith({ id: 'personal', name: 'Personal', workspacePath })
 
 const SUCCESS: FakeScript = {
   frames: [
@@ -52,9 +52,9 @@ const gateways: FakeGateway[] = []
 const boot = async (script: FakeScript): Promise<Harness> => {
   const gw = await startFakeGateway(script, API_KEY)
   gateways.push(gw)
-  // 债务 C3:测试库 + 临时目录收敛进 test-harness。
+  // Debt C3: the test DB + temp dirs consolidate into the test harness.
   const workspace = tempDir('internal-ws')
-  const db = makeDbWithAgents([{ id: 'personal', name: '个人', workspacePath: workspace }])
+  const db = makeDbWithAgents([{ id: 'personal', name: 'Personal', workspacePath: workspace }])
   const agent = agentFor(workspace)
   const ep = endpoint(gw)
   const config: AppConfig = {
@@ -68,8 +68,8 @@ const boot = async (script: FakeScript): Promise<Harness> => {
     initialUser: { username: 'admin', password: null },
     warnings: [],
   }
-  // trustProxy=true 与生产一致：request.ip 会取 X-Forwarded-For（公网客户端），
-  // 而门禁必须看 socket 对端——viaProxy 用例正是为这个差异而生。
+  // trustProxy=true matches production: request.ip takes X-Forwarded-For (the public client),
+  // while the gate has to look at the socket peer -- the viaProxy case exists for exactly that gap.
   const app = Fastify({ trustProxy: true })
   const clients = new Map([['A', new GatewayClient(ep)]])
   const schedulerStub = { reload: () => {}, nextRunAt: () => null, problemFor: () => null } as unknown as Scheduler
@@ -110,7 +110,7 @@ test('the brain gate fails closed: no token, wrong token, non-loopback, disabled
   })
   assert.equal(remote.statusCode, 403)
 
-  // 蜂群2计划 P6：容器形态主脑在 hive 内网（172.x）——私网来源 + 有效 token 放行
+  // Hive plan 2 P6: in container form the brain sits on the Hive's internal network (172.x) -- a private source plus a valid token is let through
   const hiveNode = await app.inject({
     method: 'GET',
     url: '/api/internal/agents',
@@ -124,16 +124,16 @@ test('the brain gate fails closed: no token, wrong token, non-loopback, disabled
     url: '/api/internal/agents',
     remoteAddress: '172.20.0.2',
   })
-  assert.equal(privateNoToken.statusCode, 401, '私网来源也必须带有效 token')
+  assert.equal(privateNoToken.statusCode, 401, 'a private source must still carry a valid token')
 
-  // 反代场景：转发头里是公网客户端 IP，直连对端是内网 nginx/节点 → 必须放行
+  // Reverse-proxy case: the forwarding header carries the public client IP and the direct peer is an internal nginx/node -> it must be let through
   const viaProxy = await app.inject({
     method: 'GET',
     url: '/api/internal/agents',
     headers: { ...authed(), 'x-forwarded-for': '203.0.113.9' },
     remoteAddress: '172.20.0.5',
   })
-  assert.equal(viaProxy.statusCode, 200, '信任直连对端而非转发头')
+  assert.equal(viaProxy.statusCode, 200, 'trust the direct peer, not the forwarding header')
 })
 
 test('agents list: shape and busy flag', async () => {
@@ -182,7 +182,7 @@ test('dispatch: unknown agent 404, success runs with trigger=brain, concurrent d
       id: 'brain-chat-1',
       agentId: 'personal',
       dshSessionId: null,
-      title: '主脑会话',
+      title: 'brain chat',
       createdAt: Date.now(),
       lastActiveAt: Date.now(),
       removedAt: null,
@@ -193,7 +193,7 @@ test('dispatch: unknown agent 404, success runs with trigger=brain, concurrent d
     method: 'POST',
     url: '/api/internal/dispatch',
     headers: authed(),
-    payload: { agentId: 'personal', prompt: '写一行', sourceChatId: 'brain-chat-1' },
+    payload: { agentId: 'personal', prompt: 'write one line', sourceChatId: 'brain-chat-1' },
   })
   assert.equal(ok.statusCode, 200, JSON.stringify(ok.body))
   const outcome = ok.json() as { state: string }
@@ -202,21 +202,21 @@ test('dispatch: unknown agent 404, success runs with trigger=brain, concurrent d
   assert.equal(runRow?.trigger, 'brain')
   assert.equal(runRow?.sourceChatId, 'brain-chat-1')
 
-  // 蜂群 P5.4：不再有 busy 拒绝——同 agent 并发派工直接并行执行，
-  // 两次 dispatch 都成功、各留一行。
+  // Hive P5.4: no more busy rejection -- concurrent dispatches to the same agent just run in parallel,
+  // both dispatches succeed and each leaves its own row.
   gw.setScript(SUCCESS)
   const [c1, c2] = await Promise.all([
     app.inject({
       method: 'POST',
       url: '/api/internal/dispatch',
       headers: authed(),
-      payload: { agentId: 'personal', prompt: '再写一行' },
+      payload: { agentId: 'personal', prompt: 'write one more line' },
     }),
     app.inject({
       method: 'POST',
       url: '/api/internal/dispatch',
       headers: authed(),
-      payload: { agentId: 'personal', prompt: '又写一行' },
+      payload: { agentId: 'personal', prompt: 'write yet another line' },
     }),
   ])
   assert.equal(c1.statusCode, 200)
@@ -227,9 +227,9 @@ test('dispatch: unknown agent 404, success runs with trigger=brain, concurrent d
   assert.ok(live.length >= 3, `concurrent dispatches all landed (${live.length} runs)`)
 })
 
-test('蜂群 P5.1: brain dispatch stops at the daily budget, and lifts when the cap is off', async () => {
+test('Hive P5.1: brain dispatch stops at the daily budget, and lifts when the cap is off', async () => {
   const { app, db, config } = await boot(SUCCESS)
-  // 今天一笔超预算的主脑派工花销
+  // One over-budget brain dispatch spent today
   const now = Date.now()
   db.insert(schema.run)
     .values({
@@ -265,37 +265,37 @@ test('蜂群 P5.1: brain dispatch stops at the daily budget, and lifts when the 
     })
     .run()
 
-  config.brainDailyBudgetMicroUsd = 1_000_000 // $1 上限，已花 $1.5
+  config.brainDailyBudgetMicroUsd = 1_000_000 // a $1 cap, $1.5 already spent
   const denied = await app.inject({
     method: 'POST',
     url: '/api/internal/dispatch',
     headers: authed(),
-    payload: { agentId: 'personal', prompt: '写一行' },
+    payload: { agentId: 'personal', prompt: 'write one line' },
   })
   assert.equal(denied.statusCode, 409)
   const deniedBody = denied.json() as { error: string; detail: string }
   assert.equal(deniedBody.error, 'brain_budget_exhausted')
   assert.match(deniedBody.detail, /1\.50/)
 
-  // 关闭上限后恢复放行
+  // With the cap off, dispatch is let through again
   config.brainDailyBudgetMicroUsd = null
   const ok = await app.inject({
     method: 'POST',
     url: '/api/internal/dispatch',
     headers: authed(),
-    payload: { agentId: 'personal', prompt: '写一行' },
+    payload: { agentId: 'personal', prompt: 'write one line' },
   })
   assert.equal(ok.statusCode, 200)
 })
 
-test('蜂群 P5.3: internal prompt continues an existing chat, serialised per session', async () => {
+test('Hive P5.3: internal prompt continues an existing chat, serialised per session', async () => {
   const { app, db } = await boot(SUCCESS)
   db.insert(schema.chat)
     .values({
       id: 'c-reuse',
       agentId: 'personal',
       dshSessionId: null,
-      title: '周报',
+      title: 'weekly report',
       createdAt: Date.now(),
       lastActiveAt: Date.now(),
       removedAt: null,
@@ -306,7 +306,7 @@ test('蜂群 P5.3: internal prompt continues an existing chat, serialised per se
     method: 'POST',
     url: '/api/internal/chats/c-reuse/prompt',
     headers: authed(),
-    payload: { text: '续写周报' },
+    payload: { text: 'continue the weekly report' },
   })
   assert.equal(ok.statusCode, 200, JSON.stringify(ok.body))
   const outcome = ok.json() as { state: string; runId: string }
@@ -317,7 +317,7 @@ test('蜂群 P5.3: internal prompt continues an existing chat, serialised per se
   const chatRow = db.select().from(schema.chat).where(eq(schema.chat.id, 'c-reuse')).all()[0]
   assert.ok(chatRow?.dshSessionId !== null && chatRow?.dshSessionId !== undefined, 'first turn binds the session')
 
-  // 会话内串行：该会话有在跑的回合时 409
+  // Serialised within a chat: 409 while that chat has a turn running
   const now = Date.now()
   db.insert(schema.run)
     .values({
@@ -341,7 +341,7 @@ test('蜂群 P5.3: internal prompt continues an existing chat, serialised per se
     method: 'POST',
     url: '/api/internal/chats/c-reuse/prompt',
     headers: authed(),
-    payload: { text: '再续一句' },
+    payload: { text: 'continue one more sentence' },
   })
   assert.equal(busy.statusCode, 409)
   assert.equal((busy.json() as { error: string }).error, 'chat_busy')
@@ -360,7 +360,7 @@ test('crons: drafted disabled by default, duplicate name 409, bad schedule 400',
     method: 'POST',
     url: '/api/internal/crons',
     headers: authed(),
-    payload: { agentId: 'personal', name: 'brain-drafted', schedule: '30 21 * * *', prompt: '复盘' },
+    payload: { agentId: 'personal', name: 'brain-drafted', schedule: '30 21 * * *', prompt: 'retrospective' },
   })
   assert.equal(ok.statusCode, 201)
   const body = ok.json() as { id: string; enabled: boolean }

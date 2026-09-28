@@ -9,7 +9,7 @@ import { backupNow, listSnapshots, pruneSnapshots, restoreSnapshot, snapshotDb }
 const fresh = (): string => mkdtempSync(join(tmpdir(), 'backup-'))
 const SECRET = 'backup-test-secret-0123456789'
 
-/** Windows 上刚写入/覆盖过的文件句柄可能滞后释放（EBUSY）：清理重试几次，最后放弃也不炸测试。 */
+/** On Windows a handle to a freshly written/overwritten file can be released late (EBUSY): retry the cleanup a few times and give up without failing the test. */
 const cleanup = async (dir: string): Promise<void> => {
   for (let i = 0; i < 5; i += 1) {
     try {
@@ -21,7 +21,7 @@ const cleanup = async (dir: string): Promise<void> => {
   }
 }
 
-test('蜂群 P6: snapshotDb takes a consistent copy with the same rows', async () => {
+test('Hive P6: snapshotDb takes a consistent copy with the same rows', async () => {
   const dir = fresh()
   try {
     const dbPath = join(dir, 'manager.db')
@@ -43,7 +43,7 @@ test('蜂群 P6: snapshotDb takes a consistent copy with the same rows', async (
   }
 })
 
-test('蜂群 P6: retention keeps 24h hourly, then daily for 30d, then weekly for 12w', async () => {
+test('Hive P6: retention keeps 24h hourly, then daily for 30d, then weekly for 12w', async () => {
   const dir = fresh()
   const backups = join(dir, 'backups')
   mkdirSync(backups, { recursive: true })
@@ -52,7 +52,7 @@ test('蜂群 P6: retention keeps 24h hourly, then daily for 30d, then weekly for
     const MIN = 60_000
     const HOUR = 60 * MIN
     const DAY = 24 * HOUR
-    // 返回文件名，断言用精确名字而不是碰运气。
+    // Returns file names so the assertions can use exact names instead of luck.
     const plant = (age: number): string => {
       const d = new Date(now - age)
       const pad = (n: number): string => String(n).padStart(2, '0')
@@ -62,38 +62,38 @@ test('蜂群 P6: retention keeps 24h hourly, then daily for 30d, then weekly for
       return file
     }
 
-    // 三层各埋确定性的文件：
-    // 1) 24h 内 3 份——全留
+    // Plant deterministic files in each of the three tiers:
+    // 1) three within 24h -- all kept
     const r1 = plant(5 * MIN)
     const r2 = plant(10 * MIN)
     const r3 = plant(15 * MIN)
-    // 2) 超过 24h 的同一天 2 份——只留第一份（更早那份）
+    // 2) two on the same day beyond 24h -- keep only the first (the earlier one)
     const d1 = plant(25 * HOUR)
     const d2 = plant(25 * HOUR + MIN)
-    // 3) 超过 30 天的同一天 2 份（35 天）——周桶留第一份
+    // 3) two on the same day beyond 30 days (35 days ago) -- the weekly bucket keeps the first
     const w1 = plant(35 * DAY)
     const w2 = plant(35 * DAY + MIN)
-    // 4) 15 周前 1 份——删
+    // 4) one 15 weeks ago -- deleted
     const old = plant(100 * DAY)
 
     const removed = pruneSnapshots(backups, now)
     const kept = listSnapshots(backups).map((s) => s.file)
 
-    for (const f of [r1, r2, r3]) assert.ok(kept.includes(f), `24h 内的 ${f} 必须保留`)
-    assert.ok(!removed.includes(r1) && !removed.includes(r2) && !removed.includes(r3), '24h 内不删')
-    // 保留策略按时间正序取「每天第一份」= 更早的那份
-    assert.ok(kept.includes(d2), '同一天更早那份保留')
-    assert.ok(!kept.includes(d1), '同一天更晚那份删除')
-    assert.ok(kept.includes(w2), '35 天前周桶更早那份保留')
-    assert.ok(!kept.includes(w1), '35 天前同天更晚那份删除')
-    assert.ok(!kept.includes(old), '15 周前删除')
-    assert.equal(kept.length, 5, `3+1+1=5，实际 ${kept.join(', ')}`)
+    for (const f of [r1, r2, r3]) assert.ok(kept.includes(f), `${f} within 24h must be kept`)
+    assert.ok(!removed.includes(r1) && !removed.includes(r2) && !removed.includes(r3), 'nothing within 24h is deleted')
+    // Retention walks time in order and takes the first of each day = the earlier one
+    assert.ok(kept.includes(d2), 'the earlier one of the day is kept')
+    assert.ok(!kept.includes(d1), 'the later one of the day is deleted')
+    assert.ok(kept.includes(w2), 'the earlier of the two 35 days ago is kept')
+    assert.ok(!kept.includes(w1), 'the later one of that day 35 days ago is deleted')
+    assert.ok(!kept.includes(old), 'the one 15 weeks ago is deleted')
+    assert.equal(kept.length, 5, `3+1+1=5, got ${kept.join(', ')}`)
   } finally {
     await cleanup(dir)
   }
 })
 
-test('债务 R2: backupNow 产物必须无明文(DB 快照与 .env 加密;备份目录不留明文)', async () => {
+test('Debt R2: backupNow artifacts must hold no plaintext (DB snapshot and .env encrypted; no plaintext left in the backup dir)', async () => {
   const dir = fresh()
   const backups = join(dir, 'backups')
   try {
@@ -107,25 +107,25 @@ test('债务 R2: backupNow 产物必须无明文(DB 快照与 .env 加密;备份
 
     const result = await backupNow(dbPath, join(dir, 'cfg.yaml'), envPath, backups, SECRET)
 
-    // 快照必须是加密形态,且备份目录里没有任何明文快照残留
-    assert.ok(result.snapshot.file.endsWith('.enc'), `快照必须是加密形态,got ${result.snapshot.file}`)
+    // The snapshot must be encrypted, with no plaintext snapshot left in the backup directory
+    assert.ok(result.snapshot.file.endsWith('.enc'), `the snapshot must be encrypted, got ${result.snapshot.file}`)
     assert.ok(
       listSnapshots(backups).every((s) => s.file.endsWith('.enc')),
-      '备份目录不得出现明文 DB 快照',
+      'no plaintext DB snapshot may appear in the backup directory',
     )
     const enc = readFileSync(join(backups, result.snapshot.file))
-    assert.ok(!enc.subarray(0, 16).toString('latin1').includes('SQLite'), '加密快照不得含 SQLite 明文头')
-    // .env 是秘密:必须加密落盘,无明文副本
-    assert.ok(existsSync(join(backups, 'current', '.env.enc')), '.env 必须加密落盘')
-    assert.ok(!existsSync(join(backups, 'current', '.env')), '不得保留明文 .env 副本')
+    assert.ok(!enc.subarray(0, 16).toString('latin1').includes('SQLite'), 'an encrypted snapshot must not carry the plaintext SQLite header')
+    // .env is a secret: it lands encrypted, with no plaintext copy
+    assert.ok(existsSync(join(backups, 'current', '.env.enc')), '.env must land encrypted')
+    assert.ok(!existsSync(join(backups, 'current', '.env')), 'no plaintext .env copy may be kept')
     const envEnc = readFileSync(join(backups, 'current', '.env.enc'), 'utf8')
-    assert.ok(!envEnc.includes('super-secret-value'), '密文不得含明文密钥')
+    assert.ok(!envEnc.includes('super-secret-value'), 'the ciphertext must not contain the plaintext secret')
   } finally {
     await cleanup(dir)
   }
 })
 
-test('蜂群 P6: restoreSnapshot refuses while the manager runs and recovers by name or latest', async () => {  const dir = fresh()
+test('Hive P6: restoreSnapshot refuses while the manager runs and recovers by name or latest', async () => {  const dir = fresh()
   const backups = join(dir, 'backups')
   try {
     const dbPath = join(dir, 'manager.db')
@@ -135,7 +135,7 @@ test('蜂群 P6: restoreSnapshot refuses while the manager runs and recovers by 
     seed.close()
     const result = await backupNow(dbPath, join(dir, 'cfg.yaml'), join(dir, '.env'), backups, SECRET)
 
-    // 运行中拒绝
+    // Refused while it runs
     const refused = await restoreSnapshot(dbPath, backups, 'latest', () => true, SECRET)
     assert.equal(refused.ok, false)
     assert.match(refused.detail, /still running/)
@@ -147,7 +147,7 @@ test('蜂群 P6: restoreSnapshot refuses while the manager runs and recovers by 
       return row.v
     }
 
-    // 按名恢复（加密快照，走解密路径）
+    // Restore by name (an encrypted snapshot, so it goes through decryption)
     rmSync(dbPath, { force: true })
     const byName = await restoreSnapshot(dbPath, backups, result.snapshot.file, () => false, SECRET)
     assert.equal(byName.ok, true)
@@ -159,7 +159,7 @@ test('蜂群 P6: restoreSnapshot refuses while the manager runs and recovers by 
     assert.equal(byLatest.ok, true)
     assert.equal(readSentinel(), 'sentinel')
 
-    // 未知快照
+    // Unknown snapshot
     const missing = await restoreSnapshot(dbPath, backups, 'nope.db', () => false, SECRET)
     assert.equal(missing.ok, false)
   } finally {
@@ -167,7 +167,7 @@ test('蜂群 P6: restoreSnapshot refuses while the manager runs and recovers by 
   }
 })
 
-test('债务 R2: 加密快照被篡改后恢复显性失败(GCM 认证,绝不静默吞损坏)', async () => {
+test('Debt R2: a tampered encrypted snapshot fails restoration loudly (GCM auth, never swallow corruption)', async () => {
   const dir = fresh()
   const backups = join(dir, 'backups')
   try {
@@ -178,21 +178,21 @@ test('债务 R2: 加密快照被篡改后恢复显性失败(GCM 认证,绝不静
     seed.close()
     const result = await backupNow(dbPath, join(dir, 'cfg.yaml'), join(dir, '.env'), backups, SECRET)
 
-    // 篡改密文中的一个字节(跳过 magic 头,打 IV 之后的密文区)
+    // Flip one byte of the ciphertext (past the magic header, in the region after the IV)
     const encPath = join(backups, result.snapshot.file)
     const buf = Buffer.from(readFileSync(encPath))
     buf[buf.length - 30] = buf[buf.length - 30] === 0x00 ? 0x01 : 0x00
     writeFileSync(encPath, buf)
 
     rmSync(dbPath, { force: true })
-    await assert.rejects(() => restoreSnapshot(dbPath, backups, 'latest', () => false, SECRET), '篡改必须显性失败')
-    assert.ok(!existsSync(dbPath), '解密失败不得留下被当成恢复成功的库文件')
+    await assert.rejects(() => restoreSnapshot(dbPath, backups, 'latest', () => false, SECRET), 'tampering must fail loudly')
+    assert.ok(!existsSync(dbPath), 'a failed decryption must not leave a DB file that counts as a restore')
   } finally {
     await cleanup(dir)
   }
 })
 
-test('债务 R2: 升级前的明文快照仍可恢复(兼容链不打断)', async () => {
+test('Debt R2: a plaintext snapshot from before the upgrade still restores (the compatibility chain holds)', async () => {
   const dir = fresh()
   const backups = join(dir, 'backups')
   try {
@@ -201,7 +201,7 @@ test('债务 R2: 升级前的明文快照仍可恢复(兼容链不打断)', asyn
     seed.exec('CREATE TABLE t (v TEXT)')
     seed.prepare('INSERT INTO t (v) VALUES (?)').run('legacy')
     seed.close()
-    // 旧版备份物:明文快照直接落在备份目录
+    // An old-version artifact: a plaintext snapshot sitting straight in the backup directory
     const plain = await snapshotDb(dbPath, backups)
     assert.ok(plain.file.endsWith('.db') && !plain.file.endsWith('.enc'))
 

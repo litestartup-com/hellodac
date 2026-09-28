@@ -6,9 +6,9 @@ import { FakeSessionDriver } from '../session-driver/fake.js'
 import type { AppConfig, ResolvedEndpoint, ResolvedSpawnSpec } from '../config.js'
 
 /**
- * 债务 C2:nodes/registry(监督器构造与托管过滤)此前零覆盖。
- * probe 回调的三态语义由 supervisor.test.ts 的状态机用例覆盖;本文件锁定
- * registry 自身的契约:构造产物类型、只收托管节点、dockerEnv 密钥组装边界。
+ * Debt C2: nodes/registry (supervisor construction and the managed filter) had no coverage at all.
+ * The three-state semantics of the probe callback are covered by the state-machine cases in supervisor.test.ts;
+ * this file pins registry's own contract: the type it builds, that it only takes managed nodes, and the dockerEnv key assembly.
  */
 
 const endpointFor = (id: string, driver: 'gateway' | 'apiproxy', spawn: ResolvedEndpoint['spawn']): ResolvedEndpoint => ({
@@ -38,7 +38,7 @@ const managedProcess: ResolvedEndpoint['spawn'] = {
   docker: null,
 }
 
-test('债务 C2: makeSupervisor 构造契约——apiproxy/gateway 均产出 NodeSupervisor', () => {
+test('Debt C2: the makeSupervisor construction contract -- both apiproxy and gateway produce a NodeSupervisor', () => {
   const up = new FakeSessionDriver('A', { frames: [], probeVersion: '0.1.1-rc.2' })
   const apiproxy = makeSupervisor(endpointFor('A', 'apiproxy', null), { upstream: () => up, gateway: () => undefined })
   assert.ok(apiproxy instanceof NodeSupervisor)
@@ -46,7 +46,7 @@ test('债务 C2: makeSupervisor 构造契约——apiproxy/gateway 均产出 Nod
   assert.ok(gateway instanceof NodeSupervisor)
 })
 
-test('债务 C2: buildNodeSupervisors 只收托管节点(外管不收;process/docker managed 各一)', () => {
+test('Debt C2: buildNodeSupervisors only takes managed nodes (an externally managed one is skipped; one process and one docker managed node are in)', () => {
   const config = {
     endpoints: {
       A: endpointFor('A', 'apiproxy', null),
@@ -56,12 +56,12 @@ test('债务 C2: buildNodeSupervisors 只收托管节点(外管不收;process/do
     agents: {},
   } as unknown as AppConfig
   const map = buildNodeSupervisors(config, { upstream: () => undefined, gateway: () => undefined })
-  assert.equal(map.size, 2, '外管(spawn null)不收;两个 managed 各一')
+  assert.equal(map.size, 2, 'the externally managed one (spawn null) is skipped; the two managed ones are in')
   assert.ok(map.has('B') && map.has('C'))
-  assert.ok(!map.has('A'), '未托管端点绝不入册')
+  assert.ok(!map.has('A'), 'an unmanaged endpoint never makes it into the registry')
 })
 
-test('舰队 M3 回归: agentFullAccess=true 时 spawn 载荷带 ALLOW_FULL_ACCESS（ops 节点开锁信号）', () => {
+test('Fleet M3 regression: with agentFullAccess=true the spawn payload carries ALLOW_FULL_ACCESS (the ops node unlock signal)', () => {
   const up = new FakeSessionDriver('A', { frames: [], probeVersion: '0.1.5-rc.2' })
   const enqueued: Array<{ type: string; payload: Record<string, unknown> }> = []
   const agentSpawn = { ...managedProcess, runner: 'agent', host: 'agent-1' } as ResolvedSpawnSpec
@@ -77,8 +77,8 @@ test('舰队 M3 回归: agentFullAccess=true 时 spawn 载荷带 ALLOW_FULL_ACCE
   })
   s.start(agentSpawn)
   const env = enqueued[0]?.payload.env as Record<string, string> | undefined
-  assert.equal(env?.ALLOW_FULL_ACCESS, 'true', 'danger-full-access 节点 → agent 收到开锁信号（写 settings 用）')
-  assert.equal(env?.GW_KEY, 'apigw-test-key', 'GW_KEY 照旧注入')
+  assert.equal(env?.ALLOW_FULL_ACCESS, 'true', 'a danger-full-access node -> the agent gets the unlock signal (to write into settings)')
+  assert.equal(env?.GW_KEY, 'apigw-test-key', 'GW_KEY is injected as before')
 
   const plain = makeSupervisor(endpointFor('B', 'apiproxy', agentSpawn), {
     upstream: () => up,
@@ -98,7 +98,7 @@ test('舰队 M3 回归: agentFullAccess=true 时 spawn 载荷带 ALLOW_FULL_ACCE
   })
   s2.start(agentSpawn)
   const env2 = enqueued2[0]?.payload.env as Record<string, string> | undefined
-  assert.equal(env2?.ALLOW_FULL_ACCESS, undefined, '普通节点不带开锁信号')
+  assert.equal(env2?.ALLOW_FULL_ACCESS, undefined, 'an ordinary node carries no unlock signal')
   plain.stop()
   s.stop()
 })

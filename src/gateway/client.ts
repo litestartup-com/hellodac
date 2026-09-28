@@ -1,7 +1,7 @@
 import type { ResolvedEndpoint } from '../config.js'
 
 /**
- * ⛔ DEAD PATH —— 不要在这条路上新建功能（2026-09-27 实测入档）。
+ * ⛔ DEAD PATH -- do not build new features on this path (measured and recorded 2026-09-27).
  *
  * This client speaks the `gateway` driver, whose contract came from the 0.1.2-era
  * `dsh-api-gateway` REST surface (`POST /sessions`, `/sessions/{id}/messages`,
@@ -95,7 +95,7 @@ export const isSessionNotFound = (error: unknown): boolean =>
 export const isAdoptDisabled = (error: unknown): boolean =>
   error instanceof GatewayError && error.status === 403 && error.code === 'adopt_disabled'
 
-const DEFAULT_TIMEOUT_MS = 20_000 // 债务 E13:单次网关 HTTP 请求超时(勿与 runner 的回合超时混淆)
+const DEFAULT_TIMEOUT_MS = 20_000 // Debt E13: timeout of a single gateway HTTP request (do not confuse it with the runner's turn timeout)
 
 /** One mapped event from the gateway's durable log. See gateway events.ts. */
 export interface HistoryEvent {
@@ -310,8 +310,8 @@ export const buildClients = (endpoints: Record<string, ResolvedEndpoint>): Map<s
 }
 
 /**
- * 债务 E10:apiproxy 等不经过 gateway 的路径仍需一个占位 client(RunInput 等
- * 类型要求非空)——它指向永不连通的地址,分支逻辑保证它绝不会被真调。
+ * Debt E10: paths that skip the gateway (apiproxy and friends) still need a placeholder client
+ * (RunInput and friends require non-null) -- it points at an address that never connects, and the branch logic never really calls it.
  */
 export const dummyGatewayClient = (): GatewayClient =>
   new GatewayClient({

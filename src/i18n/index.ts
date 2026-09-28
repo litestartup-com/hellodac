@@ -3,27 +3,27 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /**
- * 多语言（DAC v1.0.0）：默认英文，中文可切，加语言 = 丢一个 JSON + 注册一行。
+ * i18n (DAC v1.0.0): English by default, Chinese switchable, adding a language = drop in a JSON file + register one line.
  *
- * 三条纪律写在类型与测试里，而不是文档里：
- * 1. `en.json` 是基准：其它语言的键集合必须与它完全一致（i18n.test.ts 断言，
- *    缺键/多键都当成发布事故——半截语言比没有语言更糟）。
- * 2. 页面模板与服务端都用这里的 `t()`；**客户端**不重复实现，只消费注入的
- *    字典（`dictionaryFor` 序列化进页面）。
- * 3. 缺键在界面上直接显示键名（`nav.nodes` 而不是空白），配合断言它进不了发布；
- *    未知语言标签回退基准语言而不是抛错——浏览器什么标签都可能送来。
+ * Three rules live in the types and the tests rather than in a document:
+ * 1. `en.json` is the baseline: every other language must have exactly the same key set (asserted by i18n.test.ts;
+ *    a missing or an extra key counts as a release incident -- a half-translated language is worse than none).
+ * 2. Page templates and the server both use `t()` from here; the **client** does not reimplement it, it only consumes
+ *    the injected dictionary (`dictionaryFor` serialized into the page).
+ * 3. A missing key shows the key name in the UI (`nav.nodes` rather than a blank), which together with the assertion
+ *    keeps it out of a release; an unknown language tag falls back to the baseline instead of throwing -- browsers send anything.
  */
 
 const here = dirname(fileURLToPath(import.meta.url))
 
-/** 支持的语言。新增语言时：加 `locales/<tag>.json`，再加到这个数组。 */
+/** Supported languages. To add one: add `locales/<tag>.json`, then add it to this array. */
 export const LOCALES = ['en', 'zh-CN'] as const
 export type Locale = (typeof LOCALES)[number]
 
-/** 基准语言 = 兜底语言 = 键集合的真相源。 */
+/** Baseline language = fallback language = the source of truth for the key set. */
 export const DEFAULT_LOCALE: Locale = 'en'
 
-/** 语言偏好的 cookie 名（改它 = 所有人的语言偏好丢失，所以有测试钉住）。 */
+/** Cookie name for the language preference (changing it = everyone loses their preference, so a test pins it). */
 export const LOCALE_COOKIE = 'dac_lang'
 
 export type Dictionary = Record<string, string>
@@ -33,14 +33,14 @@ const load = (locale: Locale): Dictionary =>
 
 const dictionaries = new Map<Locale, Dictionary>(LOCALES.map((locale) => [locale, load(locale)]))
 
-/** 某语言的字典（客户端注入与测试用）。 */
+/** The dictionary for one language (used for client injection and by tests). */
 export const dictionary = (locale: Locale): Dictionary => dictionaries.get(locale) ?? {}
 
 export const isLocale = (value: unknown): value is Locale =>
   typeof value === 'string' && (LOCALES as readonly string[]).includes(value)
 
 /**
- * 翻译。`{name}` 形式插值；缺参数时保留原文，绝不产生 "undefined"。
+ * Translate. `{name}` style interpolation; a missing parameter keeps the placeholder and never produces "undefined".
  */
 export const t = (
   key: string,
@@ -55,7 +55,7 @@ export const t = (
   )
 }
 
-/** Accept-Language → 我们支持的语言（zh-Hans-CN / zh;q=0.9 都归到 zh-CN）。 */
+/** Accept-Language -> a language we support (both zh-Hans-CN and zh;q=0.9 map to zh-CN). */
 const fromAcceptLanguage = (accept: string): Locale | null => {
   for (const part of accept.split(',')) {
     const tag = part.split(';')[0]?.trim().toLowerCase() ?? ''
@@ -67,8 +67,8 @@ const fromAcceptLanguage = (accept: string): Locale | null => {
 }
 
 /**
- * 语言判定优先级：`?lang=` → cookie → `Accept-Language` → 默认。
- * 非法值一律忽略（不回显、不报错）。
+ * Language resolution order: `?lang=` -> cookie -> `Accept-Language` -> default.
+ * Invalid values are simply ignored (never echoed back, never an error).
  */
 export const resolveLocale = (input: {
   query?: unknown

@@ -7,12 +7,12 @@ import { backupNow } from '../backup.js'
 import { loadConfig } from '../config.js'
 
 /**
- * 蜂群 P6：`npm run update` —— manager 自更新（备份 → 拉新 → 构建 → 探活，
- * 探活失败自动回滚到更新前的提交并重建）。
+ * Hive P6: `npm run update` -- manager self-update (backup -> pull -> build -> probe, and a failed
+ * probe rolls back automatically to the pre-update commit and rebuilds).
  *
- * 前提：manager 已停止（更新期间会短暂拉起一个探活实例）；工作树干净
- * （配置与 .env 都在 .gitignore 里，不该脏）；git 远程可用且当前分支
- * 跟踪远程（fast-forward）。
+ * Preconditions: the manager is stopped (a probe instance starts briefly during the update); the
+ * work tree is clean (config and .env are in .gitignore, so it should not be dirty); the git remote
+ * is reachable and the current branch tracks it (fast-forward).
  */
 
 const here = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -36,8 +36,8 @@ export interface UpdateResult {
 }
 
 export const updateManager = async (deps: UpdateDeps, rootDir: string): Promise<UpdateResult> => {
-  // 0. 工作树必须干净——未提交的改动会被 hard-reset 吞掉（配置在 .gitignore，
-  //    不该出现在这里；真出现说明有事）。
+  // 0. The work tree must be clean -- a hard reset swallows uncommitted changes (config is in
+  //    .gitignore and should not show up here; if it does, something is wrong).
   const dirty = deps.git(['status', '--porcelain'], rootDir).trim()
   if (dirty !== '') {
     return { ok: false, detail: `the working tree has uncommitted changes — commit or revert them before updating.\n${dirty.split('\n').slice(0, 5).join('\n')}` }
@@ -76,17 +76,17 @@ export const updateManager = async (deps: UpdateDeps, rootDir: string): Promise<
   try {
     build()
   } catch (error) {
-    // 构建失败也回滚——半新的 dist 不该留在原地。
+    // A failed build rolls back too -- a half-new dist must not stay behind.
     deps.git(['reset', '--hard', oldHead], rootDir)
     try {
       build()
     } catch {
-      // 回滚构建也失败：代码已还原，dist 可能不匹配——如实报告。
+      // The rollback build failed too: the code is restored but dist may not match -- report it as is.
     }
     return { ok: false, detail: `the build failed; code rolled back to ${oldHead.slice(0, 8)} (dist may need a manual npm run build). ${(error as Error).message.split('\n')[0]}`, from: oldHead, to: newHead, snapshot }
   }
 
-  // 探活：短暂拉起一个实例，端口通了才算数。
+  // Probe: start an instance briefly; only a port that answers counts.
   const instance = deps.startProbeInstance()
   const alive = await deps.probe(8080, 30_000)
   instance.stop()
@@ -99,12 +99,12 @@ export const updateManager = async (deps: UpdateDeps, rootDir: string): Promise<
   try {
     build()
   } catch {
-    // 同上：代码已还原，dist 可能不匹配。
+    // As above: the code is restored but dist may not match.
   }
   return { ok: false, detail: `the new version failed its 30-second health probe; rolled back to ${oldHead.slice(0, 8)} and rebuilt.`, from: oldHead, to: newHead, snapshot }
 }
 
-/** 真实依赖（CLI 直跑用）。 */
+/** The real dependencies (for running the CLI directly). */
 const realDeps = (rootDir: string): UpdateDeps => {
   const git = (args: string[], cwd: string): string =>
     execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
@@ -136,8 +136,8 @@ const realDeps = (rootDir: string): UpdateDeps => {
       attempt()
     })
   const backup = async (): Promise<string> => {
-    // 债务 R3:备份路径只来自一次成功的 loadConfig——自定义 database.path /
-    // 部署布局不再备错文件;配置不可读时显性失败(更新前配置必须健康)。
+    // Debt R3: the backup path comes from one successful loadConfig only -- a custom database.path or
+    // layout no longer backs up the wrong file; an unreadable config fails loudly (it must be healthy first).
     const cfg = loadConfig()
     const result = await backupNow(
       cfg.databasePath,
@@ -160,7 +160,7 @@ const realDeps = (rootDir: string): UpdateDeps => {
         try {
           child.kill()
         } catch {
-          // 进程可能已经退出
+          // The process may already have exited
         }
       },
     }
@@ -172,7 +172,7 @@ const main = async (): Promise<void> => {
   const root = resolve(here)
   const deps = realDeps(root)
 
-  // manager 正在跑时不能更新（探活实例会撞端口，配置也可能被改写）。
+  // No update while the manager runs (the probe instance collides on the port and the config may be rewritten).
   if (await deps.probe(8080, 1_500)) {
     console.error('the manager is running — stop it first (npm run service -- uninstall, or Ctrl+C) and then update.')
     process.exit(1)

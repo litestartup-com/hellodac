@@ -218,11 +218,11 @@ test('sandbox switch on a cold session is recorded and deferred to the next turn
   const body = (await access.json()) as { accessMode: string; deferred?: boolean }
   assert.equal(body.accessMode, 'danger-full-access')
   assert.equal(body.deferred, true)
-  // 冷会话上不能直钉：pin 不得打到上游，而是落库。
+  // A pin cannot go straight through on a cold chat: the pin must not reach upstream, it goes to the database.
   assert.equal(upstream.sandboxPins.length, 0)
   const row = db.select().from(schema.chat).where(eq(schema.chat.id, chatId)).get()
   assert.equal(row?.accessModeOverride, 'danger-full-access')
-  // 展示真相：刷新后 composer 报的是 manager 记录的钉入值，不是宿主推导值。
+  // Display truth: after a reload the composer reports the pinned value the manager recorded, not the host-derived one.
   const state = (await (await fetch(`${base}/api/chats/${chatId}`)).json()) as { composer?: { accessMode?: string } }
   assert.equal(state.composer?.accessMode, 'danger-full-access')
 })
@@ -260,7 +260,7 @@ test('composer passes a host-derived full-access mode through (no pin involved)'
 })
 
 // ---------------------------------------------------------------------------
-// Ongoing Goal 条（2026-09-11：宿主 goal 投影 → 历史与直播两条路径）
+// The ongoing goal bar (2026-09-11: the host goal projection -> both the history and the live path)
 // ---------------------------------------------------------------------------
 
 test('a host goal projection is reported in the chat state', async () => {
@@ -402,13 +402,13 @@ test('a refresh restores the current turn and its unanswered question', async ()
   assert.deepEqual(body.liveFrames?.map((frame) => frame.kind), ['user', 'question_asked'])
 })
 
-test('债务卡片链: turn_done 后未作答的卡片仍可重放(刷新与新 SSE 连接都恢复)', async () => {
+test('debt card chain: a card left unanswered after turn_done is still replayed (both a refresh and a new SSE connection recover it)', async () => {
   const { base } = await boot({
     gapMs: 20,
     frames: [
       { kind: 'question_asked', questionId: 'q-keep', questions: [{ id: 'choice', question: '继续吗？', options: [{ label: '继续' }] }] },
       { kind: 'sleep', ms: 150 },
-      // 上游故意不再发 resolved(模拟回合因超时/重连死亡)——问题还挂在宿主上
+      // Upstream deliberately never sends resolved (simulating a turn that died from a timeout or a reconnect) -- the question is still parked on the host
       { kind: 'turn_end', reason: 'completed', detail: null },
     ],
   })
@@ -424,20 +424,20 @@ test('债务卡片链: turn_done 后未作答的卡片仍可重放(刷新与新 
   assert.equal(sent.status, 202)
   await done
 
-  // 刷新(GET)重放:卡片必须在
+  // A refresh (GET) replays: the card must be there
   const reloaded = await fetch(`${base}/api/chats/${chatId}`)
   const body = (await reloaded.json()) as { liveFrames?: Array<{ kind: string; questionId?: string }> }
   const kept = body.liveFrames?.filter((f) => f.kind === 'question_asked') ?? []
-  assert.equal(kept.length, 1, 'turn_done 后挂起卡片仍须重放')
+  assert.equal(kept.length, 1, 'a pending card must still be replayed after turn_done')
   assert.equal(kept[0]?.questionId, 'q-keep')
 
-  // 新 SSE 连接:hello 之后立即重放卡片帧(断流恢复路径)
+  // A new SSE connection: the card frame is replayed right after hello (the stream-recovery path)
   const stream2 = await fetch(`${base}/api/chats/${chatId}/events`)
   const frames2 = await collectFrames(stream2, (f) => f.kind === 'question_asked' && f.questionId === 'q-keep')
-  assert.ok(frames2.some((f) => f.kind === 'question_asked' && f.questionId === 'q-keep'), 'SSE 重连必须重放挂起卡片')
+  assert.ok(frames2.some((f) => f.kind === 'question_asked' && f.questionId === 'q-keep'), 'an SSE reconnect must replay the pending card')
 })
 
-test('债务卡片链: manager 重启后 GET 经 pendingAsks 恢复挂起卡片(重放可答)', async () => {
+test('debt card chain: after a manager restart a GET recovers the pending card through pendingAsks (replayed and answerable)', async () => {
   const question = { kind: 'question_asked', seq: 0, questionId: 'q-restart', questions: [{ id: 'a', question: '重启前的问句' }] } as const
   let calls = 0
   const upstream = new FakeSessionDriver('A', {
@@ -447,7 +447,7 @@ test('债务卡片链: manager 重启后 GET 经 pendingAsks 恢复挂起卡片(
     ],
     pendingAsks: () => {
       calls += 1
-      // 回合开始查一次(空)——模拟「广播发生在 manager 重启前,重启后内存全丢」
+      // The turn start queries once (empty) -- simulating "the broadcast happened before the manager restarted, so all in-memory state is gone afterwards"
       return calls === 1 ? [] : [question]
     },
   })
@@ -460,8 +460,8 @@ test('债务卡片链: manager 重启后 GET 经 pendingAsks 恢复挂起卡片(
   })
   assert.equal(sent.status, 202)
 
-  // 轮询 GET 直到恢复卡片出现(回合启动/恢复查询是异步的,固定 sleep 在并行
-  // 全量跑下会抖;最多 2s,任一时刻收敛即通过)。
+  // Poll GET until the recovered card shows up (the turn start and the recovery query are asynchronous, and a
+  // fixed sleep is flaky when the whole suite runs in parallel; at most 2s, and converging at any point passes).
   let reloaded: Response | null = null
   let body: { liveFrames?: Array<{ kind: string; questionId?: string }> } = {}
   for (let i = 0; i < 40; i += 1) {
@@ -472,17 +472,17 @@ test('债务卡片链: manager 重启后 GET 经 pendingAsks 恢复挂起卡片(
     await new Promise((resolve) => setTimeout(resolve, 50))
   }
   const kept = body.liveFrames?.filter((f) => f.kind === 'question_asked') ?? []
-  assert.equal(kept.length, 1, '重启后 GET 必须经恢复通道重放挂起卡片')
+  assert.equal(kept.length, 1, 'after a restart a GET must replay the pending card through the recovery channel')
   assert.equal(kept[0]?.questionId, 'q-restart')
 })
 
-test('债务卡片链: 应答成功后合成 question_resolved——不依赖上游广播,卡片关闭且重放清空', async () => {
+test('debt card chain: a successful answer synthesises question_resolved -- without relying on an upstream broadcast, the card closes and the replay empties', async () => {
   const { base } = await boot({
     gapMs: 20,
     frames: [
       { kind: 'question_asked', questionId: 'q-ans', questions: [{ id: 'choice', question: '继续吗？', options: [{ label: '继续' }] }] },
       { kind: 'sleep', ms: 300 },
-      // 上游故意不再发 resolved(模拟 runner 已死/断线窗口)
+      // Upstream deliberately never sends resolved (simulating a runner that is already dead or a disconnect window)
       { kind: 'turn_end', reason: 'completed', detail: null },
     ],
   })
@@ -496,7 +496,7 @@ test('债务卡片链: 应答成功后合成 question_resolved——不依赖上
   })
   await question
 
-  // 第二个 SSE 连接等 resolved(同一 Response 的流只能锁一个 reader)
+  // A second SSE connection waits for resolved (only one reader can lock the stream of a given Response)
   const stream2 = await fetch(`${base}/api/chats/${chatId}/events`)
   const resolved = collectFrames(stream2, (f) => f.kind === 'question_resolved')
   const answer = await fetch(`${base}/api/chats/${chatId}/questions/q-ans`, {
@@ -506,11 +506,11 @@ test('债务卡片链: 应答成功后合成 question_resolved——不依赖上
   })
   assert.equal(answer.status, 200)
   const frames = await resolved
-  assert.ok(frames.some((f) => f.kind === 'question_resolved' && f.questionId === 'q-ans'), '应答后必须合成 resolved 帧')
+  assert.ok(frames.some((f) => f.kind === 'question_resolved' && f.questionId === 'q-ans'), 'a resolved frame must be synthesised after the answer')
 
   const reloaded = await fetch(`${base}/api/chats/${chatId}`)
   const body = (await reloaded.json()) as { liveFrames?: Array<{ kind: string }> }
-  assert.ok(!(body.liveFrames ?? []).some((f) => f.kind === 'question_asked'), '应答后挂起卡片必须从重放移除')
+  assert.ok(!(body.liveFrames ?? []).some((f) => f.kind === 'question_asked'), 'the pending card must be removed from the replay after the answer')
 })
 
 test('stopping a question-waiting turn finishes the local run even when its stream stays open', async () => {
@@ -662,7 +662,7 @@ test('the echo arrives before the gateway is even involved', async () => {
   assert.ok(typeof first?.at === 'number', "manager's own echo carries a timestamp")
 })
 
-test('delegations: a chat lists the brain runs it dispatched (蜂群 P2)', async () => {
+test('delegations: a chat lists the brain runs it dispatched (Hive P2)', async () => {
   const { base, db } = await boot({ frames: [] })
   const chatId = await newChat(base)
   const now = Date.now()
@@ -698,7 +698,7 @@ test('delegations: a chat lists the brain runs it dispatched (蜂群 P2)', async
   assert.equal(missing.status, 404)
 })
 
-test('vacate: an empty chat is hard-deleted; a chat with turns or a title refuses (蜂群 Q5)', async () => {
+test('vacate: an empty chat is hard-deleted; a chat with turns or a title refuses (Hive Q5)', async () => {
   const { base, db } = await boot({ frames: [] })
   const now = Date.now()
 
@@ -708,14 +708,14 @@ test('vacate: an empty chat is hard-deleted; a chat with turns or a title refuse
       .run()
   }
 
-  // 空会话：删掉，行消失
+  // An empty chat: delete it and the row disappears
   insertChat('empty-1', null)
   const vacated = await fetch(`${base}/api/chats/empty-1/vacate`, { method: 'POST' })
   assert.equal(vacated.status, 200)
   assert.deepEqual(await vacated.json(), { ok: true, vacated: true })
   assert.equal(db.select().from(schema.chat).where(eq(schema.chat.id, 'empty-1')).all().length, 0)
 
-  // 有回合：409，行保留
+  // With turns: 409, the row stays
   insertChat('busy-1', null)
   db.insert(schema.run)
     .values({
@@ -739,12 +739,12 @@ test('vacate: an empty chat is hard-deleted; a chat with turns or a title refuse
   assert.equal(busy.status, 409)
   assert.equal(db.select().from(schema.chat).where(eq(schema.chat.id, 'busy-1')).all().length, 1)
 
-  // 有标题：409
+  // With a title: 409
   insertChat('titled-1', '被网关起过名字')
   const titled = await fetch(`${base}/api/chats/titled-1/vacate`, { method: 'POST' })
   assert.equal(titled.status, 409)
 
-  // 未知 / 已归档：404
+  // Unknown or archived: 404
   const missing = await fetch(`${base}/api/chats/no-such/vacate`, { method: 'POST' })
   assert.equal(missing.status, 404)
   insertChat('gone-1', null)

@@ -20,7 +20,7 @@ describe('isMethodAllowed', () => {
   }
 
   const denied = [
-    'host.version', // 不存在的方法：真实契约里是 host.describe
+    'host.version', // a method that does not exist: the real contract has host.describe
     'credentials.set', 'credentials.unset',
     'settings.mutate', 'settings.describe',
     'host.openPath', 'host.listDirectory', 'host.createDirectory',
@@ -155,7 +155,7 @@ describe('rpc', () => {
     }
   })
 
-  it('债务 E8: ok:false 缺 error 分支 = 畸形应答,显性失败(fail-loud,不猜上游)', async () => {
+  it('Debt E8: ok:false with no error branch = malformed reply, fail loud (no guessing at the upstream)', async () => {
     const srv = await startServer(async (_req, res) => {
       res.writeHead(200, { 'content-type': 'application/json' })
       res.end(JSON.stringify({ type: 'server-response', rpcId: '1', result: { ok: false } }))

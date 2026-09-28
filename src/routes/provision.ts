@@ -23,22 +23,22 @@ import { SUPPORTED_DSH, defaultDshVersion, resolvePair } from '../dsh-matrix.js'
 import { recordAudit } from '../audit.js'
 
 /**
- * 蜂群 P5.5：运行时新增 / 删除节点。
+ * Hive P5.5: adding / deleting nodes at runtime.
  *
- * 原则：文件即真相 + 只增热加载。落盘顺序 = profile → 密钥 → .env →
- * manager.config.yaml，**最后才动内存**；中途任何一步失败即回滚（删节点
- * 目录），配置与内存都保持原样。删除 = 解除托管（不删磁盘目录），要求
- * 节点上没有 agent（迁移是后话）。
+ * Principle: files are the truth + additive-only hot reload. Write order = profile →
+ * credentials → .env → manager.config.yaml, and **memory last**: a failure at any step
+ * rolls back (the node directory is removed), leaving config and memory as they were.
+ * Delete = unmanage (the directory on disk stays) and requires no agent on the node (migration comes later).
  *
- * 债务 E3：docker/process 双分支共享「开通流水线」（准备 → DB → 真相文件
- * → 内存 → 进程），形态差异（url/沙箱地址、spawn 规格、镜像 vs bin）参数化；
- * 回滚台账（H2 顺序）与 B1 异步 install 流程留在分支内。
+ * Debt E3: the docker/process branches share one provisioning pipeline (prepare → DB →
+ * truth file → memory → process), with shape differences (url/sandbox base, spawn spec,
+ * image vs bin) parameterized; the rollback ledger (H2 order) and the B1 async install flow stay in-branch.
  */
 
 const CONFIG_PATH = 'manager.config.yaml'
 const ENV_PATH = '.env'
 
-/** 债务 E3:新节点携带的 agent 规格（两分支同形）。 */
+/** Debt E3: the agent spec a new node carries (the same shape in both branches). */
 interface NewAgentSpec {
   id: string
   name: string
@@ -47,7 +47,7 @@ interface NewAgentSpec {
   sandboxMode: 'read-only' | 'workspace-write' | 'danger-full-access' | null
 }
 
-/** 流水线第 1 步：工作区目录 + git 初始化（返回警告文案）。 */
+/** Pipeline step 1: workspace directory + git init (returns a warning message). */
 const prepareWorkspace = (agentSpec: NewAgentSpec | null): string | null => {
   if (agentSpec === null) return null
   mkdirSync(agentSpec.workspace, { recursive: true })
@@ -56,8 +56,9 @@ const prepareWorkspace = (agentSpec: NewAgentSpec | null): string | null => {
 }
 
 /**
- * 流水线第 2 步：DB 先行记账。镜像本身由 reconcileAll 的 mirrorAgents 完成
- * （债务 R9，单一实现），这里只记「行是否存在」供回滚台账用。
+ * Pipeline step 2: DB bookkeeping first. The mirror itself is done by reconcileAll's
+ * mirrorAgents (Debt R9, a single implementation); this only records whether the row
+ * exists, for the rollback ledger.
  */
 const markDbFirst = (db: Db, agentSpec: NewAgentSpec | null): boolean => {
   if (agentSpec === null) return false
@@ -66,8 +67,8 @@ const markDbFirst = (db: Db, agentSpec: NewAgentSpec | null): boolean => {
 }
 
 /**
- * 流水线第 3 步：真相文件写入（.env 密钥 + yaml；债务 A3 原子写 + 保注释，
- * 债务 R6 锁入口）。返回写前快照供 H2 回滚。
+ * Pipeline step 3: write the truth files (.env secret + yaml; Debt A3 atomic write +
+ * comment preservation, Debt R6 the single lock entry). Returns the pre-write snapshot for H2 rollback.
  */
 const writeNodeTruth = async (
   paths: { envPath: string; configPath: string },
@@ -78,7 +79,7 @@ const writeNodeTruth = async (
     url: string
     sandboxBase: string
     agentSpec: NewAgentSpec | null
-    /** 形态差异：docker spec 或 process spawn 块，原样写进 yaml 的 spawn。 */
+    /** Shape difference: a docker spec or a process spawn block, written verbatim into yaml's spawn. */
     spawnYaml: unknown
   },
 ): Promise<{ envSnap: string | null; yamlSnap: string }> => {
@@ -92,9 +93,10 @@ const writeNodeTruth = async (
         doc.setIn(['endpoints', spec.name], {
           url: spec.url,
           driver: 'apiproxy',
-          // 债务 R10（compose-e2e worker live 超时实证）：0.1.2 切主路后新建端点
-          // 必须走 facade（/api-gw/v1/proxy + GW_KEY）——旧 0.1.1 接线 prefix:/api +
-          // key_ref:'' 探活 host.describe 401（与主脑/personal 的容器示例配置同款）。
+          // Debt R10 (proven by the compose-e2e worker live timeout): after 0.1.2 switched to the main
+          // path, a new endpoint must go through the facade (/api-gw/v1/proxy + GW_KEY) -- the old 0.1.1
+          // wiring of prefix:/api + key_ref:'' gets 401 from host.describe on probe (the same as the
+          // container sample config for the brain/personal).
           prefix: '/api-gw/v1/proxy',
           key_ref: spec.keyRef,
           sandbox_base: spec.sandboxBase,
@@ -117,7 +119,7 @@ const writeNodeTruth = async (
   return { envSnap, yamlSnap }
 }
 
-/** 流水线第 4 步：工作区热加载进内存配置（两分支逐字相同）。 */
+/** Pipeline step 4: hot-load the workspace into the in-memory config (byte-identical in both branches). */
 const hotLoadAgent = (config: AppConfig, endpointId: string, agentSpec: NewAgentSpec | null): void => {
   if (agentSpec === null) return
   config.agents[agentSpec.id] = {
@@ -136,10 +138,11 @@ const hotLoadAgent = (config: AppConfig, endpointId: string, agentSpec: NewAgent
 }
 
 /**
- * 债务 B1:节点依赖安装后台化——旧代码在请求处理里同步 execFileSync(npx pnpm@9
- * install,注释自承"通常几十秒"),Node 单线程下全站(SSE 中继/cron/探活/登录)冻结。
- * 本函数用异步 spawn:请求路径不再等待,安装完成/失败由调用方接线。
- * spawnImpl 可注入(测试用假 spawn,不触网)。
+ * Debt B1: node dependency install moved to the background -- the old code ran a synchronous
+ * execFileSync(npx pnpm@9 install, whose own comment admitted "usually tens of seconds") inside
+ * the request handler, freezing the whole site (SSE relay/cron/probing/login) on Node's single
+ * thread. This function uses an async spawn: the request path no longer waits, and the caller
+ * wires up install completion/failure. spawnImpl is injectable (tests pass a fake spawn, no network).
  */
 export const installNodeDepsAsync = (
   dir: string,
@@ -160,27 +163,28 @@ const nodeNameSchema = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,30}$/, 'a node na
 const provisionBody = z.object({
   name: nodeNameSchema,
   port: z.number().int().positive().optional(),
-  /** 测试与离线环境：跳过 pnpm install。 */
+  /** Tests and offline environments: skip pnpm install. */
   install: z.boolean().optional(),
   /**
-   * 能力一（2026-09-20）：节点形态显式选择。缺省 = 自动判定（部署里有
-   * docker runner 端点 → 容器工蜂；否则宿主机进程）。显式 process =
-   * 宿主机整机能力节点（黄字风险 + 审计 node_create_host）。
+   * Capability one (2026-09-20): explicit node-form selection. Default = auto-detect (a docker
+   * runner endpoint in the deployment → container worker; otherwise a host process). Explicit
+   * process = a whole-machine-capability host node (yellow-text warning + audit node_create_host).
    */
   runner: z.enum(['docker', 'process']).optional(),
   /**
-   * 能力四（舰队 M1-7）：把该节点建到指定 agent（远端宿主机进程形态）。
-   * 与 runner=docker 互斥；提供后走 agent 分支（profile/依赖在 agent 侧
-   * 完成，manager 不做本地 profile/安装）。
+   * Capability four (Fleet M1-7): build this node onto a named agent (the remote host-process form).
+   * Mutually exclusive with runner=docker; when it is given, the agent branch runs (profile/deps are
+   * done on the agent side, and the manager does no local profile/install).
    */
   host: z.string().min(1).optional(),
-  /** agent 节点的远程 facade 地址（manager 探活用，如 http://10.0.0.7:3081）。 */
+  /** Remote facade address of an agent node (for the manager's probe, e.g. http://10.0.0.7:3081). */
   url: z.string().url().optional(),
-  /** 能力二：按节点钉 DSH 版本（必须在 SUPPORTED_DSH 矩阵内；pending 配对黄字警告）。 */
+  /** Capability two: pin the DSH version per node (must be in the SUPPORTED_DSH matrix; a pending pair warns in yellow text). */
   dsh_version: z.string().min(1).optional(),
   /**
-   * 向导总是带着 agent（节点 = agent 节点，创建即配工作区）；字段都可省，
-   * 缺省 = id/名称同节点名、路径 ~/.dac/workspaces/<节点名>。
+   * The wizard always carries an agent (a node = an agent node, and creating it configures a
+   * workspace); every field may be omitted -- the default is id/name = the node name and
+   * path ~/.dac/workspaces/<node name>.
    */
   agent: z
     .object({
@@ -188,14 +192,14 @@ const provisionBody = z.object({
       name: z.string().min(1).max(80).optional(),
       workspace: z.string().optional(),
       preset: z.string().optional(),
-      // 舰队 M3-1：ops 节点第三档（整机能力，审批卡片由 facade 兜底）。
+      // Fleet M3-1: the third tier for ops nodes (whole-machine capability; the facade backstops the approval card).
       sandboxMode: z.enum(['read-only', 'workspace-write', 'danger-full-access']).optional(),
     })
     .optional(),
 })
 
 const userHome = (): string => process.env.USERPROFILE ?? process.env.HOME ?? '.'
-/** 节点目录根；测试可用 DSH_DAC_NODES_HOME 覆盖。 */
+/** Root of the node directories; tests can override it with DSH_DAC_NODES_HOME. */
 const nodesHome = (): string => process.env.DSH_DAC_NODES_HOME ?? `${userHome()}/.dac`
 
 const usedPorts = (config: AppConfig): Set<number> => {
@@ -204,7 +208,7 @@ const usedPorts = (config: AppConfig): Set<number> => {
     try {
       ports.add(Number(new URL(ep.url).port))
     } catch {
-      // 解析不出的 url 不参与占位判断
+      // a url that does not parse takes no part in the port-taken check
     }
   }
   return ports
@@ -217,7 +221,7 @@ const suggestPort = (config: AppConfig): number => {
   return port
 }
 
-/** 新节点的 spawn 规格（与写入 yaml 的值一一对应，热加载用）。 */
+/** The spawn spec of a new node (one-to-one with the values written into yaml, used for the hot reload). */
 const spawnFor = (dshBin: string, name: string, nodeHomePath: string, pins?: { dshVersion?: string; gatewayRef?: string }): ResolvedSpawnSpec => ({
   managed: true,
   command: 'node',
@@ -231,7 +235,7 @@ const spawnFor = (dshBin: string, name: string, nodeHomePath: string, pins?: { d
   runner: 'process',
   host: null,
   docker: null,
-  // 能力二：按节点钉版（未显式钉 = 不写字段，跟随全局默认）
+  // Capability two: pin the version per node (no explicit pin = the field is not written, following the global default)
   ...(pins?.dshVersion === undefined ? {} : { dshVersion: pins.dshVersion }),
   ...(pins?.gatewayRef === undefined ? {} : { gatewayRef: pins.gatewayRef }),
 })
@@ -241,9 +245,9 @@ interface ProvisionDeps {
   supervisors: Map<string, NodeSupervisor>
   clients: Map<string, GatewayClient>
   upstreamClients: Map<string, SessionDriver>
-  /** 蜂群2计划 P6：容器模式新增节点需要（docker runner 接线）。 */
+  /** Hive plan 2 P6: needed when adding a node in container mode (docker runner wiring). */
   docker?: DockerRunner
-  /** 能力四（M1-7）：agent 节点创建需要（makeSupervisor agent 三件套 + fleet）。 */
+  /** Capability four (M1-7): needed when creating an agent node (makeSupervisor's agent runner trio + fleet). */
   agentCommand?: (agentId: string, type: string, payload: unknown) => number
   agentResult?: (commandId: number, cb: (ok: boolean) => void) => () => void
   agentLog?: (agentId: string, nodeId: string) => string
@@ -251,8 +255,8 @@ interface ProvisionDeps {
 }
 
 /**
- * 容器模式：从既有 docker 端点的 host_volumes 推导宿主机工作区前缀
- * （install.sh 已把宿主路径钉成真实绝对路径），新节点沿用同一前缀。
+ * Container mode: derive the host workspace prefix from the host_volumes of an existing
+ * docker endpoint (install.sh already pins the host path to a real absolute path); new nodes reuse the same prefix.
  */
 const deriveHostWorkspacePath = (config: AppConfig, nodeId: string, workspacePath: string | undefined): string => {
   const containerPath = workspacePath ?? `/opt/dac/workspaces/${nodeId}`
@@ -266,7 +270,7 @@ const deriveHostWorkspacePath = (config: AppConfig, nodeId: string, workspacePat
       }
     }
   }
-  // 兜底：同串路径（宿主侧可能不存在——workspaceWarning 会提醒）
+  // Fallback: the same path string (it may not exist on the host -- workspaceWarning tells the user)
   return containerPath
 }
 
@@ -277,15 +281,15 @@ export const registerProvisionRoutes = (
   deps: ProvisionDeps,
 ): void => {
   const { db, supervisors, upstreamClients } = deps
-  // 债务 A5:真相源路径从 loadConfig 解析结果取(单一来源);测试字面量缺省时回退 cwd 相对
+  // Debt A5: the truth-source paths come from the loadConfig result (a single source); test literals that omit them fall back to cwd-relative
   const configPath = config.configPath ?? resolve(CONFIG_PATH)
   const envPath = config.envPath ?? resolve(ENV_PATH)
 
-  // 债务 R9:派生状态(DB 镜像 / fleet.md / 节点生命周期)统一交给 reconcile 收敛,
-  // provision 只做真相源变更(配置文件)+ 内存热加载。onlyNodes 范围化:
-  // - 空集 = 本轮不动任何节点(镜像与 fleet 照跑);
-  // - {新节点} = 只拉起新节点——绝不借热变更把用户手动停掉的其它冷节点抢拉起来。
-  // removeStaleAgents=false:热删除后 agent 行在进程存活期内保留(账单/审计 FK)。
+  // Debt R9: derived state (the DB mirror / fleet.md / node lifecycle) all converges through reconcile;
+  // provision only changes the truth source (config files) + hot-loads memory. onlyNodes is scoped:
+  // - an empty set = touch no node this round (the mirror and fleet still run);
+  // - {new node} = bring up the new node only -- never let a hot change drag up other cold nodes the user stopped by hand.
+  // removeStaleAgents=false: after a hot delete the agent row survives for the life of the process (billing/audit FK).
   const reconcile = (onlyNodes: Set<string>): Promise<void> =>
     reconcileAll(
       { db, config, supervisors, docker: deps.docker ?? null, log: (line) => app.log.info(line) },
@@ -302,27 +306,27 @@ export const registerProvisionRoutes = (
     if (config.endpoints[body.name] !== undefined) {
       return reply.code(409).send({ error: 'duplicate_node', detail: `node ${body.name} already exists` })
     }
-    // 归一化工作区规格：缺省值全部由节点名推导（与向导展示的默认一致）。
-    // 能力一（2026-09-20）：形态判定 = 显式 runner 覆盖 > 自动（部署里有 docker
-    // runner 端点 → 容器工蜂；否则宿主机进程）。显式 process = 宿主机整机能力。
+    // Normalize the workspace spec: every default is derived from the node name (the same as the wizard shows).
+    // Capability one (2026-09-20): form decision = an explicit runner overrides auto-detect (a docker
+    // runner endpoint in the deployment → container worker; otherwise a host process). Explicit process = whole-machine capability.
     const dockerMode = Object.values(config.endpoints).some((e) => e.spawn?.runner === 'docker')
     const wantDocker = body.runner === 'docker' || (body.runner === undefined && dockerMode)
     const wantProcess = body.runner === 'process' || (body.runner === undefined && !dockerMode)
-    // 显式点选 docker 但部署没接 docker.sock = 用户误配，显性拒绝；
-    // 自动判定的 docker 分支不动（存量部署的判定语义不变）。
+    // Explicitly picking docker while the deployment has no docker.sock = a user misconfiguration, refused loudly;
+    // the auto-detected docker branch is untouched (the decision semantics of existing deployments do not change).
     if (body.runner === 'docker' && deps.docker === undefined) {
       return reply.code(400).send({ error: 'docker_unavailable', detail: 'this deployment has no docker runner (the manager has no docker.sock mounted) — pick the host-process runtime' })
     }
-    // 容器形态部署不支持宿主机进程节点（线上实测：manager 在容器内，拉不起
-    // 宿主进程、容器镜像里也没有全局 DSH bin——用户选 process 得到的是
-    // 「找不到 bin.js」的误导性报错）。判据 = 镜像内置的部署形态标记
-    // （images/manager/Dockerfile ENV DAC_DEPLOY_FORM=container）；裸机
-    // 部署（含挂 docker.sock 的混合部署）无此标记，显式 process 照常放行。
+    // A container-form deployment does not support host-process nodes (measured in production: the manager runs in a
+    // container, cannot spawn host processes, and the container image has no global DSH bin -- a user picking
+    // process gets the misleading "cannot find bin.js" error). The test is the deployment-form marker baked
+    // into the image (images/manager/Dockerfile ENV DAC_DEPLOY_FORM=container); bare-metal deployments
+    // (including hybrid ones that mount docker.sock) have no marker, so an explicit process passes as before.
     if (body.runner === 'process' && process.env.DAC_DEPLOY_FORM === 'container') {
       return reply.code(400).send({ error: 'host_process_unavailable', detail: 'a container deployment cannot host a host-process node (the manager runs in a container and cannot spawn host processes) — pick the container runtime' })
     }
-    // 能力四（舰队 M1-7）：选了主机 = agent 远端宿主机进程形态；与 docker 互斥，
-    // 必须给出 manager 可达的 facade 地址（探活真相源）。
+    // Capability four (Fleet M1-7): a machine selected = the agent remote host-process form; mutually
+    // exclusive with docker, and it must give a facade address the manager can reach (the probe truth source).
     const wantAgent = body.host !== undefined
     if (wantAgent && body.runner === 'docker') {
       return reply.code(400).send({ error: 'host_conflict', detail: 'a machine was selected, so the container runtime is unavailable — agent nodes are remote host processes' })
@@ -330,7 +334,7 @@ export const registerProvisionRoutes = (
     if (wantAgent && body.url === undefined) {
       return reply.code(400).send({ error: 'agent_url_required', detail: 'an agent node needs url (a facade address the manager can reach, e.g. http://10.0.0.7:3081)' })
     }
-    // 能力二：按节点钉 DSH 版本——矩阵内解析 + pending 黄字；未知版本显性拒绝。
+    // Capability two: pin the DSH version per node -- resolve it in the matrix and warn in yellow text when pending; an unknown version is refused loudly.
     const pinnedDsh = body.dsh_version
     const pair = pinnedDsh === undefined ? null : resolvePair(pinnedDsh)
     if (pinnedDsh !== undefined && pair === null) {
@@ -348,9 +352,9 @@ export const registerProvisionRoutes = (
         : {
             id: body.agent.id ?? body.name,
             name: body.agent.name ?? body.name,
-            // 舰队 M2：选了主机 = 远端机器上的工作区路径——原样透传
-            // （Windows 上 resolve 会把 /root/... 拧成 C:\root\...，
-            // facade 拒收非绝对 cwd，跨机实测踩坑）。
+            // Fleet M2: a machine selected = a workspace path on the remote machine -- passed through
+            // verbatim (on Windows resolve() turns /root/... into C:\root\..., and the facade refuses
+            // a non-absolute cwd; a real cross-machine pitfall).
             workspace: wantAgent
               ? body.agent.workspace ?? workspaceDefault
               : resolve(body.agent.workspace ?? workspaceDefault),
@@ -368,33 +372,34 @@ export const registerProvisionRoutes = (
     const nodeHomePath = join(nodesHome(), body.name)
     const keyRef = `GW_KEY_${body.name.toUpperCase()}`
     let createdHome: string | null = null
-    // 债务 H2:回滚台账——副作用按「准备 → DB → 真相文件 → 内存 → 进程」顺序推进,
-    // 每完成一步记一步;失败时按相反顺序撤销,绝不留下半开通的幽灵节点。
-    // envSnap 三态:undefined = mergeEnv 从未执行(.env 未被本请求碰过);
-    // null = 执行时文件不存在(本请求创建的,回滚应移除);string = 写前快照。
+    // Debt H2: the rollback ledger -- side effects advance in the order prepare → DB → truth file → memory
+    // → process, recording one step at a time; on failure they are undone in the reverse order, never leaving
+    // a half-provisioned ghost node. envSnap has three states: undefined = mergeEnv never ran (.env was not
+    // touched by this request); null = the file did not exist at that point (this request created it, so the
+    // rollback removes it); string = the pre-write snapshot.
     let dbRowInserted = false
     let envSnap: string | null | undefined
     let yamlSnap: string | null = null
     let supervisorStarted: NodeSupervisor | null = null
-    // 债务 B1:回滚后禁止后台 install 完成时再拉起(防泄漏)
+    // Debt B1: after a rollback, a background install that finishes later must not start the node (leak prevention)
     let rolledBack = false
 
     try {
-      // 蜂群2计划 P6：容器模式分支——节点 = docker runner 工蜂（镜像 + 命名卷 +
-      // 网络别名），不找 DSH bin、不做 profile/pnpm（运行时零安装）。
-      // 能力一：wantDocker 含显式 runner=docker 覆盖。
+      // Hive plan 2 P6: the container-mode branch -- a node = a docker runner worker (image + named
+      // volume + network alias), with no DSH bin lookup and no profile/pnpm (zero install at runtime).
+      // Capability one: wantDocker covers an explicit runner=docker override.
       if (wantDocker) {
         const key = 'apigw-' + randomBytes(24).toString('hex')
 
-        // 流水线 1:工作区
+        // Pipeline 1: workspace
         const workspaceWarning = prepareWorkspace(agentSpec)
 
-        // 宿主机侧工作区路径：从既有 docker 端点的 host_volumes 推导前缀
-        // （install.sh 已把示例里的宿主路径钉成真实路径，这里照抄同一前缀）。
+        // Host-side workspace path: derive the prefix from the host_volumes of an existing docker
+        // endpoint (install.sh already pins the sample host path to the real one; the same prefix is copied here).
         const hostKey = deriveHostWorkspacePath(config, body.name, agentSpec?.workspace)
 
         const dockerSpec = {
-          // 能力二：显式钉版 = 镜像 tag 按版本约定 hellodac/dac-node:<版本>；缺省跟随 .env DSH_NODE_IMAGE
+          // Capability two: an explicit pin = the image tag follows the version convention hellodac/dac-node:<version>; the default follows .env DSH_NODE_IMAGE
           image: pinnedDsh === undefined ? (process.env.DSH_NODE_IMAGE ?? `hellodac/dac-node:${defaultDshVersion()}`) : `hellodac/dac-node:${dshVersion}`,
           network: 'dac-hive',
           port,
@@ -402,11 +407,11 @@ export const registerProvisionRoutes = (
           named_volumes: { [`dac-${body.name}`]: '/data' },
         }
 
-        // 流水线 2:DB 先行(债务 H2/R9)
+        // Pipeline 2: DB first (Debt H2/R9)
         dbRowInserted = markDbFirst(db, agentSpec)
         recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_create', detail: `node ${body.name} (docker node, port ${port}, workspace ${agentSpec?.workspace ?? '—'})` })
 
-        // 流水线 3:真相文件(带快照,失败可还原;债务 A3 原子写 + R6 锁入口)
+        // Pipeline 3: the truth file (with a snapshot, restorable on failure; Debt A3 atomic write + R6 lock entry)
         const snaps = await writeNodeTruth(
           { envPath, configPath },
           {
@@ -419,14 +424,14 @@ export const registerProvisionRoutes = (
             spawnYaml: {
               managed: true,
               runner: 'docker',
-              // 事故回归（2026-09-26 compose-e2e 红）：不写 `host: null`。
-              // spawnSchema 的 host 只接受 string 或缺省（refine 还要求 docker
-              // 的 host === undefined），null 会让真相文件读不回来——重启/备份/
-              // 恢复全部连锁失败。解析后的内存形态 host 本来就是 null，文件里
-              // 只需**缺省**。
+              // Incident regression (2026-09-26 compose-e2e red): do not write `host: null`.
+              // spawnSchema's host only accepts a string or omission (refine additionally requires
+              // host === undefined for docker), and null makes the truth file unreadable -- restart/backup/
+              // restore all fail in a chain. The parsed in-memory form already has host = null, so the file
+              // only needs the field **omitted**.
               ready_timeout_ms: 30_000,
               docker: dockerSpec,
-              // 能力二：显式钉版才写真相源（缺省跟随全局默认，不冻结）
+              // Capability two: only an explicit pin is written to the truth source (the default follows the global default and is not frozen)
               ...(pinnedDsh === undefined ? {} : { dsh_version: dshVersion, gateway_ref: gatewayRef }),
             },
           },
@@ -454,20 +459,20 @@ export const registerProvisionRoutes = (
             hostVolumes: dockerSpec.host_volumes,
             namedVolumes: dockerSpec.named_volumes,
           },
-          // 能力二：显式钉版才挂（缺省跟随全局默认）
+          // Capability two: attached only when explicitly pinned (the default follows the global default)
           ...(pinnedDsh === undefined ? {} : { dshVersion, gatewayRef }),
         }
         const endpoint: ResolvedEndpoint = {
           id: body.name,
           url: `http://node-${body.name}:${port}`,
           driver: 'apiproxy',
-          // 0.1.2 facade 主路（与上方 writeNodeTruth 落盘值一致；旧 /api + 空 key 探活 401）
+          // The 0.1.2 facade main path (the same value writeNodeTruth persists above; the old /api + empty key gets 401 on probe)
           prefix: '/api-gw/v1/proxy',
           key,
           sandboxBase: `http://node-${body.name}:${port}/api-gw/v1`,
           sandboxKey: key,
           spawn,
-          // 能力三 v1：新节点缺省无隧道元数据（向导未配置 = 无「打开原生 GUI」）
+          // Capability three v1: a new node has no tunnel metadata by default (nothing configured in the wizard = no "open native GUI")
           access: null,
         }
         config.endpoints[body.name] = endpoint
@@ -481,15 +486,15 @@ export const registerProvisionRoutes = (
           ...(deps.docker === undefined ? {} : { docker: deps.docker }),
         })
         supervisors.set(body.name, supervisor)
-        // 债务 R9:节点拉起交给 reconcile(convergeNodes 对 docker runner 走认领/
-        // 补拉),这里只记台账供回滚 stop。
+        // Debt R9: bringing the node up belongs to reconcile (convergeNodes claims/re-pulls the docker
+        // runner); here we only record it in the ledger so the rollback can stop it.
         supervisorStarted = supervisor
 
-        // 流水线 4:agent 热加载进内存配置
+        // Pipeline 4: hot-load the agent into the in-memory config
         hotLoadAgent(config, body.name, agentSpec)
 
-        // 债务 R9:派生状态统一交 reconcile——镜像/fleet 立即跑,节点经
-        // convergeNodes 拉起(docker 分支无 install 延迟)。
+        // Debt R9: derived state all goes through reconcile -- the mirror/fleet run immediately, and
+        // the node comes up through convergeNodes (the docker branch has no install delay).
         await reconcile(new Set([body.name]))
         return reply.code(201).send({
           node: { id: body.name, port, home: `dac-${body.name}` },
@@ -499,13 +504,13 @@ export const registerProvisionRoutes = (
         })
       }
 
-      // 能力四（M1-7）：agent 远端宿主机进程分支——不找本地 bin、不做本地
-      // profile/安装（agent 侧随 spawn 载荷完成），真相源写 runner=agent + host。
+      // Capability four (M1-7): the agent remote host-process branch -- no local bin lookup and no local
+      // profile/install (the agent side does it with the spawn payload); the truth source writes runner=agent + host.
       if (wantAgent) {
         const key = 'apigw-' + randomBytes(24).toString('hex')
         const agentUrl = (body.url as string).replace(/\/+$/, '')
-        // 工作区在远端（节点自己的机器）——本地不 prepareWorkspace，路径由用户
-        // 提供（向导明示「远端机器上的路径」），agent 侧按会话 cwd 使用。
+        // The workspace is remote (on the node's own machine) -- prepareWorkspace does not run locally; the
+        // user gives the path (the wizard says "a path on the remote machine"), and the agent uses it as the chat cwd.
         const workspaceWarning = null
 
         dbRowInserted = markDbFirst(db, agentSpec)
@@ -529,8 +534,9 @@ export const registerProvisionRoutes = (
               runner: 'agent',
               host: body.host,
               args: ['--profile', body.name, '--port', String(port), '--no-open'],
-              // M1 试点实证：agent 远端首启 = 依赖安装 + DSH 全量 boot，实测
-              // 40~90s 才听端口——30s 就绪窗会误杀重启链；放宽到 120s。
+              // Proven in the M1 pilot: an agent's first remote start = dependency install + a full DSH
+              // boot, measured at 40-90s before it listens -- a 30s readiness window kills the restart chain
+              // by mistake, so it is relaxed to 120s.
               ready_timeout_ms: 120_000,
               ...(pinnedDsh === undefined ? {} : { dsh_version: dshVersion, gateway_ref: gatewayRef }),
             },
@@ -552,7 +558,7 @@ export const registerProvisionRoutes = (
             command: '',
             args: ['--profile', body.name, '--port', String(port), '--no-open'],
             cwd: null,
-            // M1 试点实证：agent 远端首启 40~90s，30s 就绪窗误杀（与 yaml 同源）
+            // Proven in the M1 pilot: an agent's first remote start takes 40-90s, so a 30s readiness window misfires (the same source as yaml)
             readyTimeoutMs: 120_000,
             detached: false,
             logFile: null,
@@ -578,7 +584,7 @@ export const registerProvisionRoutes = (
           ...(deps.agentResult === undefined ? {} : { agentResult: deps.agentResult }),
           ...(deps.agentLog === undefined ? {} : { agentLog: deps.agentLog }),
           ...(deps.fleetDoc === undefined ? {} : { fleetDoc: deps.fleetDoc }),
-          // 舰队 M3：ops 节点（danger-full-access）→ spawn 载荷带开锁信号
+          // Fleet M3: an ops node (danger-full-access) → the spawn payload carries the unlock signal
           ...(body.agent?.sandboxMode === 'danger-full-access' ? { agentFullAccess: true } : {}),
         })
         supervisors.set(body.name, supervisor)
@@ -595,33 +601,34 @@ export const registerProvisionRoutes = (
 
       const dshBin = detectDshBin(join(userHome(), '.dsh'), null)
 
-      // 1. 节点三件套：profile → 凭据 → gateway 密钥（文件层）
-      // 能力二：profile 按节点钉版生成（dshVersion/gatewayRef 来自矩阵配对）。
+      // 1. The node trio: profile → credentials → gateway secret (the file layer)
+      // Capability two: the profile is generated per node pin (dshVersion/gatewayRef come from the matrix pair).
       ensureNodeProfiles(nodesHome(), [{ name: body.name, port }], gatewayRef, dshVersion)
       createdHome = nodeHomePath
       ensureNodeCredentials(join(userHome(), '.dsh'), nodeHomePath)
       const key = resolveGatewayKey(nodeHomePath, null)
 
-      // 2. 依赖安装（债务 B1:后台化——数十秒的同步 pnpm 不再冻结全站）。
-      // 201 先返回;install 完成才拉起节点;失败 = 审计留痕 + 仍拉起(节点
-      // 缺依赖时崩溃,supervisor 状态机显性 offline,错误可见)。
+      // 2. Dependency install (Debt B1: backgrounded -- the tens-of-seconds synchronous pnpm no longer
+      // freezes the whole site). The 201 returns first and the node is started only once install finishes;
+      // failure = an audit trail + start anyway (a node without deps crashes, the supervisor state machine
+      // goes visibly offline, and the error stays visible).
       const installDir = join(nodeHomePath, 'profiles', body.name)
       const installPromise: Promise<void> = body.install !== false ? installNodeDepsAsync(installDir, dshVersion) : Promise.resolve()
 
-      // 流水线 1:工作区（目录 + git init + 通用 AGENTS.md,文件即真相,运行才有审计）
+      // Pipeline 1: workspace (directory + git init + the generic AGENTS.md; files are the truth, and only running leaves an audit trail)
       const workspaceWarning = prepareWorkspace(agentSpec)
 
-      // 流水线 2:DB 先行(债务 H2/R9)
+      // Pipeline 2: DB first (Debt H2/R9)
       dbRowInserted = markDbFirst(db, agentSpec)
-      // 蜂群2计划 P3：审计留痕（创建节点）。能力一：显式宿主机进程形态用
-      // node_create_host（整机能力风险面，黄字警告的同源留痕）。
+      // Hive plan 2 P3: the audit trail (node creation). Capability one: the explicit host-process form
+      // uses node_create_host (a whole-machine-capability risk surface, the same-source trail as the yellow-text warning).
       recordAudit(db, {
         actor: request.currentUser?.username ?? 'unknown',
         kind: body.runner === 'process' ? 'node_create_host' : 'node_create',
         detail: `node ${body.name} (${body.runner === 'process' ? 'host process' : 'process'}, port ${port}, workspace ${agentSpec?.workspace ?? '—'})`,
       })
 
-      // 流水线 3:真相文件（带快照，失败可还原;债务 A3 原子写 + R6 锁入口）
+      // Pipeline 3: the truth file (with a snapshot, restorable on failure; Debt A3 atomic write + R6 lock entry)
       const snaps = await writeNodeTruth(
         { envPath, configPath },
         {
@@ -637,7 +644,7 @@ export const registerProvisionRoutes = (
             args: [dshBin, '--profile', body.name, '--no-open'],
             ready_timeout_ms: 30_000,
             env: { DSH_HOME: nodeHomePath },
-            // 能力二：只有显式钉版才写进真相源（缺省 = 跟随全局默认，不冻结）
+            // Capability two: only an explicit pin is written into the truth source (the default follows the global default and is not frozen)
             ...(pinnedDsh === undefined ? {} : { dsh_version: dshVersion, gateway_ref: gatewayRef }),
           },
         },
@@ -645,18 +652,18 @@ export const registerProvisionRoutes = (
       envSnap = snaps.envSnap
       yamlSnap = snaps.yamlSnap
 
-      // 热加载：endpoint + 工作区进内存配置，监督器入册并拉起
+      // Hot reload: the endpoint + workspace go into the in-memory config, and the supervisor is registered and started
       const endpoint: ResolvedEndpoint = {
         id: body.name,
         url: `http://127.0.0.1:${port}`,
         driver: 'apiproxy',
-        // 0.1.2 facade 主路（与 writeNodeTruth 落盘值一致；旧 /api + 空 key 探活 401）
+        // The 0.1.2 facade main path (the same value writeNodeTruth persists; the old /api + empty key gets 401 on probe)
         prefix: '/api-gw/v1/proxy',
         key,
         sandboxBase: `http://127.0.0.1:${port}/api-gw/v1`,
         sandboxKey: key,
         spawn: spawnFor(dshBin, body.name, nodeHomePath, pinnedDsh === undefined ? undefined : { dshVersion, gatewayRef }),
-        // 能力三 v1：新节点缺省无隧道元数据
+        // Capability three v1: a new node has no tunnel metadata by default
         access: null,
       }
       config.endpoints[body.name] = endpoint
@@ -670,10 +677,11 @@ export const registerProvisionRoutes = (
         log: (line) => app.log.info(line),
       })
       supervisors.set(body.name, supervisor)
-      // 债务 B1:拉起延后到依赖安装完成(201 先返回,请求路径不再等待安装)。
-      // 回滚后的迟到安装完成不得再拉起(rolledBack 防泄漏)。
-      // 能力一：install 完成后优先用 profile 内隔离安装的 dsh bin（不依赖全局）；
-      // 未装成（离线/失败）回退全局 bin（存量兼容路径）。
+      // Debt B1: starting is deferred until the dependency install finishes (the 201 returns first, so the
+      // request path no longer waits for install). A late install completion after a rollback must never
+      // start the node (rolledBack prevents the leak).
+      // Capability one: after install, prefer the dsh bin installed in isolation inside the profile (no
+      // dependency on a global one); if it did not install (offline/failure), fall back to the global bin (the legacy-compatible path).
       const startAfterInstall = (): void => {
         if (rolledBack) return
         const isolatedBin = dshBinInProfile(installDir)
@@ -681,7 +689,7 @@ export const registerProvisionRoutes = (
           endpoint.spawn = spawnFor(isolatedBin, body.name, nodeHomePath, pinnedDsh === undefined ? undefined : { dshVersion, gatewayRef })
         }
         supervisorStarted = supervisor
-        // 债务 R9:节点拉起也走 reconcile(单一入口),不再自己 supervisor.start。
+        // Debt R9: starting a node goes through reconcile too (the single entry point), not supervisor.start directly.
         void reconcile(new Set([body.name])).catch((error: unknown) => {
           app.log.error(`node ${body.name}: reconcile after install failed: ${error instanceof Error ? error.message : String(error)}`)
         })
@@ -691,14 +699,14 @@ export const registerProvisionRoutes = (
         const message = installError instanceof Error ? installError.message : String(installError)
         recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_create', detail: `failed: dependency install for node ${body.name} failed: ${message}` })
         app.log.error(`node ${body.name}: dependency install failed: ${message}`)
-        startAfterInstall() // 仍拉起:缺依赖时节点崩溃,supervisor 状态机显性 offline
+        startAfterInstall() // still start: a node without deps crashes, and the supervisor state machine goes visibly offline
       })
 
-      // 流水线 4:agent 热加载进内存配置
+      // Pipeline 4: hot-load the agent into the in-memory config
       hotLoadAgent(config, body.name, agentSpec)
 
-      // 债务 R9:派生状态统一交 reconcile——镜像/fleet 立即跑;节点拉起延后到
-      // 依赖安装完成(startAfterInstall 里的 reconcile,见上)。
+      // Debt R9: derived state all goes through reconcile -- the mirror/fleet run immediately; starting
+      // the node is deferred until the dependency install finishes (the reconcile inside startAfterInstall, see above).
       await reconcile(new Set())
       return reply.code(201).send({
         node: { id: body.name, port, home: nodeHomePath, state: supervisor.current.state },
@@ -707,13 +715,13 @@ export const registerProvisionRoutes = (
         ...(versionWarning ? { versionWarning: true } : {}),
       })
     } catch (error) {
-      // 债务 H2：全量回滚——按完成步骤反向撤销，绝不留下半开通的幽灵节点。
+      // Debt H2: full rollback -- undo the completed steps in reverse, never leaving a half-provisioned ghost node.
       rolledBack = true
       if (supervisorStarted !== null) {
         try {
           supervisorStarted.stop()
         } catch {
-          // 停进程/容器失败不阻断回滚其余步骤
+          // a failed process/container stop does not block the remaining rollback steps
         }
         supervisors.delete(body.name)
       }
@@ -726,7 +734,7 @@ export const registerProvisionRoutes = (
         try {
           removeAgentRow(db, agentSpec.id)
         } catch {
-          // DB 本身可能已不可用——不阻断其余回滚
+          // the DB itself may already be unavailable -- this does not block the rest of the rollback
         }
       }
       if (yamlSnap !== null) {
@@ -738,11 +746,11 @@ export const registerProvisionRoutes = (
       }
       if (envSnap !== undefined) {
         if (envSnap === null) {
-          // .env 在本请求之前不存在：它由 mergeEnv 创建且只含本节点的 key，直接移除。
+          // .env did not exist before this request: mergeEnv created it with only this node's key, so remove it outright.
           try {
             rmSync(envPath, { force: true })
           } catch {
-            // 删不掉只影响卫生，不影响正确性
+            // failing to delete it affects housekeeping only, never correctness
           }
         } else {
           try {
@@ -756,11 +764,11 @@ export const registerProvisionRoutes = (
         try {
           rmSync(createdHome, { recursive: true, force: true })
         } catch {
-          // 目录残留由下次 boot 的对账收敛
+          // a leftover directory is converged by the next boot's reconcile
         }
       }
-      // 债务 R9:回滚后重跑收敛——按还原后的真相源重镜像/fleet 重同步
-      // (fleet.md 不残留失败节点条目;agent 行恢复旧值)。
+      // Debt R9: re-run convergence after the rollback -- re-mirror and re-sync the fleet from the restored
+      // truth source (fleet.md keeps no entry for the failed node; the agent row returns to its old value).
       try {
         await reconcile(new Set())
       } catch (rollbackError) {
@@ -769,7 +777,7 @@ export const registerProvisionRoutes = (
       try {
         recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_create', detail: `failed: ${(error as Error).message}` })
       } catch {
-        // 审计失败不影响回滚结果
+        // a failed audit does not affect the rollback result
       }
       app.log.error(`provision node ${body.name} failed (rolled back): ${(error as Error).message}`)
       return reply.code(500).send({ error: 'provision_failed', detail: (error as Error).message })
@@ -777,8 +785,8 @@ export const registerProvisionRoutes = (
   })
 
   /**
-   * 2026-09-05 定：删除节点 = 停进程 + 配置里删「节点 + 它绑定的工作区」两行
-   * + 磁盘目录全部保留。确认语义由前端确认框明示。
+   * Decided 2026-09-05: deleting a node = stop the process + delete the two config lines (the node +
+   * the workspace bound to it), keeping every directory on disk. The front-end confirm box spells out the semantics.
    */
   app.delete<{ Params: { id: string } }>('/api/nodes/:id', { preHandler: requireUser, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (request, reply) => {
     const endpoint = config.endpoints[request.params.id]
@@ -789,7 +797,7 @@ export const registerProvisionRoutes = (
 
     const bound = Object.values(config.agents).filter((a) => a.endpoint === request.params.id)
 
-    // 债务 E10:569 行已判 supervisors.has,此处显式收窄替代 `!`
+    // Debt E10: line 569 already checks supervisors.has, so this narrows explicitly instead of using `!`
     const supervisor = supervisors.get(request.params.id)
     if (supervisor === undefined) return reply.code(409).send({ error: 'not_managed' })
     supervisor.stop()
@@ -797,7 +805,7 @@ export const registerProvisionRoutes = (
     delete config.endpoints[request.params.id]
     for (const a of bound) delete config.agents[a.id]
 
-    // 债务 A3:删除也走原子写(syntax 校验,防磁盘级损坏);债务 R6:统一锁入口
+    // Debt A3: deletion also goes through an atomic write (syntax validation, against on-disk corruption); Debt R6: the single lock entry
     await withConfigLock(() =>
       mutateYamlFile(
         configPath,
@@ -811,10 +819,10 @@ export const registerProvisionRoutes = (
     app.log.info(
       `node ${request.params.id}: unmanaged (${bound.length} workspace binding(s) removed from config; files on disk kept)`,
     )
-    // 蜂群2计划 P3：审计留痕（删除节点）
+    // Hive plan 2 P3: the audit trail (node deletion)
     recordAudit(db, { actor: request.currentUser?.username ?? 'unknown', kind: 'node_delete', detail: `node ${request.params.id} deleted (files on disk are kept)` })
-    // 债务 R9:镜像与 fleet 的收敛统一走 reconcile(空节点集 = 不动节点生命周期;
-    // removeStaleAgents=false = agent 行在进程存活期内保留,账单/审计不丢)。
+    // Debt R9: mirror and fleet convergence all go through reconcile (an empty node set = the node
+    // lifecycle is untouched; removeStaleAgents=false = the agent row survives the process, so billing/audit is not lost).
     await reconcile(new Set())
     return reply.send({ ok: true, removedWorkspaces: bound.map((a) => a.id) })
   })

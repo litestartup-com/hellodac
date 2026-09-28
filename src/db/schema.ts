@@ -16,7 +16,7 @@ export const user = sqliteTable('user', {
   username: text('username').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
   createdAt: integer('created_at').notNull(),
-  /** 蜂群2计划 P3：1 = 首登必须改密（初始密码一次性；迁移 10 对既有账号也置 1）。 */
+  /** Hive plan 2 P3: 1 = the password must be changed on first login (the initial password is one-shot; migration 10 sets 1 for existing accounts too). */
   mustChangePassword: integer('must_change_password').notNull().default(0),
 })
 
@@ -43,8 +43,8 @@ export const agent = sqliteTable('agent', {
   createdAt: integer('created_at').notNull(),
 })
 
-// 债务 D1:api_key 表(北向 API key 配额)全链路无写入无读取——死代码,已随
-// 迁移 13 删除。对外 API 属 M6 路线图,届时按真实契约重新设计。
+// Debt D1: the api_key table (northbound API key quotas) had no writer and no reader anywhere -- dead
+// code, dropped in migration 13. The public API is on the M6 roadmap and will be redesigned against a real contract.
 
 export const cron = sqliteTable('cron', {
   id: text('id').primaryKey(),
@@ -89,24 +89,24 @@ export const chat = sqliteTable('chat', {
   lastActiveAt: integer('last_active_at').notNull(),
   removedAt: integer('removed_at'),
   /**
-   * 沙箱覆盖的延迟生效请求（会话转冷时无法立即钉入）：下回合创建/唤醒会话时
-   * 由 runner 应用后清空。null = 无待生效覆盖。
+   * A deferred sandbox-override request (it cannot be pinned while the chat is going cold): the runner
+   * applies it when the next turn creates/wakes the chat, then clears it. null = no override waiting to take effect.
    */
   accessModeOverride: text('access_mode_override'),
   /**
-   * 最后一次经 manager 钉入的沙箱模式（权限展示真相源，2026-09-11）：宿主
-   * permissions 投影的 preset 是意图标签，旋钮漂移后推导值为 custom，反推不出
-   * 真实沙箱，故以本列为准。null = 尚未经 manager 钉入（退宿主推导/agent 默认）。
+   * The last sandbox mode pinned through the manager (source of truth for the permission display, 2026-09-11):
+   * the preset in the host's permissions projection is an intent label, and once the knobs drift the derived value
+   * is custom, which no longer reflects a real sandbox -- so this column wins. null = never pinned by the manager.
    */
   accessMode: text('access_mode'),
   /**
-   * 对外 API 归属（口径：内部设计库 `manager/topics/CONCEPTS-ALIGNED.md` §6）。
+   * Public API attribution (definition: internal design library `manager/topics/CONCEPTS-ALIGNED.md` §6).
    *
-   * 三列全是 null = 对内会话（后台自己开的）。对外会话必须有前两列：
-   * `apiKeyId` = 哪把钥匙开的（配额、计费、审计、可见范围都以它为准）；
-   * `externalUserId` = **调用方自己的用户 id**，粘性锚点就是"钥匙 + 它"——同一个
-   * 用户在调用方系统里再来时必须回到同一个会话（换会话 = 客户失忆）；
-   * `serviceId` = 属于哪个对外服务（服务成员增减后仍能追溯）。
+   * All three columns null = an internal chat (one the backend opened for itself). An external chat must have the first two:
+   * `apiKeyId` = which key opened it (quotas, billing, audit and visibility all key off it);
+   * `externalUserId` = **the caller's own user id**; the sticky anchor is "key + it" -- the same user
+   * coming back in the caller's system must land in the same chat (a different chat = an amnesiac customer);
+   * `serviceId` = which outward service it belongs to (still traceable after service membership changes).
    */
   apiKeyId: text('api_key_id').references(() => apiKey.id, { onDelete: 'set null' }),
   externalUserId: text('external_user_id'),
@@ -114,26 +114,26 @@ export const chat = sqliteTable('chat', {
 })
 
 /**
- * 对外 API 钥匙（设计稿：内部设计库 `manager/topics/public-api.md` §5）。
+ * Public API keys (design note: internal design library `manager/topics/public-api.md` §5).
  *
- * 明文 secret **只在创建时回显一次**：库里存 `id`（公开前缀，用于 O(1) 定位行）与
- * sha256(secret)，因此拖库也无法重放。与 session / agent token 同一套思路，
- * 区别是钥匙属于机器调用方，故额外带作用域、服务范围与配额。
+ * The plaintext secret is **echoed back exactly once at creation**: the database stores `id` (the public
+ * prefix, used to locate the row in O(1)) and sha256(secret), so a database dump cannot be replayed. The same
+ * idea as session / agent tokens, except a key belongs to a machine caller, so it also carries scopes, service range and quotas.
  */
 export const apiKey = sqliteTable('api_key', {
-  /** keyId：公开前缀（12 hex），出现在钥匙串里也出现在日志/界面里，本身不是秘密。 */
+  /** keyId: the public prefix (12 hex); it shows up in the key list and in logs/the UI, so it is not a secret. */
   id: text('id').primaryKey(),
   name: text('name').notNull(),
-  /** sha256(secret) hex。 */
+  /** sha256(secret) hex. */
   keyHash: text('key_hash').notNull(),
-  /** JSON 数组：services:read / usage:read / tasks:write / conversations:write / interactions:write。 */
+  /** JSON array: services:read / usage:read / tasks:write / conversations:write / interactions:write. */
   scopes: text('scopes').notNull(),
-  /** JSON 数组：允许进入的服务 id；["*"] = 全部。与服务 agent 的 public 标志取交集（双门）。 */
+  /** JSON array: the service ids this key may enter; ["*"] = all. Intersected with the service agent's public flag (two gates). */
   scopeServices: text('scope_services').notNull(),
-  /** 每天最多派几个活；NULL = 不限。日界线按 config.pricing.timezone。 */
+  /** How many jobs may be dispatched per day; NULL = unlimited. The day boundary follows config.pricing.timezone. */
   quotaRunsDay: integer('quota_runs_day'),
   rateLimitRpm: integer('rate_limit_rpm').notNull().default(60),
-  /** 同时在跑的上限，保护后台与 agent（超限 429）。 */
+  /** Cap on concurrent runs, to protect the backend and the agent (over the limit = 429). */
   maxConcurrency: integer('max_concurrency').notNull().default(4),
   expiresAt: integer('expires_at'),
   revokedAt: integer('revoked_at'),
@@ -146,24 +146,24 @@ export const run = sqliteTable('run', {
   id: text('id').primaryKey(),
   agentId: text('agent_id').notNull(),
   /**
-   * 对外 API 分账归属键（设计稿 manager/topics/public-api.md §5）：NULL = 不是经钥匙触发的。
-   * 花费能拆到「哪把钥匙 × 哪个 agent」；钥匙只注销不删除，账目不会因吊销而丢失。
+   * Public API billing attribution keys (design note manager/topics/public-api.md §5): NULL = not triggered by a key.
+   * Spend can be split by "which key × which agent"; a key is revoked, never deleted, so revocation loses no accounting.
    */
   apiKeyId: text('api_key_id').references(() => apiKey.id, { onDelete: 'set null' }),
   /** The thread this turn belongs to. Null for cron and API runs with no chat. */
   chatId: text('chat_id'),
   /**
-   * 蜂群 P2：主脑派工时所在的会话——delegation 帧按它归属到主脑会话页。
+   * Hive P2: the chat the brain was in when it dispatched -- delegation frames are attributed to the brain chat page by it.
    * Null for everything that did not come from the brain conversation.
    */
   sourceChatId: text('source_chat_id'),
   /**
-   * 蜂群 P5.4：并发写冲突的显性化。运行期间工作区被另一个回合提交过时，
-   * 记下说明（本回合基于旧状态、文件可能被并发修改）。NULL = 无冲突。
+   * Hive P5.4: making concurrent-write conflicts visible. When another turn committed to the workspace during
+   * the run, a note is stored (this turn worked from stale state; files may have been modified concurrently). NULL = no conflict.
    */
   conflict: text('conflict'),
   cronId: text('cron_id'),
-  // 债务 D1:api_key_id 已随迁移 13 删除(北向 API 未实现,死列)
+  // Debt D1: api_key_id was dropped in migration 13 (the northbound API was never built -- a dead column)
   dshSessionId: text('dsh_session_id'),
   /** 'cron' | 'manual' | 'api' | 'capture' | 'brain' */
   trigger: text('trigger').notNull(),
@@ -183,19 +183,19 @@ export const run = sqliteTable('run', {
   commitHash: text('commit_hash'),
 })
 
-/** 蜂群 P5.3：站内通知（铃铛）。单用户阶段没有收件人维度。 */
+/** Hive P5.3: in-app notifications (the bell). In the single-user stage there is no recipient dimension. */
 export const notification = sqliteTable('notification', {
   id: text('id').primaryKey(),
   kind: text('kind').notNull(),
   title: text('title').notNull(),
   body: text('body').notNull(),
-  /** 点击跳转的站内路径（/chat/xxx、/crons…），null = 纯告知。 */
+  /** In-app path to open on click (/chat/xxx, /crons...); null = informational only. */
   link: text('link'),
   at: integer('at').notNull(),
   read: integer('read').notNull().default(0),
 })
 
-/** 蜂群2计划 P3：审计流水（登录/改密/节点操作/备份），只追加不修改。 */
+/** Hive plan 2 P3: the audit trail (login / password change / node operations / backup); append-only. */
 export const auditLog = sqliteTable('audit_log', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   at: integer('at').notNull(),
@@ -230,7 +230,7 @@ export const usageRecord = sqliteTable('usage_record', {
   at: integer('at').notNull(),
 })
 
-/** 能力四（舰队）：每台服务器的 node-agent 身份目录。token 只存哈希。 */
+/** Capability four (Fleet): the node-agent identity directory, one entry per server. Only token hashes are stored. */
 export const agentMachine = sqliteTable('agent_machine', {
   id: text('id').primaryKey(),
   hostname: text('hostname').notNull(),
@@ -241,14 +241,14 @@ export const agentMachine = sqliteTable('agent_machine', {
   joinedAt: integer('joined_at').notNull(),
   lastSeenAt: integer('last_seen_at'),
   revokedAt: integer('revoked_at'),
-  /** M4-1 轮换宽限位：上一代 token 哈希（ack 后清除）。 */
+  /** M4-1 rotation grace slot: the previous token's hash (cleared after ack). */
   prevTokenHash: text('prev_token_hash'),
   prevSetAt: integer('prev_set_at'),
-  /** M4-3：agent 运行时版本（自更新后经心跳上报；机器页「待更新」徽标数据源）。 */
+  /** M4-3: the agent's runtime version (reported by heartbeat after a self-update; the data source for the "update pending" badge on the machines page). */
   agentVersion: text('agent_version'),
 })
 
-/** 能力四（舰队）：一次性注册 token（manager 签发，15 分钟过期，一次即焚）。 */
+/** Capability four (Fleet): one-shot registration tokens (issued by the manager, expire in 15 minutes, burned on use). */
 export const agentJoinToken = sqliteTable('agent_join_token', {
   tokenHash: text('token_hash').primaryKey(),
   expiresAt: integer('expires_at').notNull(),
@@ -256,7 +256,7 @@ export const agentJoinToken = sqliteTable('agent_join_token', {
   createdAt: integer('created_at').notNull(),
 })
 
-/** 能力四（舰队）：agent 指令队列（pending → delivered → done/failed）。 */
+/** Capability four (Fleet): the agent command queue (pending → delivered → done/failed). */
 export const agentCommand = sqliteTable('agent_command', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   agentId: text('agent_id').notNull(),
@@ -269,12 +269,12 @@ export const agentCommand = sqliteTable('agent_command', {
   doneAt: integer('done_at'),
 })
 
-/** 能力四（舰队 M4-4）：主机指标趋势（心跳 60s 采样，7 天保留）。 */
+/** Capability four (Fleet M4-4): host metric trends (sampled by heartbeat every 60s, kept for 7 days). */
 export const agentMetric = sqliteTable('agent_metric', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   agentId: text('agent_id').notNull(),
   at: integer('at').notNull(),
-  /** CPU 忙占比 ×10（125 = 12.5%；INTEGER 避免 REAL 与漂移测试的兼容坑）。 */
+  /** CPU busy share ×10 (125 = 12.5%; INTEGER avoids the REAL compatibility trap that drift tests hit). */
   cpuPercent: integer('cpu_percent'),
   memTotal: integer('mem_total'),
   memUsed: integer('mem_used'),

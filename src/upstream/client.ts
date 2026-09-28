@@ -1,8 +1,8 @@
 /**
- * High-level client for the apiproxy driver — SessionDriver 插头一（facade）。
+ * High-level client for the apiproxy driver — SessionDriver plug one (the facade).
  *
- * Wraps rpc, mux, translate, and respond into the SessionDriver port (修路阶段
- * 第一项)：上层只见端口，不见 wire。Deliberately does NOT extend or implement
+ * Wraps rpc, mux, translate, and respond into the SessionDriver port (the first
+ * item of the road-building stage): the layer above sees only the port, never the wire. Deliberately does NOT extend or implement
  * the GatewayClient class — the legacy gateway driver is a separate branch and
  * is not a SessionDriver plug (its slot/release model is pre-port).
  */
@@ -56,7 +56,7 @@ export interface UpstreamSessionHistory {
   title: string | null
   events: HistoryEvent[]
   composer: UpstreamComposerState
-  /** 宿主 goal 投影（Ongoing Goal 条）；无目标/形状不符 = null。 */
+  /** Host goal projection (the Ongoing Goal bar); no goal or a shape mismatch = null. */
   goal: UpstreamGoal | null
 }
 
@@ -94,9 +94,9 @@ const composerStateOf = (values: Record<string, unknown> | undefined): UpstreamC
   return {
     model: selectionOf(recordOf(values?.modelSelection)?.next) ?? selectionOf(recordOf(values?.modelSelection)?.lastUsed),
     context,
-    // 三档全映射（2026-09-11 补 danger-full-access：早前漏了，全量会话刷新后会被
-    // 显示成只读）。宿主推导值 custom（preset 标签与旋钮漂移）时交给路由层用
-    // chat.access_mode 覆盖。
+    // All three tiers are mapped (2026-09-11 added danger-full-access: it was missing earlier, and after a full
+    // session refresh it showed up as read-only). When the host derives custom (the preset label and the knobs have
+    // drifted apart), the route layer overrides it from chat.access_mode.
     accessMode: currentValue === 'read-only' || currentValue === 'workspace-write' || currentValue === 'danger-full-access' ? currentValue : null,
   }
 }
@@ -185,7 +185,7 @@ export class UpstreamClient implements SessionDriver {
 
   /**
    * Pins a live session's sandbox mode through the gateway's sandbox-mode
-   * route (蜂群 P0). The override is durable — a `sandbox/mode` log event that
+   * route (Hive P0). The override is durable — a `sandbox/mode` log event that
    * replays on cold wake — so one call at creation time is enough.
    *
    * Config validation guarantees sandboxBase is set whenever an agent declares
@@ -211,10 +211,10 @@ export class UpstreamClient implements SessionDriver {
         signal: AbortSignal.timeout(10_000),
       })
     let response = await call()
-    // 蜂群2计划 P6（DSH-FACTS §7）：网关 settings 命名空间异步加载的竞态——
-    // 节点刚启动时第一次沙箱调用可能 401「provisions a key (first call only)」，
-    // 数秒后 settings 就位即恢复。只对这一种 hint 重试一次，把竞态变确定性；
-    // 其它 401（真钥匙错）照旧抛出。
+    // Hive plan 2 P6 (DSH-FACTS §7): a race on the gateway's asynchronously loaded settings namespace --
+    // right after a node boots the first sandbox call may 401 with "provisions a key (first call only)",
+    // and it recovers a few seconds later once settings are in place. Retry once for this one hint, turning the
+    // race into something deterministic; any other 401 (a genuinely wrong key) is thrown as before.
     if (response.status === 401) {
       const firstText = await response.text()
       if (firstText.includes('provisions a key')) {
@@ -274,8 +274,8 @@ export class UpstreamClient implements SessionDriver {
   }
 
   /**
-   * 探活（端口词汇）：读 DSH 版本串——apiproxy 契约里经 `host.describe`
-   * （无 `host.version` 方法）。失败抛出，上层 catch 判不可达。
+   * Liveness probe (port vocabulary): reads the DSH version string — in the apiproxy contract that goes through
+   * `host.describe` (there is no `host.version` method). Throws on failure; the layer above catches it as unreachable.
    */
   async probeVersion(): Promise<string> {
     const result = await rpc<{ version?: string }>(this.ep, 'host.describe', {}, { timeoutMs: 5_000 })
@@ -283,8 +283,8 @@ export class UpstreamClient implements SessionDriver {
   }
 
   /**
-   * 节点是否开锁全量沙箱（host.describe 的 allowFullAccess）——UI 第三档权限
-   * 的诚实开关：没开锁时 manager 不提供全量选项（2026-09-11 拍板）。
+   * Whether the node has unlocked the full-access sandbox (allowFullAccess from host.describe) — the honest switch
+   * for the third permission tier in the UI: without the unlock the manager does not offer the full option (decided 2026-09-11).
    */
   async allowsFullAccess(): Promise<boolean> {
     const result = await rpc<{ allowFullAccess?: unknown }>(this.ep, 'host.describe', {}, { timeoutMs: 5_000 })
@@ -302,10 +302,10 @@ export class UpstreamClient implements SessionDriver {
   }
 
   /**
-   * 卡片链(2026-09-17):取回宿主(facade)仍挂起的问答/授权帧。
-   * facade 的 `GET {prefix}/answerer/pending` 返回仍等待应答的载荷——
-   * question/approval 帧只广播一次,断线窗口/manager 重启后经此恢复。
-   * 失败(网络/404/无恢复端点)= 返回空,恢复通道失败不阻断主流程。
+   * Card chain (2026-09-17): fetch the question/approval frames the host (facade) still has pending.
+   * The facade's `GET {prefix}/answerer/pending` returns the payloads still waiting for an answer --
+   * question/approval frames are broadcast only once, so this recovers them after a disconnect window or a manager restart.
+   * A failure (network/404/no recovery endpoint) = return empty; a broken recovery channel must not block the main flow.
    */
   async pendingAsks(sessionId: string): Promise<GatewayFrame[]> {
     if (this.sandboxBase === null) return []
@@ -376,17 +376,17 @@ export class UpstreamClient implements SessionDriver {
   }
 
   /**
-   * 释放（端口词汇）：插头一无槽位可还——会话由宿主持有，manager 不做
-   * 槽位管理（旧 gateway 驱动的 maxSessions 模型与端口无关）。no-op。
+   * Release (port vocabulary): plug one has no slot to give back -- the host owns the sessions and the manager does no
+   * slot management (the old gateway driver's maxSessions model has nothing to do with the port). no-op.
    */
   async release(_sessionId: string): Promise<void> {
-    // 无资源持有：宿主的会话存活与 manager 无关。
+    // Nothing is held: the lifetime of the host's sessions has nothing to do with the manager.
   }
 }
 
 /**
  * Builds SessionDriver plugs for all apiproxy-mode endpoints.
- * 插头一 = UpstreamClient（facade 契约）。
+ * Plug one = UpstreamClient (the facade contract).
  */
 export const buildUpstreamClients = (endpoints: Record<string, ResolvedEndpoint>): Map<string, SessionDriver> => {
   const map = new Map<string, SessionDriver>()

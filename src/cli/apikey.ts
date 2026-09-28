@@ -1,11 +1,11 @@
 /**
- * `npm run key -- …` —— 对外 API 钥匙的运维入口（设计稿 §5）。
+ * `npm run key -- …` -- the ops entry point for public-API keys (design doc §5).
  *
- * 安全默认值向"限制"一侧倒：默认只读 scope、必须显式指定服务（或显式 `--all-services`）、
- * 默认带日配额。理由：发钥匙是给人用的，默认值决定了最坏情况——一条命令手滑产生的
- * 应该是"只能读、只能进一个服务、每天 200 次"的钥匙，而不是一把万能钥匙。
+ * Safe defaults lean towards "restriction": read-only scope by default, services must be named explicitly (or `--all-services`
+ * given explicitly), and a daily quota by default. The reason: keys are handed to people, so the defaults decide the worst case --
+ * a slip of the hand in one command should mint a "read-only, one service, 200 calls a day" key, not a master key.
  *
- * 明文只在 create 时打印一次；list 永不打印（结构上就没有这个字段）。
+ * The plaintext is printed once at create time; list never prints it (the field does not even exist in the structure).
  */
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
@@ -122,7 +122,7 @@ export const parseKeyArgs = (argv: string[]): ParsedArgs | { error: string } => 
   }
 }
 
-/** 创建 + 落审计。返回明文 token（调用方负责打印一次）。 */
+/** Create plus audit record. Returns the plaintext token (the caller prints it once). */
 export const createKey = (db: Db, options: CreateOptions): { token: string; key: ApiKey } => {
   const { token, key } = mintApiKey(db, { ...options, createdBy: 'cli' })
   recordAudit(db, {
@@ -134,8 +134,8 @@ export const createKey = (db: Db, options: CreateOptions): { token: string; key:
 }
 
 /**
- * 服务名必须在配置里存在（`*` 除外）——与 UI 同一条规则。
- * 打错一个字母会发出一把"看起来正常、但进不去任何服务"的钥匙，这是最难查的故障类型。
+ * Service names must exist in the config (`*` excepted) -- the same rule as the UI.
+ * One mistyped letter mints a key that "looks fine but reaches no service", which is the hardest kind of failure to track down.
  */
 export const unknownServices = (options: CreateOptions, configured: readonly string[]): string[] => {
   if (options.scopeServices.includes('*')) return []
@@ -199,7 +199,7 @@ const main = (): void => {
     process.exit(ok ? 0 : 1)
   }
 
-  // 服务名校验（与 UI 同一规则）：配置里没有的服务名 = 手误，当场拦下。
+  // Service-name validation (the same rule as the UI): a name that is not in the config is a typo, stopped right here.
   const configured = (loadConfig().services ?? []).map((service) => service.id)
   const missing = unknownServices(parsed.options, configured)
   if (missing.length > 0) {
@@ -228,7 +228,7 @@ const main = (): void => {
   )
 }
 
-// 只在被直接执行时运行：被测试 import 时绝不能有副作用（同 cli/service.ts 的纪律）。
+// Only runs when executed directly: importing it from a test must have no side effects (the same discipline as cli/service.ts).
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main()
 }

@@ -5,12 +5,12 @@ import { notify } from '../notify.js'
 import { AGENT_OFFLINE_MS } from '../routes/agents.js'
 
 /**
- * 能力四（舰队 M3-3，§13 补丁提前）：fleet 看门狗——agent 掉线 / agent 节点
- * 异常进站内通知（铃铛）。边沿触发（状态转换只报一次），未读去重防 manager
- * 重启刷屏（铃铛已有同对象未读告警 = 不再插入）。
+ * Capability four (Fleet M3-3, the §13 patch pulled forward): the fleet watchdog -- an agent going offline or an
+ * agent node turning abnormal raises an in-app notification (the bell). Edge-triggered (a state transition is reported
+ * once), and unread dedup keeps a manager restart from spamming the bell (same object already unread = do not insert).
  *
- * 范围：只报「agent runner」节点（远端节点静默死亡是舰队的新盲区）；本机
- * process/docker 节点已有监督器重试 + 节点页红点，不越界重复。
+ * Scope: only "agent runner" nodes are reported (a remote node dying silently is the Fleet's new blind spot);
+ * local process/docker nodes already have supervisor retries plus a red dot on the nodes page, so this stays out of their way.
  */
 
 export interface FleetNodeSnapshot {
@@ -29,13 +29,13 @@ export interface FleetAgentSnapshot {
 
 export interface FleetWatchdogDeps {
   db: Db
-  /** agent 机器快照（缺省 = 直接读 agentMachine 表，按心跳判定在线）。 */
+  /** The agent machine snapshot (by default it reads the agentMachine table directly and decides online by heartbeat). */
   agents?: () => FleetAgentSnapshot[]
-  /** 节点监督器快照（wiring 从 nodeSupervisors 迭代注入）。 */
+  /** The node supervisor snapshot (wiring injects it by iterating nodeSupervisors). */
   nodeStates?: () => FleetNodeSnapshot[]
 }
 
-/** 铃铛里是否已存在同一对象（agent id）的未读掉线告警（重启去重）。 */
+/** Whether the bell already holds an unread offline alert for the same object (agent id) -- dedup across restarts. */
 const hasUnreadAlert = (db: Db, kind: string, needle: string): boolean =>
   db
     .select()
@@ -47,13 +47,13 @@ const hasUnreadAlert = (db: Db, kind: string, needle: string): boolean =>
 
 export const createFleetWatchdog = (deps: FleetWatchdogDeps): (() => { alerts: number }) => {
   const { db } = deps
-  // 进程内状态：agent:<id> / node:<id> → 上一观测值（重启后首个观测 = 基线）
+  // In-process state: agent:<id> / node:<id> -> the previous observation (the first observation after a restart is the baseline)
   const last = new Map<string, string>()
 
   return () => {
     let alerts = 0
 
-    // ---- agent 机器：心跳超时 = 掉线（AGENT_OFFLINE_MS 与 /api/agents 同源）----
+    // ---- agent machines: a heartbeat timeout = offline (AGENT_OFFLINE_MS comes from the same source as /api/agents) ----
     const agents = deps.agents?.() ?? db
       .select()
       .from(schema.agentMachine)
@@ -87,7 +87,7 @@ export const createFleetWatchdog = (deps: FleetWatchdogDeps): (() => { alerts: n
       }
     }
 
-    // ---- agent 节点：监督器 offline = 异常（冷态/starting 是过渡态，不报）----
+    // ---- agent nodes: supervisor offline = abnormal (cold/starting are transitional states and are not reported) ----
     for (const node of deps.nodeStates?.() ?? []) {
       if (node.runner !== 'agent') continue
       const key = `node:${node.id}`
@@ -110,7 +110,7 @@ export const createFleetWatchdog = (deps: FleetWatchdogDeps): (() => { alerts: n
         }
         last.set(key, 'live')
       }
-      // starting/restarting/cold：不改变上一判定（只有 live 才算恢复）
+      // starting/restarting/cold: the previous verdict is kept (only live counts as recovery)
     }
 
     return { alerts }

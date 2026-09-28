@@ -10,25 +10,25 @@ import type { AuditKind } from '../audit.js'
 import { MANAGER_VERSION } from '../version.js'
 
 /**
- * 能力四（舰队，M1-2/M1-3）：node-agent 注册链 + 指令/事件通道。
+ * Capability four (Fleet, M1-2/M1-3): the node-agent registration chain + the command and event channel.
  *
- * 三条面：
- * - 用户面（requireUser）：join 签发 / agent 列表 / 吊销；
- * - agent 面（Bearer agentToken）：register（join token 换发身份）、
- *   commands 长轮询（领取指令）、events（结果/心跳/日志分块回报）。
- * 网络面：agent 从远端拨号，不套主脑面私网闸——一次性 token + 限流 + Bearer 兜底。
+ * Three surfaces:
+ * - The user surface (requireUser): issue a join / list agents / revoke;
+ * - The agent surface (Bearer agentToken): register (exchange a join token for an identity),
+ *   commands long polling (claim commands), events (report results / heartbeats / log chunks).
+ * The network surface: the agent dials in from a remote, with no brain-surface private-network gate -- a one-shot token + rate limiting + Bearer as the backstop.
  */
 
 const hashToken = (token: string): string => createHash('sha256').update(token).digest('hex')
 
 export const JOIN_TOKEN_TTL_MS = 15 * 60_000
-/** 心跳超时：超过该时长未鉴权露面 = 离线（agent 轮询周期 ~30s，3 个周期兜底）。 */
+/** Heartbeat timeout: no authenticated appearance for longer than this = offline (the agent polls about every 30s, so three cycles are the backstop). */
 export const AGENT_OFFLINE_MS = 90_000
-/** M4-1：轮换宽限期——旧 token 在此窗口内仍可用（防 ack 丢失把机器打砖）。 */
+/** M4-1: the rotation grace period -- the old token still works inside this window (so a lost ack does not brick the machine). */
 export const ROTATION_GRACE_MS = 30 * 60_000
-/** 长轮询单次等待上限。 */
+/** The maximum wait for one long poll. */
 const MAX_WAIT_MS = 25_000
-/** agent 日志环形缓冲（内存，按 agent:node 键控，各 64KB——设计 §5.2）。 */
+/** The agent log ring buffer (in memory, keyed by agent:node, 64KB each -- design section 5.2). */
 export const AGENT_LOG_RING_BYTES = 64 * 1024
 
 export const COMMAND_TYPES = ['node.spawn', 'node.stop', 'node.restart', 'node.logs', 'node.status', 'config.deliver', 'agent.update'] as const
@@ -42,7 +42,7 @@ const registerBody = z.object({
   os: z.string().min(1).max(64),
   arch: z.string().min(1).max(32),
   nodeVersion: z.string().min(1).max(32),
-  /** M4-3：agent 运行时版本（自更新协商；旧 agent 不上报 = 缺省 null）。 */
+  /** M4-3: the agent runtime version (self-update negotiation; an old agent does not report it = null by default). */
   agentVersion: z.string().min(1).max(32).optional(),
 })
 
@@ -54,8 +54,8 @@ const eventsBody = z.object({
   ])).max(100),
 })
 
-/** 按 agentToken 找未吊销的 agent 行；找不到/已吊销 = null。
- * M4-1：轮换宽限期内的旧 token 同样可鉴权（prev 位，ack 后清除）。 */
+/** Find the non-revoked agent row by agentToken; not found or revoked = null.
+ * M4-1: an old token still authenticates inside the rotation grace period (the prev slot, cleared after the ack). */
 export const findAgentByToken = (db: Db, token: string): { id: string; hostname: string; os: string; arch: string; nodeVersion: string } | null => {
   const digest = hashToken(token)
   const row = db.select().from(schema.agentMachine).where(eq(schema.agentMachine.tokenHash, digest)).all()[0]
@@ -66,7 +66,7 @@ export const findAgentByToken = (db: Db, token: string): { id: string; hostname:
   return { id: row.id, hostname: row.hostname, os: row.os, arch: row.arch, nodeVersion: row.nodeVersion }
 }
 
-// ---- 指令队列（DB 为真相源；内存等待者只做唤醒）----
+// ---- The command queue (the database is the truth source; in-memory waiters only serve as a wake-up) ----
 const waiters = new Map<string, Array<() => void>>()
 
 const wake = (agentId: string): void => {
@@ -76,7 +76,7 @@ const wake = (agentId: string): void => {
   for (const done of list) done()
 }
 
-/** manager 侧入队（supervisor/派生下发用）；返回指令 id。 */
+/** Enqueue on the manager side (used by the supervisor and for derived dispatch); returns the command id. */
 export const enqueueAgentCommand = (db: Db, agentId: string, type: AgentCommandType, payload: unknown): number => {
   const result = db.insert(schema.agentCommand).values({
     agentId,
@@ -93,7 +93,7 @@ export const enqueueAgentCommand = (db: Db, agentId: string, type: AgentCommandT
   return id
 }
 
-/** 原子领取该 agent 的全部 pending 指令（单连接下无并发竞态，条件更新双保险）。 */
+/** Atomically claim all pending commands of this agent (no concurrent race with a single connection, and the conditional update is a second safety net). */
 const claimCommands = (db: Db, agentId: string): Array<{ id: number; type: AgentCommandType; payload: unknown }> => {
   const rows = db.select().from(schema.agentCommand)
     .where(and(eq(schema.agentCommand.agentId, agentId), eq(schema.agentCommand.state, 'pending')))
@@ -117,7 +117,7 @@ const claimCommands = (db: Db, agentId: string): Array<{ id: number; type: Agent
   return claimed
 }
 
-// ---- agent 日志环形缓冲（内存）----
+// ---- The agent log ring buffer (in memory) ----
 const logRing = new Map<string, string>()
 const appendLog = (agentId: string, nodeId: string, chunk: string): void => {
   const key = `${agentId}:${nodeId}`
@@ -125,13 +125,13 @@ const appendLog = (agentId: string, nodeId: string, chunk: string): void => {
   logRing.set(key, next.length > AGENT_LOG_RING_BYTES ? next.slice(next.length - AGENT_LOG_RING_BYTES) : next)
 }
 
-/** 供 UI/日志抽屉读取（M1-7）。 */
+/** Read by the UI and the log drawer (M1-7). */
 export const readAgentLog = (agentId: string, nodeId: string): string => logRing.get(`${agentId}:${nodeId}`) ?? ''
 
-// ---- 指令结果订阅（supervisor 的 agent 分支用：spawn 失败快速失败，不等就绪超时）----
+// ---- Command result subscription (used by the supervisor's agent branch: a spawn failure fails fast instead of waiting for the ready timeout) ----
 const resultSubs = new Set<(commandId: number, ok: boolean) => void>()
 
-/** 订阅指令结果；返回退订函数。 */
+/** Subscribe to command results; returns the unsubscribe function. */
 export const subscribeAgentCommandResults = (cb: (commandId: number, ok: boolean) => void): (() => void) => {
   resultSubs.add(cb)
   return () => {
@@ -139,7 +139,7 @@ export const subscribeAgentCommandResults = (cb: (commandId: number, ok: boolean
   }
 }
 
-/** Bearer token → agent id；仅当 token 有效且与路由 :id 一致才返回（不泄露存在性）。 */
+/** Bearer token -> agent id; it returns only when the token is valid and matches the route's :id (no existence is leaked). */
 const channelAgent = (db: Db, request: FastifyRequest, id: string): string | null => {
   const header = request.headers.authorization
   const token = typeof header === 'string' && header.startsWith('Bearer ') ? header.slice(7) : ''
@@ -153,20 +153,20 @@ export const registerAgentsRoutes = (
   app: FastifyInstance,
   db: Db,
   requireUser: preHandlerHookHandler,
-  /** 审计回调（wiring 注入；测试可不传）。 */
+  /** The audit callback (injected by the wiring; tests may omit it). */
   audit?: (actor: string, kind: AuditKind, detail: string) => void,
   /**
-   * 事故回归（2026-09-25 ubuntu-focal 失联）：agent 从离线恢复时触发舰队
-   * 对账自愈。看门狗只发通知不做自愈，节点本要干等周期对账（默认 10 分钟），
-   * 而主机重启后正是「agent 先回来、节点还没起」的窗口。
-   * 注入方负责只收敛该 agent 名下的节点（healOnly 语义：人手动停的冷节点不动）。
+   * Incident regression (the ubuntu-focal loss of contact on 2026-09-25): reconciling the Fleet heals itself when an agent
+   * recovers from offline. The watchdog only notifies and does not heal, so a node would wait out the periodic reconcile
+   * (10 minutes by default), and right after a host reboot comes exactly the window where "the agent is back, the node is not up yet".
+   * The injecting side is responsible for converging only the nodes under that agent (the healOnly semantics: a cold node a human stopped by hand stays put).
    */
   onAgentRecover?: (agentId: string) => void,
 ): void => {
   /**
-   * 事故回归（2026-09-25 ubuntu-focal 失联）：刷新 lastSeenAt 并回报「本次之前
-   * 是否已离线」。顺序是先读后写——反了就看不到边沿，自愈永不触发。
-   * commands 长轮询与 events 回报都算在线证据（agent 每 25s 两条都发）。
+   * Incident regression (the ubuntu-focal loss of contact on 2026-09-25): refresh lastSeenAt and report whether it was already
+   * offline before this call. The order is read then write -- reversed, the edge is never seen and the self-healing never triggers.
+   * The commands long poll and the events report both count as evidence of being online (the agent sends both every 25s).
    */
   const touchHeartbeat = (agentId: string): void => {
     const priorSeen = db
@@ -181,7 +181,7 @@ export const registerAgentsRoutes = (
     if (wasOffline) onAgentRecover?.(agentId)
   }
 
-  // ---- 用户面：签发一次性 join token ----
+  // ---- The user surface: issue a one-shot join token ----
   app.post(
     '/api/agents/join',
     { preHandler: requireUser, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
@@ -199,7 +199,7 @@ export const registerAgentsRoutes = (
     },
   )
 
-  // ---- agent 面：join token 换发 agent 身份 ----
+  // ---- The agent surface: exchange a join token for the agent identity ----
   app.post(
     '/api/internal/agents/register',
     { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
@@ -235,7 +235,7 @@ export const registerAgentsRoutes = (
     },
   )
 
-  // ---- agent 面：长轮询领取指令 ----
+  // ---- The agent surface: claim commands by long polling ----
   app.get<{ Params: { id: string }; Querystring: { wait?: string } }>(
     '/api/internal/agents/:id/commands',
     { config: { rateLimit: { max: 240, timeWindow: '1 minute' } } },
@@ -249,7 +249,7 @@ export const registerAgentsRoutes = (
           ? reply.code(404).send({ error: 'unknown_agent' })
           : reply.code(401).send({ error: 'unauthorized' })
       }
-      // 任何鉴权请求刷心跳（设计：心跳随轮询携带）；离线→在线即触发舰队自愈
+      // Any authenticated request refreshes the heartbeat (by design the heartbeat rides along with the poll); offline -> online triggers the Fleet self-healing
       touchHeartbeat(agentId)
 
       const waitRaw = Number(request.query.wait ?? MAX_WAIT_MS)
@@ -280,7 +280,7 @@ export const registerAgentsRoutes = (
     },
   )
 
-  // ---- agent 面：结果/心跳/日志回报 ----
+  // ---- The agent surface: report results / heartbeats / logs ----
   app.post<{ Params: { id: string } }>(
     '/api/internal/agents/:id/events',
     { config: { rateLimit: { max: 240, timeWindow: '1 minute' } } },
@@ -294,8 +294,8 @@ export const registerAgentsRoutes = (
           ? reply.code(404).send({ error: 'unknown_agent' })
           : reply.code(401).send({ error: 'unauthorized' })
       }
-      // 事故回归：先判「本次请求之前是否已离线」，再刷 lastSeenAt——顺序反了
-      // 就再也看不到边沿，自愈永不触发。任何鉴权抵达都算在线证据（心跳/回报/日志）。
+      // Incident regression: decide whether it was already offline before this request first, then refresh lastSeenAt -- reversed,
+      // the edge can never be seen again and the self-healing never triggers. Any authenticated arrival counts as evidence of being online (heartbeat / report / log).
       touchHeartbeat(agentId)
 
       const parsed = eventsBody.safeParse(request.body)
@@ -303,13 +303,13 @@ export const registerAgentsRoutes = (
 
       for (const event of parsed.data.events) {
         if (event.type === 'command_result') {
-          // 只认领自己 agent 的 delivered 指令；幂等（重复回报被条件更新忽略）
+          // Claim only the delivered commands of this agent itself; idempotent (a repeated report is ignored by the conditional update)
           //
-          // payload 只服务于投递：领取路径只读 `state='pending'`（claimCommands），
-          // 终态之后没有任何读取点。而 node.spawn 的 payload 里带**整份 DSH profile
-          // bundle**——生产实测 99 条平均 273 KB，占了整个库 34 MB 里的 32.8 MB，
-          // 且每次加密备份都会把它一起复制。所以进终态就地清空（列是 notNull，
-          // 用空 JSON 保契约）；历史靠 type/state/result/doneAt 保留。
+          // The payload serves delivery alone: the claim path reads `state='pending'` only (claimCommands),
+          // and after a terminal state there is no read point at all. Yet a node.spawn payload carries a **whole DSH profile
+          // bundle** -- measured in production, 99 rows averaged 273 KB, taking 32.8 MB of the database's 34 MB,
+          // and every encrypted backup copies it along. So it is cleared in place on reaching a terminal state (the column is notNull,
+          // so empty JSON keeps the contract); the history survives on type/state/result/doneAt.
           const updated = db.update(schema.agentCommand)
             .set({
               state: event.ok ? 'done' : 'failed',
@@ -325,8 +325,8 @@ export const registerAgentsRoutes = (
             .run()
           if (updated.changes > 0) {
             for (const cb of resultSubs) cb(event.commandId, event.ok)
-            // M4-1：config.deliver（身份轮换）ack → 宽限位收敛——
-            // 成功 = 清 prev；失败 = 回滚主 token（agent 还持旧 token）。
+            // M4-1: the config.deliver (identity rotation) ack -> the grace slot converges --
+            // success = clear prev; failure = roll the main token back (the agent still holds the old token).
             const cmd = db.select().from(schema.agentCommand).where(eq(schema.agentCommand.id, event.commandId)).all()[0]
             if (cmd?.type === 'config.deliver') {
               if (event.ok) {
@@ -342,12 +342,12 @@ export const registerAgentsRoutes = (
         } else if (event.type === 'log_chunk') {
           appendLog(agentId, event.nodeId, event.chunk)
         } else if (event.type === 'heartbeat') {
-          // M4-3：心跳携带 agent 运行时版本（自更新协商徽标数据源）
+          // M4-3: the heartbeat carries the agent runtime version (the data source for the self-update negotiation badge)
           const version = event.detail?.agentVersion
           if (typeof version === 'string' && version !== '' && version.length <= 32) {
             db.update(schema.agentMachine).set({ agentVersion: version }).where(eq(schema.agentMachine.id, agentId)).run()
           }
-          // M4-4：主机指标落库（字段级校验）+ 7 天保留自动清理
+          // M4-4: host metrics land in the database (field-level validation) + automatic cleanup of the 7-day retention
           const metrics = event.detail?.metrics
           if (metrics !== null && typeof metrics === 'object') {
             const m = metrics as Record<string, unknown>
@@ -368,13 +368,13 @@ export const registerAgentsRoutes = (
               .run()
           }
         }
-        // lastSeenAt 已由入口统一刷新
+        // lastSeenAt has already been refreshed uniformly at the entry point
       }
       return reply.send({ ok: true })
     },
   )
 
-  // ---- 用户面：agent 目录列表（在线状态实时计算）----
+  // ---- The user surface: the agent directory list (the online state is computed live) ----
   app.get('/api/agents', { preHandler: requireUser }, async () => {
     const rows = db.select().from(schema.agentMachine).orderBy(asc(schema.agentMachine.joinedAt)).all()
     const now = Date.now()
@@ -383,7 +383,7 @@ export const registerAgentsRoutes = (
         .from(schema.agentCommand)
         .where(and(eq(schema.agentCommand.agentId, r.id), eq(schema.agentCommand.state, 'pending')))
         .all()[0]?.n ?? 0
-      // M4-4：最新指标快照（机器行展示 CPU/内存/磁盘）
+      // M4-4: the latest metric snapshot (the machine row shows CPU / memory / disk)
       const latest = db.select().from(schema.agentMetric)
         .where(eq(schema.agentMetric.agentId, r.id))
         .orderBy(desc(schema.agentMetric.at))
@@ -400,7 +400,7 @@ export const registerAgentsRoutes = (
         revoked: r.revokedAt !== null,
         online: r.revokedAt === null && r.lastSeenAt !== null && now - r.lastSeenAt <= AGENT_OFFLINE_MS,
         pendingCommands: pending,
-        // M4-3：运行时版本（null = 旧 agent 未上报）；前端与 managerVersion 比对出徽标
+        // M4-3: the runtime version (null = an old agent that did not report it); the frontend compares it against managerVersion for the badge
         agentVersion: r.agentVersion,
         latestMetric: latest === undefined
           ? null
@@ -410,7 +410,7 @@ export const registerAgentsRoutes = (
     return { agents, managerVersion: MANAGER_VERSION }
   })
 
-  // ---- 用户面：单机指标趋势（M4-4；最多 1440 个点 = 24h@60s）----
+  // ---- The user surface: the metric trend of one machine (M4-4; at most 1440 points = 24h at 60s) ----
   app.get<{ Params: { id: string }; Querystring: { limit?: string } }>(
     '/api/agents/:id/metrics',
     { preHandler: requireUser },
@@ -425,8 +425,8 @@ export const registerAgentsRoutes = (
         .limit(limit)
         .all()
         .reverse()
-      // .reverse() 之后末条 = 最新一次采样；用 at(-1) 取值，避免非空断言
-      // （eslint no-non-null-assertion 在 CI 里是 error 级）。
+      // After .reverse() the last entry = the newest sample; it is taken with at(-1) to avoid a non-null assertion
+      // (eslint no-non-null-assertion is an error in CI).
       const newest = metrics.at(-1) ?? null
       return {
         metrics: metrics.map((m) => ({
@@ -440,7 +440,7 @@ export const registerAgentsRoutes = (
     },
   )
 
-  // ---- 用户面：吊销 agent ----
+  // ---- The user surface: revoke an agent ----
   app.post<{ Params: { id: string } }>(
     '/api/agents/:id/revoke',
     { preHandler: requireUser, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
@@ -453,9 +453,9 @@ export const registerAgentsRoutes = (
     },
   )
 
-  // ---- 用户面：轮换 agent token（M4-1）----
-  // 只对在线机器开放（离线轮换 = 旧 token 得不到续命，机器可能被打砖）；
-  // 新 token 只经 config.deliver 指令投递给 agent（不返回给浏览器）。
+  // ---- The user surface: rotate the agent token (M4-1) ----
+  // Offered for online machines only (rotating while offline = the old token gets no reprieve, and the machine may be bricked);
+  // the new token reaches the agent only through a config.deliver command (it is not returned to the browser).
   app.post<{ Params: { id: string } }>(
     '/api/agents/:id/rotate',
     { preHandler: requireUser, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
@@ -478,9 +478,9 @@ export const registerAgentsRoutes = (
     },
   )
 
-  // ---- 用户面：删除机器记录（舰队 UI 收尾 B）----
-  // 仅已吊销机器可删（在线身份误删 = 集群打砖）；machine 行 + 指令历史随删；
-  // 账单（run/usage_record）与 machine 无外键不受影响。
+  // ---- The user surface: delete a machine record (Fleet UI wrap-up B) ----
+  // Only a revoked machine can be deleted (deleting a live identity by mistake = bricking the cluster); the machine row and its command history go with it;
+  // the accounts (run/usage_record) have no foreign key to machine and are unaffected.
   app.post<{ Params: { id: string } }>(
     '/api/agents/:id/delete',
     { preHandler: requireUser, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
@@ -497,9 +497,9 @@ export const registerAgentsRoutes = (
     },
   )
 
-  // ---- 用户面：下发 agent 自更新（M4-3）----
-  // 载荷 = manager 当前静态面的 agent.mjs + runtime.mjs + 双文件拼接摘要；
-  // agent 侧校验后原子换装并退出，由服务管理器重启加载新代码。
+  // ---- The user surface: dispatch an agent self-update (M4-3) ----
+  // The payload = agent.mjs + runtime.mjs from the manager's current static surface + the digest of the two concatenated;
+  // the agent verifies it, swaps itself in atomically and exits, and the service manager restarts it to load the new code.
   app.post<{ Params: { id: string } }>(
     '/api/agents/:id/update',
     { preHandler: requireUser, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
@@ -515,7 +515,7 @@ export const registerAgentsRoutes = (
       const files = Object.fromEntries(
         ['agent.mjs', 'runtime.mjs', 'update.mjs'].map((name) => [name, readFileSync(join(agentDir, name), 'utf8')]),
       )
-      // 摘要 = 按文件名排序的「文件名 + 内容」拼接（agent 侧同构）
+      // The digest = the concatenation of "filename + content" sorted by filename (isomorphic on the agent side)
       const sha256 = createHash('sha256')
         .update(Object.keys(files).sort().map((name) => `${name}:${files[name]}`).join('\n'))
         .digest('hex')

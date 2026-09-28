@@ -31,17 +31,17 @@ const page = (label: string, blocks: unknown[], extra: Record<string, unknown> =
 
 test('accepts every block type in the catalogue', () => {
   const samples: unknown[] = [
-    { type: 'kpi', items: [{ label: '收入', value: '¥1,200', tone: 'good' }] },
-    { type: 'metrics', items: [{ name: '体重', value: '71.5kg', target: '72.5kg' }] },
-    { type: 'list', items: [{ text: '写周报', note: '周五前', tag: 'P0' }] },
-    { type: 'table', columns: ['日期', '金额'], rows: [['08-30', '38']] },
-    { type: 'progress', items: [{ label: '餐饮', value: 380, max: 1000 }] },
+    { type: 'kpi', items: [{ label: 'Revenue', value: '¥1,200', tone: 'good' }] },
+    { type: 'metrics', items: [{ name: 'Weight', value: '71.5kg', target: '72.5kg' }] },
+    { type: 'list', items: [{ text: 'Write the weekly report', note: 'by Friday', tag: 'P0' }] },
+    { type: 'table', columns: ['Date', 'Amount'], rows: [['08-30', '38']] },
+    { type: 'progress', items: [{ label: 'Dining', value: 380, max: 1000 }] },
     { type: 'bars', items: [{ label: 'W33', value: -2.4 }] },
-    { type: 'pie', items: [{ label: '现金', value: 38.7 }] },
-    { type: 'checklist', items: [{ text: '早睡', done: true }] },
-    { type: 'quote', items: [{ text: '知行合一', source: '王阳明' }] },
-    { type: 'groups', groups: [{ label: '创业', items: ['重新理解创业'] }] },
-    { type: 'note', text: '这是一段说明', tone: 'info' },
+    { type: 'pie', items: [{ label: 'Cash', value: 38.7 }] },
+    { type: 'checklist', items: [{ text: 'Sleep early', done: true }] },
+    { type: 'quote', items: [{ text: 'Knowledge and action are one', source: 'Wang Yangming' }] },
+    { type: 'groups', groups: [{ label: 'Startups', items: ['Understanding Startups Again'] }] },
+    { type: 'note', text: 'This is a note', tone: 'info' },
   ]
 
   for (const sample of samples) {
@@ -54,17 +54,17 @@ test('accepts every block type in the catalogue', () => {
 test('an unknown block type becomes a visible placeholder, not a silent drop', () => {
   // A card that quietly disappears is the worst failure: the board looks fine
   // and the number you came for is simply absent.
-  const { block, problem } = parseBlock({ type: 'sparkline', title: '趋势', items: [] })
+  const { block, problem } = parseBlock({ type: 'sparkline', title: 'Trend', items: [] })
 
   assert.equal(block.type, 'unsupported')
-  assert.equal(block.title, '趋势', 'the title survives so you can tell which card broke')
+  assert.equal(block.title, 'Trend', 'the title survives so you can tell which card broke')
   assert.match(problem ?? '', /sparkline/)
   assert.match(problem ?? '', /kpi/, 'the message lists what manager does understand')
 })
 
 test('a malformed block of a known type says where it went wrong', () => {
   // The most likely mistake a model makes: a number written as a string.
-  const { block, problem } = parseBlock({ type: 'progress', items: [{ label: '餐饮', value: '380', max: 1000 }] })
+  const { block, problem } = parseBlock({ type: 'progress', items: [{ label: 'Dining', value: '380', max: 1000 }] })
 
   assert.equal(block.type, 'unsupported')
   assert.match(problem ?? '', /progress/)
@@ -72,7 +72,7 @@ test('a malformed block of a known type says where it went wrong', () => {
 })
 
 test('a block with no type at all is handled', () => {
-  const { block, problem } = parseBlock({ title: '忘了写 type' })
+  const { block, problem } = parseBlock({ title: 'forgot the type' })
   assert.equal(block.type, 'unsupported')
   assert.match(problem ?? '', /no "type"/)
 })
@@ -102,7 +102,7 @@ test('table cells accept numbers and booleans, and stringify them', () => {
   // and it used to turn the entire table into an error card.
   const { block, problem } = parseBlock({
     type: 'table',
-    columns: ['日期', '金额', '已核对'],
+    columns: ['Date', 'Amount', 'Reconciled'],
     rows: [['08-30', 38, true], ['08-31', 12.5, false]],
   })
 
@@ -127,7 +127,7 @@ test('objects in a table cell are still rejected', () => {
 })
 
 test('checklist done defaults to false when omitted', () => {
-  const { block } = parseBlock({ type: 'checklist', items: [{ text: '冥想' }] })
+  const { block } = parseBlock({ type: 'checklist', items: [{ text: 'Meditate' }] })
   assert.equal(block.type, 'checklist')
   assert.equal((block as { items: { done: boolean }[] }).items[0]?.done, false)
 })
@@ -138,19 +138,19 @@ test('checklist done defaults to false when omitted', () => {
 
 test('reads meta and pages, ordering by order then filename', () => {
   const root = makeWorkspace({
-    'meta.json': { title: '个人大盘', asOf: '2026-08-30' },
-    'zebra.json': page('最后', [], { order: 9 }),
-    'alpha.json': page('第一', [], { order: 1 }),
-    'money.json': page('记账', [], { order: 5 }),
+    'meta.json': { title: 'Personal dashboard', asOf: '2026-08-30' },
+    'zebra.json': page('Last', [], { order: 9 }),
+    'alpha.json': page('First', [], { order: 1 }),
+    'money.json': page('Bookkeeping', [], { order: 5 }),
   })
 
-  const board = readBoard(root, '兜底标题')
+  const board = readBoard(root, 'Fallback title')
 
-  assert.equal(board.title, '个人大盘')
+  assert.equal(board.title, 'Personal dashboard')
   assert.equal(board.asOf, '2026-08-30')
   assert.deepEqual(
     board.pages.map((p) => p.label),
-    ['第一', '记账', '最后'],
+    ['First', 'Bookkeeping', 'Last'],
   )
 })
 
@@ -168,12 +168,12 @@ test('pages without an explicit order come last, sorted by filename', () => {
 })
 
 test('the page key defaults to the filename, so an agent need not repeat it', () => {
-  const root = makeWorkspace({ 'health.json': page('健康', []) })
+  const root = makeWorkspace({ 'health.json': page('Health', []) })
   assert.equal(readBoard(root, 't').pages[0]?.key, 'health')
 })
 
 test('meta.json is configuration, not a page', () => {
-  const root = makeWorkspace({ 'meta.json': { title: 'T' }, 'overview.json': page('总览', []) })
+  const root = makeWorkspace({ 'meta.json': { title: 'T' }, 'overview.json': page('Overview', []) })
   const board = readBoard(root, 't')
   assert.equal(board.pages.length, 1)
   assert.equal(board.pages[0]?.key, 'overview')
@@ -181,9 +181,9 @@ test('meta.json is configuration, not a page', () => {
 
 test('an uninitialised workspace reads as empty, not as an error', () => {
   const root = mkdtempSync(join(tmpdir(), 'board-bare-'))
-  const board = readBoard(root, '兜底标题')
+  const board = readBoard(root, 'Fallback title')
 
-  assert.equal(board.title, '兜底标题')
+  assert.equal(board.title, 'Fallback title')
   assert.deepEqual(board.pages, [])
   assert.deepEqual(board.problems, [])
 })
@@ -191,14 +191,14 @@ test('an uninitialised workspace reads as empty, not as an error', () => {
 test('a broken page is reported and the others still load', () => {
   // Half-written JSON is the expected consequence of an interrupted agent turn.
   const root = makeWorkspace({
-    'good.json': page('好的', [{ type: 'note', text: '正常' }], { order: 1 }),
-    'broken.json': '{ "label": "坏的", "blocks": [',
+    'good.json': page('Good', [{ type: 'note', text: 'Fine' }], { order: 1 }),
+    'broken.json': '{ "label": "Broken", "blocks": [',
   })
 
   const board = readBoard(root, 't')
 
   assert.equal(board.pages.length, 1, 'one bad file must not cost the whole board')
-  assert.equal(board.pages[0]?.label, '好的')
+  assert.equal(board.pages[0]?.label, 'Good')
   assert.equal(board.problems.length, 1)
   assert.equal(board.problems[0]?.file, `${BOARD_DIR}/broken.json`)
   assert.match(board.problems[0]?.detail ?? '', /not valid JSON/)
@@ -206,10 +206,10 @@ test('a broken page is reported and the others still load', () => {
 
 test('a bad block is reported and the surrounding blocks survive', () => {
   const root = makeWorkspace({
-    'overview.json': page('总览', [
-      { type: 'note', text: '前面' },
+    'overview.json': page('Overview', [
+      { type: 'note', text: 'Before' },
       { type: 'nonsense' },
-      { type: 'note', text: '后面' },
+      { type: 'note', text: 'After' },
     ]),
   })
 
@@ -226,10 +226,10 @@ test('a bad block is reported and the surrounding blocks survive', () => {
 })
 
 test('a corrupt meta.json does not cost the pages', () => {
-  const root = makeWorkspace({ 'meta.json': '{oops', 'overview.json': page('总览', []) })
-  const board = readBoard(root, '兜底标题')
+  const root = makeWorkspace({ 'meta.json': '{oops', 'overview.json': page('Overview', []) })
+  const board = readBoard(root, 'Fallback title')
 
-  assert.equal(board.title, '兜底标题', 'falls back rather than failing')
+  assert.equal(board.title, 'Fallback title', 'falls back rather than failing')
   assert.equal(board.pages.length, 1)
   assert.equal(board.problems.length, 1)
 })
@@ -244,7 +244,7 @@ test('a page missing its label is rejected with a reason', () => {
 
 test('non-json files in board/ are ignored', () => {
   // Agents leave notes and editors leave backups; neither is a page.
-  const root = makeWorkspace({ 'overview.json': page('总览', []), 'README.md': '# 说明', 'notes.txt': 'x' })
+  const root = makeWorkspace({ 'overview.json': page('Overview', []), 'README.md': '# Notes', 'notes.txt': 'x' })
   assert.equal(readBoard(root, 't').pages.length, 1)
   assert.equal(readBoard(root, 't').problems.length, 0)
 })

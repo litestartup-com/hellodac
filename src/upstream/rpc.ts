@@ -1,9 +1,9 @@
 /**
  * Unary RPC caller for the DSH apiproxy contract.
  *
- * 债务 E16:wire 格式的核实笔记已迁设计库事实卡 dsh-facts.md §9(RPC 段);
- * 要点:业务成败只看 `result.ok` 不看 HTTP 状态码、envelope method 必须与
- * 路径一致、白名单 fail-closed。
+ * Debt E16: the notes verifying the wire format moved to the design library's fact card
+ * dsh-facts.md §9 (RPC section); the points: business success is `result.ok` alone, not the
+ * HTTP status code; the envelope method must match the path; the allowlist fails closed.
  */
 
 import { z } from 'zod'
@@ -63,11 +63,11 @@ export class UpstreamError extends Error {
   }
 }
 
-// ---- wire schema（债务 E8:判别式 zod 替代手工 typeof 拍平） ----
+// ---- wire schema (Debt E8: a discriminated zod schema replaces hand-flattened typeof checks) ----
 
 /**
- * server-response 的判别 schema（wire 形状见模块头注释，DSH 0.1.1-rc.2 实证）。
- * ok:false 缺 error 分支 = 畸形上游应答——不猜原因,显性失败(fail-loud)。
+ * The discriminated schema for server-response (wire shape in the module header; verified against DSH 0.1.1-rc.2).
+ * ok:false with no error branch = malformed upstream reply -- fail loud, no guessing at the reason.
  */
 const rpcEnvelopeSchema = z.object({
   type: z.literal('server-response'),
@@ -134,8 +134,8 @@ export async function rpc<T = unknown>(
 
   const parsed = rpcEnvelopeSchema.safeParse(raw)
   if (!parsed.success) {
-    // 债务 E8:判别 schema 一次兜住——非 server-response / 缺 result /
-    // ok:false 缺 error 分支,全部显性失败,不猜上游意图。
+    // Debt E8: the discriminated schema catches it in one place -- not server-response /
+    // missing result / ok:false with no error branch all fail loud, no guessing at upstream intent.
     throw new Error(`upstream ${method}: response missing "result" field or malformed server-response`)
   }
   const json = parsed.data

@@ -8,10 +8,10 @@ import type { SessionDriver } from '../session-driver/port.js'
 import { listArchivedChats, listChats } from '../chat/store.js'
 import { activeRunCount, runningRunId } from '../runner.js'
 import { currentMonth, monthByAgent } from '../usage/store.js'
-// 舰队 M1 试点回归：兼容性信号走版本矩阵（0.1.5-rc.2 是 verified 行，
-// 旧逻辑 === COMPAT_DSH_VERSION 会把它误报为不兼容）
+// Fleet M1 pilot regression: the compatibility signal goes through the version matrix (0.1.5-rc.2 is a verified
+// row, and the old === COMPAT_DSH_VERSION logic misreported it as incompatible)
 import { dshCompatible } from '../dsh-matrix.js'
-// 债务 D5:manager 自身版本(构建期注入,与 DSH 兼容版本勿混淆)
+// Debt D5: the manager's own version (injected at build time; do not confuse it with the DSH compatibility version)
 import { MANAGER_VERSION } from '../version.js'
 
 export interface EndpointStatus {
@@ -23,9 +23,9 @@ export interface EndpointStatus {
   apiKeySet: boolean | null
   enabled: boolean | null
   error: string | null
-  /** 蜂群2计划 P1：apiproxy 探测到的节点 DSH 版本；gateway/未知 = null。 */
+  /** Hive plan 2 P1: the node's DSH version as probed over apiproxy; gateway/unknown = null. */
   dshVersion: string | null
-  /** 舰队 M1 试点回归：按版本矩阵判定（dsh-matrix.ts）；null = 版本未知（无告警）。 */
+  /** Fleet M1 pilot regression: decided by the version matrix (dsh-matrix.ts); null = version unknown (no warning). */
   dshCompatible: boolean | null
 }
 
@@ -34,7 +34,7 @@ export interface EndpointStatus {
  * - gateway  → the old plugin's own GET /health
  * - apiproxy → one bounded host.describe RPC (there is no /health under /api)
  *
- * Exported for the nodes route (蜂群 P3): an unmanaged node's state *is* its
+ * Exported for the nodes route (Hive P3): an unmanaged node's state *is* its
  * probe result.
  */
 export const probeEndpoint = async (
@@ -68,8 +68,8 @@ export const probeEndpoint = async (
       const version = await upstream.probeVersion()
       row.reachable = true
       if (version !== 'unknown') {
-        // 0.1.2 起 host.describe 由 facade 合成，version 返回宿主树的真实 DSH
-        // 版本（读不到回退协议号 '0.0.1'）——展示用，且据此给兼容性信号。
+        // From 0.1.2 on, host.describe is synthesised by the facade and version returns the real DSH
+        // version of the host tree (falling back to the protocol number '0.0.1' when unreadable) -- for display, and the compatibility signal follows from it.
         row.dshVersion = version
         row.dshCompatible = dshCompatible(version)
       }
@@ -102,16 +102,16 @@ export const probeEndpoint = async (
 }
 
 /**
- * 债务 B4:探测结果 TTL 缓存。前端每 5s 轮询 /api/status,旧代码每请求对
- * 所有端点扇出真实探测(节点越多风暴越大,慢探测拖长整页)。
- * 缓存 = 同一个 TTL 窗口内的轮询全部命中;过期或显式清除后恢复探测。
- * 注:supervisor 已在后台维护节点生命周期状态,「读监督器快照」的更彻底
- * 方案留待 B 类后续(需要把 HTTP 探活语义并入 supervisor,改动面大)。
+ * Debt B4: a TTL cache for probe results. The frontend polls /api/status every 5s, and the old code fanned
+ * out a real probe to every endpoint on every request (the more nodes, the bigger the storm, and a slow probe
+ * dragged the whole page out). Cached = every poll inside one TTL window hits; past the TTL or after an explicit
+ * clear, probing resumes. Note: the supervisor already maintains node lifecycle state in the background, so the
+ * more thorough "read the supervisor snapshot" option waits for a later B-class pass (folding HTTP probe semantics into the supervisor is a big change).
  */
 const probeCache = new Map<string, { at: number; result: EndpointStatus }>()
 const PROBE_TTL_MS = 5_000
 
-/** Testing only:清探测缓存(避免测试间 TTL 残留)。 */
+/** Testing only: clear the probe cache (so no TTL residue leaks between tests). */
 export const _clearProbeCache = (): void => {
   probeCache.clear()
 }
@@ -136,7 +136,7 @@ export const registerStatusRoutes = (
   clients: Map<string, GatewayClient>,
   requireUser: preHandlerHookHandler,
   upstreamClients: Map<string, SessionDriver>,
-  /** 节点监督器（agent 详情面板取容器镜像标签用；无 docker 形态则为空或查不到）。 */
+  /** Node supervisors (the agent detail panel reads the container image tag from them; without docker it is empty or the lookup misses). */
   supervisors: Map<string, import('../nodes/supervisor.js').NodeSupervisor> = new Map(),
 ): void => {
   /** Liveness for a supervisor. Intentionally unauthenticated and contentless. */
@@ -145,7 +145,7 @@ export const registerStatusRoutes = (
   app.get('/api/status', { preHandler: requireUser }, async (_request, reply) => {
     // Every configured endpoint gets a row, whatever its driver: the green dot
     // is the page's whole job, and a missing row reads as "forgotten", not "down".
-    // 债务 B4:TTL 缓存——轮询窗口内复用上一次探测,不每请求扇出。
+    // Debt B4: the TTL cache -- reuse the previous probe inside the polling window instead of fanning out per request.
     const endpoints: EndpointStatus[] = await Promise.all(
       Object.keys(config.endpoints).map((id) => probeCached(config, clients, upstreamClients, id)),
     )
@@ -183,7 +183,7 @@ export const registerStatusRoutes = (
 
     const health = await probeCached(config, clients, upstreamClients, agent.endpoint)
 
-    // 容器形态：节点镜像标签（镜像 tag 即 DSH 版本）——详情面板优先展示它。
+    // Container form: the node's image tag (the image tag is the DSH version) -- the detail panel shows it first.
     const image = await supervisors.get(agent.endpoint)?.containerImage() ?? null
 
     // Sharing an endpoint is the fact most worth surfacing here: a DSH sandbox

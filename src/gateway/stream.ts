@@ -1,9 +1,9 @@
 /**
  * SSE consumer for a gateway session stream.
  *
- * 债务 E16:wire 格式核实笔记已迁设计库事实卡 dsh-facts.md §9(gateway SSE 段);
- * 要点:无 event: 行(帧类型在 JSON 的 kind)、hello 携带全部历史(计费必须
- * 忽略)、turn_end 后流不自行关闭(停止是调用方的责任)。
+ * Debt E16: the notes verifying the wire format moved to the design library's fact card dsh-facts.md §9 (gateway SSE);
+ * the essentials: there is no event: line (the frame type is the JSON kind), hello carries the whole history (billing
+ * must ignore it), and the stream does not close itself after turn_end (stopping it is the caller's job).
  */
 
 export interface TokenUsage {

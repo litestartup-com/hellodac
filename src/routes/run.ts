@@ -13,8 +13,8 @@ const runBody = z.object({
 })
 
 /**
- * 债务 E9:API 面钱字段统一 MicroUsd 命名——旧代码把 usage 行裸列名
- * (cost/peakCost,无单位后缀)直接透出,与全站 costMicroUsd 口径漂移。
+ * Debt E9: money fields on the API surface renamed to a uniform MicroUsd -- the old code passed the usage
+ * row's bare column names (cost/peakCost, no unit suffix) straight through, drifting from the site-wide costMicroUsd convention.
  */
 const usageApi = (u: (typeof schema.usageRecord.$inferSelect) | null | undefined) => {
   if (u === undefined || u === null) return null
@@ -130,10 +130,10 @@ export const registerRunRoutes = (
     },
   )
 
-  // 蜂群 Q4：全局最近任务流，跨所有 agent。/nodes 页的第二栏用，
-  // 主脑在脑内看不到全局，节点页就是它的后视镜。
-  // 舰队 UI 收尾 A：升级为筛选分页（任务页数据源）——agent_id/state/before
-  // 游标 + next（before = 上一页末条 startedAt）。
+  // Hive Q4: the global recent-task feed, across all agents. Used by the second column of the /nodes page:
+  // the brain cannot see the global picture from inside itself, so the nodes page is its rear-view mirror.
+  // Fleet UI wrap-up A: upgraded to filtered pagination (the data source for the tasks page) -- agent_id/state/before
+  // cursor + next (before = the startedAt of the last row on the previous page).
   app.get<{ Querystring: { limit?: string; agent_id?: string; state?: string; before?: string } }>(
     '/api/runs',
     { preHandler: requireUser },
@@ -153,8 +153,8 @@ export const registerRunRoutes = (
         .all()
       const hasMore = rows.length > limit
       const page = hasMore ? rows.slice(0, limit) : rows
-      // 游标 = 本页末条 startedAt（无末条 = 没有下一页）；用 at(-1) 取值，
-      // 避免非空断言（lint 里 no-non-null-assertion 是 error 级）。
+      // The cursor is the startedAt of this page's last row (no last row = no next page); read it with at(-1)
+      // to avoid a non-null assertion (no-non-null-assertion is an error in lint).
       const last = page.at(-1) ?? null
       return reply.header('cache-control', 'no-store').send({
         next: hasMore && last !== null ? last.startedAt : null,

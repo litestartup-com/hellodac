@@ -14,11 +14,12 @@ import type { AppConfig } from '../config.js'
 import { DEFAULT_PRICING } from '../pricing.js'
 
 /**
- * 债务 S3 收尾：除登录外，变更类端点也必须限流（P1）。
+ * Debt S3 wrap-up: besides login, the mutating endpoints have to be rate-limited too (P1).
  *
- * 登录限流已就位（10/min，P0-4 回归），但 nodes 起停、节点增删、
- * internal 派工仍是无限流写端点——有会话/令牌的攻击者可以无限打。
- * 本测试 hammer 各写端点，断言限流确实生效（先红后绿）。
+ * Login rate limiting is in place (10/min, the P0-4 regression), but starting and stopping nodes, adding and
+ * deleting nodes, and internal dispatch are still unthrottled write endpoints -- an attacker holding a
+ * session or a token can hammer them without limit.
+ * This test hammers each write endpoint and asserts that the limit really applies (red first, then green).
  */
 
 const BRAIN_TOKEN = 'brain-token-42'
@@ -30,7 +31,7 @@ const configFor = (): AppConfig => {
     listen: { host: '127.0.0.1', port: 0 },
     endpoints: { A: { id: 'A', url: 'http://127.0.0.1:1', driver: 'gateway', prefix: '/api-gw/v1', key: 'k', sandboxBase: null, sandboxKey: '', spawn: null, access: null } },
     agents: {
-      personal: { id: 'personal', name: '个人', endpoint: 'A', workspacePath: '.', public: false, preset: null, sandboxMode: null, gitRemote: null, provider: null, model: null, validate: null },
+      personal: { id: 'personal', name: 'Personal', endpoint: 'A', workspacePath: '.', public: false, preset: null, sandboxMode: null, gitRemote: null, provider: null, model: null, validate: null },
     },
     runner: { timeoutMs: 1_000, silenceMs: 0, maxConsecutiveFailures: 3, dailyBudgetMicroUsd: null },
     databasePath: join(dir, 'manager.db'),
@@ -51,21 +52,21 @@ const hammer = async (app: ReturnType<typeof Fastify>, opts: { method: 'POST' | 
   return codes
 }
 
-/** nodes 起停需要 supervisor；加限流的是路由本身，handler 体不必真实执行。 */
+/** Starting and stopping nodes needs a supervisor; the rate limit sits on the route itself, so the handler body need not really run. */
 const buildNodesApp = async (): Promise<ReturnType<typeof Fastify>> => {
   const app = Fastify()
   await app.register(rateLimit, { global: false })
   const config = configFor()
   const supervisor = new NodeSupervisor('A', { probe: async () => ({ ok: false, detail: 'x' }), spawn: () => { throw new Error('no real spawn') }, killTree: () => {} })
   registerNodesRoutes(app, config, new Map([['A', supervisor]]), new Map(), new Map(), async () => {})
-  // 测试里不插 agent 行会导致 handler 404/500 都没关系——429 必须出现在限流层
+  // Not inserting an agent row in the test can make the handler 404 or 500 -- that is fine: the 429 has to come from the rate-limit layer
   return app
 }
 
-test('债务 S3: /api/nodes/:id/down 限流(20/min),窗口内超限 429', async () => {
+test('Debt S3: /api/nodes/:id/down is rate-limited (20/min), and over the limit 429s inside the window', async () => {
   const app = await buildNodesApp()
   const codes = await hammer(app, { method: 'POST', url: '/api/nodes/A/down' }, 22)
-  assert.ok(codes.some((c) => c === 429), `hammer 后必须出现 429,实际 ${codes.slice(0, 5).join(',')}...`)
+  assert.ok(codes.some((c) => c === 429), `a 429 must appear after the hammering, got ${codes.slice(0, 5).join(',')}...`)
 })
 
 const buildProvisionApp = async (): Promise<ReturnType<typeof Fastify>> => {
@@ -77,10 +78,10 @@ const buildProvisionApp = async (): Promise<ReturnType<typeof Fastify>> => {
   return app
 }
 
-test('债务 S3: POST /api/nodes(开通节点)限流(20/min),窗口内超限 429', async () => {
+test('Debt S3: POST /api/nodes (provisioning a node) is rate-limited (20/min), and over the limit 429s inside the window', async () => {
   const app = await buildProvisionApp()
   const codes = await hammer(app, { method: 'POST', url: '/api/nodes', headers: { 'content-type': 'application/json' } }, 22)
-  assert.ok(codes.some((c) => c === 429), `hammer 后必须出现 429,实际 ${codes.slice(0, 5).join(',')}...`)
+  assert.ok(codes.some((c) => c === 429), `a 429 must appear after the hammering, got ${codes.slice(0, 5).join(',')}...`)
 })
 
 const buildInternalApp = async (): Promise<ReturnType<typeof Fastify>> => {
@@ -92,8 +93,8 @@ const buildInternalApp = async (): Promise<ReturnType<typeof Fastify>> => {
   return app
 }
 
-test('债务 S3: /api/internal/dispatch 限流(60/min),窗口内超限 429', async () => {
+test('Debt S3: /api/internal/dispatch is rate-limited (60/min), and over the limit 429s inside the window', async () => {
   const app = await buildInternalApp()
   const codes = await hammer(app, { method: 'POST', url: '/api/internal/dispatch', headers: { 'x-brain-token': BRAIN_TOKEN, 'content-type': 'application/json' } }, 62)
-  assert.ok(codes.some((c) => c === 429), `hammer 后必须出现 429,实际 ${codes.slice(0, 5).join(',')}...`)
+  assert.ok(codes.some((c) => c === 429), `a 429 must appear after the hammering, got ${codes.slice(0, 5).join(',')}...`)
 })

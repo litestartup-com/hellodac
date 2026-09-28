@@ -43,13 +43,13 @@ export interface ChatRow {
   createdAt: number
   lastActiveAt: number
   removedAt: number | null
-  /** 对外归属：三列全 null = 对内会话（口径 CONCEPTS-ALIGNED.md §6）。 */
+  /** Outward ownership: all three columns null = an internal chat (§6 of CONCEPTS-ALIGNED.md). */
   apiKeyId: string | null
   externalUserId: string | null
   serviceId: string | null
 }
 
-/** 对外会话的归属（对内会话三个都缺省 = null）。`externalUserId` 为 null = 调用方自己存会话号续聊。 */
+/** Outward chat ownership (all three absent on an internal chat = null). A null `externalUserId` = the caller keeps the chat id itself. */
 export interface ChatOwner {
   apiKeyId: string
   externalUserId: string | null
@@ -76,10 +76,11 @@ export const createChat = (db: Db, agentId: string, now = Date.now(), owner?: Ch
 }
 
 /**
- * 粘性查询：这把钥匙名下、这个外部用户的**活**会话。
+ * Sticky lookup: the **live** chat of this external user under this key.
  *
- * 依靠 `chat_api_key_user_live` 这条部分唯一索引保证最多一条，所以这里不需要排序取最新
- * ——真有两条就是索引被绕过（手工改库），那时应当抛错而不是随便挑一条让客户失忆。
+ * The partial unique index `chat_api_key_user_live` guarantees at most one row, so no sorting for
+ * the newest is needed -- two rows mean the index was bypassed (a manual DB edit), which must throw
+ * rather than pick one at random and wipe the customer's memory.
  */
 export const findLiveConversation = (db: Db, apiKeyId: string, externalUserId: string): ChatRow | null => {
   const rows = db
@@ -109,8 +110,8 @@ export interface ChatListItem extends ChatRow {
  *
  * Removed chats are excluded rather than deleted; see `removeChat`.
  *
- * 债务 E16:回合计数用二次分组查询而非相关子查询的原因(「聪明」写法静默
- * 计 0 的事故复盘)见 docs/adr/0003-chat-turn-count-query.md。
+ * Debt E16: why turn counting uses a two-level grouped query instead of a correlated subquery (a
+ * post-mortem of the clever version silently counting 0) is in docs/adr/0003-chat-turn-count-query.md.
  */
 export const listChats = (db: Db, agentId: string, limit = 100): ChatListItem[] => {
   const rows = db
@@ -181,9 +182,9 @@ export const removeChat = (db: Db, chatId: string, now = Date.now()): void => {
 }
 
 /**
- * 蜂群2计划 P6：孤儿会话归档——agent 已从配置删除的未归档会话，任何 API 都
- * 409 `agent_gone`（chat.ts resolve），UI 上永久发不出消息。boot 对账时统一
- * 软归档（removed_at），与手动归档同语义，数据不丢。返回归档条数。
+ * Hive plan 2 P6: orphan chat archiving -- an unarchived chat whose agent is gone from the config
+ * 409s `agent_gone` on every API (chat.ts resolve) and can never send a message in the UI. Boot
+ * reconcile soft-archives them (removed_at), as a manual archive would, losing no data; returns the count.
  */
 export const archiveOrphanChats = (db: Db, knownAgentIds: Set<string>, now = Date.now()): number => {
   const rows = db

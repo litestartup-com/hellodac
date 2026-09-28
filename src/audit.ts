@@ -1,6 +1,6 @@
 /**
- * 蜂群2计划 P3：审计留痕 —— 登录成败 / 改密 / 节点操作 / 备份。
- * 只追加不修改（append-only）；行数由保留策略控制（未来做轮转，本版先全留）。
+ * Hive plan 2 P3: the audit trail -- login success and failure / password change / node operations / backups.
+ * Append-only; the row count is bounded by the retention policy (rotation comes later, this version keeps everything).
  */
 import { desc } from 'drizzle-orm'
 import { schema, type Db } from './db/index.js'
@@ -26,7 +26,7 @@ export type AuditKind =
   | 'agent_deleted'
   | 'sandbox_mode'
   | 'backup'
-  // 对外 API（设计稿 manager/topics/public-api.md）：钥匙生命周期与对外调用。
+  // The outward API (design doc manager/topics/public-api.md): key lifecycle and outward calls.
   | 'api_key_created'
   | 'api_key_revoked'
   | 'api_call'

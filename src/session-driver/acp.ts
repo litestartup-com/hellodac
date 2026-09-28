@@ -1,28 +1,28 @@
 /**
- * AcpSessionDriver —— SessionDriver 插头二（ACP 窄桥，TRANSLATOR-OPTIONS §5/§6
- * 拍板「窄桥提前建」）。北向 = manager 上层（端口），南向 = 官方 ACP
- * （JSON-RPC over stdio，`dsh --profile acp` 子进程）。
+ * AcpSessionDriver -- SessionDriver plug two (the ACP narrow bridge; TRANSLATOR-OPTIONS sections 5 and 6
+ * settled on "build the narrow bridge early"). Northbound = the manager's upper layer (the port), southbound = the official ACP
+ * (JSON-RPC over stdio, a `dsh --profile acp` child process).
  *
- * 桥的形态 = 中继：SDK 自带完整客户端（ClientApp/ActiveSession），本件只做
- * 「ACP 面 ↔ 端口九操作」的窄面映射。**窄面声明**（不承担全能力，入档）：
- * - 无 transcript replay：history 恒返回空事件（cold）——ACP 没有回放面；
- * - 无问题（ask_user_question）：ACP 只有工具权限（request_permission），
- *   一律映射为老 approval_pending 帧；answerQuestion/declineQuestion 恒
- *   not-pending；
- * - 无沙箱钉模式：setSandboxMode 不实现（端口可选能力）；
- * - 无 fork/rename/steer 等全能力（facade 主通道的功能面不动摇）。
+ * The shape of the bridge = a relay: the SDK already ships a complete client (ClientApp/ActiveSession), so this file only does
+ * the narrow mapping "the ACP surface <-> the port's nine operations". **The narrow-surface declaration** (it does not carry full capability; on record):
+ * - no transcript replay: history always returns empty events (cold) -- ACP has no replay surface;
+ * - no questions (ask_user_question): ACP has tool permissions only (request_permission), so they
+ *   all map to the old approval_pending frame; answerQuestion/declineQuestion always report
+ *   not-pending;
+ * - no pinned sandbox mode: setSandboxMode is not implemented (an optional port capability);
+ * - no full capabilities such as fork/rename/steer (the facade's main channel keeps its feature surface unchanged).
  *
- * 帧翻译（SessionUpdate → GatewayFrame）：
- * - agent_message_chunk → 'chunk'（text-delta）；累计文本在 stop 时合成一条
- *   'message' 帧（usage 取 usage_update 的最近值，缺省不报）；
- * - tool_call → 'tool_call'（title/name → name；ACP 初始帧无参数正文）；
- * - stop → 'turn_end'（StopReason：end_turn→completed、cancelled→aborted、
- *   其余→completed）。
+ * Frame translation (SessionUpdate -> GatewayFrame):
+ * - agent_message_chunk -> 'chunk' (text-delta); the accumulated text is synthesized into one
+ *   'message' frame at stop (usage takes the latest usage_update value, and stays unreported when absent);
+ * - tool_call -> 'tool_call' (title/name -> name; an ACP initial frame has no argument body);
+ * - stop -> 'turn_end' (StopReason: end_turn->completed, cancelled->aborted,
+ *   anything else -> completed).
  *
- * 权限流：ACP agent 发 `session/request_permission` → 驱动铸 rpcId →
- * 广播老 approval_pending 帧 + 挂起 → manager decideApproval 到达 →
- * 按 outcome 选 option（allowed-once→allow_once、rejected→reject_once，
- * 缺对应 option 退化 cancelled）回应。
+ * The permission flow: the ACP agent sends `session/request_permission` -> the driver mints an rpcId ->
+ * it broadcasts the old approval_pending frame and suspends -> the manager's decideApproval arrives ->
+ * it picks the option by outcome (allowed-once->allow_once, rejected->reject_once, and
+ * falls back to cancelled when the matching option is missing) and answers.
  */
 import { spawn, type ChildProcess } from 'node:child_process'
 import { Readable, Writable } from 'node:stream'
@@ -37,10 +37,10 @@ import type { UpstreamCreatedSession, UpstreamSessionHistory } from '../upstream
 import type { RpcReceipt } from '../upstream/respond.js'
 import type { GatewayFrame } from '../gateway/stream.js'
 
-/** 把驱动持有的 ClientApp 接到一条 ACP 连接上（生产 = 子进程 stdio；测试 = 进程内 agent app）。 */
+/** Attach the ClientApp the driver holds to one ACP connection (in production = the child process stdio; in tests = an in-process agent app). */
 export type AcpOpen = (app: ClientApp) => Promise<ClientConnection>
 
-/** 生产传输：spawn `dsh --profile acp`，stdio 换行 JSON 帧成 Stream。 */
+/** The production transport: spawn `dsh --profile acp` and turn the stdio newline-delimited JSON frames into a Stream. */
 export const acpSubprocessOpen = (
   command: string,
   args: string[],
@@ -89,7 +89,7 @@ const textOf = (content: unknown): string => {
 const stopReasonToTurnReason = (stop: string): string => {
   if (stop === 'end_turn') return 'completed'
   if (stop === 'cancelled') return 'aborted'
-  return 'completed' // max_tokens / max_turn_requests / refusal：窄面映射为 completed
+  return 'completed' // max_tokens / max_turn_requests / refusal: the narrow surface maps them to completed
 }
 
 export class AcpSessionDriver implements SessionDriver {
@@ -107,7 +107,7 @@ export class AcpSessionDriver implements SessionDriver {
     if (this.connection !== null) return this.connection
     if (this.opening === null) {
       this.opening = (async () => {
-        // 驱动持有 ClientApp：权限 handler 必须注册在连接用的同一实例上。
+        // The driver holds the ClientApp: the permission handler must be registered on the same instance the connection uses.
         const app: ClientApp = client()
         app.onRequest('session/request_permission', async (context) => {
           const params = context.params
@@ -161,7 +161,7 @@ export class AcpSessionDriver implements SessionDriver {
   }
 
   async history(sessionId: string): Promise<UpstreamSessionHistory> {
-    // 窄面：ACP 无 transcript replay，也无 goal 投影。
+    // Narrow surface: ACP has no transcript replay, and no goal projection either.
     return { sessionId, sessionState: 'cold', title: null, events: [], composer: { model: null, context: null, accessMode: null }, goal: null }
   }
 
@@ -171,7 +171,7 @@ export class AcpSessionDriver implements SessionDriver {
   }
 
   async answerQuestion(_rpcId: string, _sessionId: string, _answer: unknown): Promise<RpcReceipt> {
-    // 窄面：ACP 无问题面（只有工具权限）。
+    // Narrow surface: ACP has no question surface (tool permissions only).
     return { accepted: false, reason: 'not-pending' }
   }
 
@@ -233,7 +233,7 @@ export class AcpSessionDriver implements SessionDriver {
         for (const frame of this.framesOf(message.update, entry)) this.emit(entry, frame)
       }
     } catch {
-      // 连接关闭时 nextUpdate 抛错：pump 终止，停止帧不再投递（上层超时兜底）。
+      // nextUpdate throws once the connection closes: the pump ends and no further frames are delivered (the upper layer's timeout is the backstop).
     }
   }
 
@@ -256,8 +256,8 @@ export class AcpSessionDriver implements SessionDriver {
           arguments: '',
         }]
       case 'usage_update':
-        // 窄面：ACP 的 usage_update 是上下文窗/成本（used/size/cost），不是
-        // 逐回合 token 用量——message 帧 usage 恒缺省，runner 不计费（入档）。
+        // Narrow surface: ACP's usage_update is the context window and cost (used/size/cost), not
+        // per-turn token usage -- the message frame's usage stays absent and the runner does not bill it (on record).
         return []
       default:
         return []

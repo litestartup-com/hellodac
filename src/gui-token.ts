@@ -1,23 +1,23 @@
 /**
- * 能力三 v1（2026-09-20）：从节点日志捕获原生 GUI 的启动行与 token。
+ * Capability three v1 (2026-09-20): capture the native GUI's startup line and token from a node's log.
  *
- * 节点启动时打出 `dsh web: http://127.0.0.1:<port>/?token=...`（0.1.5-rc.2 起
- * 带 bootstrap token，每次重启轮换；0.1.2 及以下只有裸 URL——GUI 无鉴权，
- * 隧道即唯一门禁）。manager 从 process 节点 supervisor.logs() / 容器节点
- * docker logs 拿日志，本函数取**最后一次**出现的启动行 = 当前态。
+ * A node prints `dsh web: http://127.0.0.1:<port>/?token=...` when it starts (0.1.5-rc.2 and up carry a
+ * bootstrap token, rotated on every restart; 0.1.2 and below have only the bare URL -- the GUI has no auth, so
+ * the tunnel is the only gate). The manager takes the log from supervisor.logs() for a process node or docker
+ * logs for a container node, and this function reads the **last** startup line = the current state.
  */
 
 export interface GuiTokenCapture {
-  /** 是否出现过 GUI 启动行（false = 节点还在启动/日志里还没有）。 */
+  /** Whether a GUI startup line appeared at all (false = the node is still starting / the log does not have it yet). */
   found: boolean
-  /** 0.1.5+ 的 bootstrap token；无 token 时代（0.1.2 及以下）= null。 */
+  /** The bootstrap token on 0.1.5+; null in the token-less era (0.1.2 and below). */
   token: string | null
-  /** 启动行里的完整基址（http://127.0.0.1:<真实 GUI 端口>/）；未捕获 = null。 */
+  /** The full base address from the startup line (http://127.0.0.1:<real GUI port>/); null when not captured. */
   url: string | null
 }
 
-// 两种形态：0.1.5+ `http://127.0.0.1:3080/?token=...`；0.1.2- `http://127.0.0.1:3080`
-//（裸 URL 无尾斜杠、无 token——spike 与容器实测两种行都出现过）。
+// Two shapes: 0.1.5+ `http://127.0.0.1:3080/?token=...`; 0.1.2- `http://127.0.0.1:3080`
+// (a bare URL with no trailing slash and no token -- both lines turned up in the spike and in container testing).
 const GUI_LINE = /dsh web: (http:\/\/127\.0\.0\.1:\d+)(\/\?token=([A-Za-z0-9_-]+))?/
 
 export const captureGuiToken = (logs: string): GuiTokenCapture => {
@@ -28,14 +28,14 @@ export const captureGuiToken = (logs: string): GuiTokenCapture => {
     const match = GUI_LINE.exec(line)
     if (match === null) continue
     found = true
-    // 重启轮换：后面出现的行覆盖前面——最后一次即当前态
+    // Rotated on restart: a later line overwrites an earlier one -- the last one is the current state
     token = match[3] ?? null
     base = `${match[1]}/`
   }
   return { found, token, url: base }
 }
 
-/** 拼装浏览器打开 URL：用户本机 loopback 的 localPort + 捕获到的 token。 */
+/** Assemble the browser URL: the localPort on the user's own loopback plus the captured token. */
 export const guiOpenUrl = (localPort: number, capture: GuiTokenCapture): string | null => {
   if (!capture.found) return null
   const base = `http://127.0.0.1:${localPort}/`
@@ -43,8 +43,8 @@ export const guiOpenUrl = (localPort: number, capture: GuiTokenCapture): string 
 }
 
 /**
- * 本机 loopback 节点的直连 URL（无隧道形态）：直接用启动行里的真实 GUI 端口
- * （节点自己打印的端口 = 真相，不猜配置里的端口），token 照拼。
+ * The direct URL for a local loopback node (the no-tunnel form): the real GUI port from the startup line
+ * (the port the node printed itself is the truth -- do not guess at the one in the config), with the token appended.
  */
 export const guiDirectUrl = (capture: GuiTokenCapture): string | null => {
   if (!capture.found || capture.url === null) return null

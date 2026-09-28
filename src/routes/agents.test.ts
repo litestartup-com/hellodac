@@ -14,7 +14,7 @@ const buildApp = (db: Db, requireUser: preHandlerHookHandler = async () => {}, a
   return app
 }
 
-test('能力四 M1-2: join 生成一次性 token（15 分钟过期；DB 只存哈希）', async () => {
+test('Capability four M1-2: join issues a one-time token (expires in 15 minutes; the DB stores only the hash)', async () => {
   const { db } = openDb(':memory:')
   const audits: string[] = []
   const app = buildApp(db, async () => {}, audits)
@@ -22,16 +22,16 @@ test('能力四 M1-2: join 生成一次性 token（15 分钟过期；DB 只存�
   const res = await app.inject({ method: 'POST', url: '/api/agents/join' })
   assert.equal(res.statusCode, 200, JSON.stringify(res.body))
   const body = res.json() as { token: string; expiresAt: number }
-  assert.ok(body.token.length >= 24, 'token 足够长')
-  assert.ok(body.expiresAt > Date.now() && body.expiresAt <= Date.now() + 16 * 60_000, '15 分钟过期窗口')
+  assert.ok(body.token.length >= 24, 'the token is long enough')
+  assert.ok(body.expiresAt > Date.now() && body.expiresAt <= Date.now() + 16 * 60_000, 'a 15-minute expiry window')
 
   const rows = db.select().from(schema.agentJoinToken).all()
   assert.equal(rows.length, 1)
-  assert.equal(rows[0]?.tokenHash, sha256(body.token), '库中只存哈希不存明文')
-  assert.ok(audits.includes('agent_join_issued'), '签发留痕')
+  assert.equal(rows[0]?.tokenHash, sha256(body.token), 'the DB stores the hash, never the plaintext')
+  assert.ok(audits.includes('agent_join_issued'), 'issuing is audited')
 })
 
-test('能力四 M1-2: register 用一次性 join token 换发 agent 身份（token 哈希落库）', async () => {
+test('Capability four M1-2: register exchanges a one-time join token for an agent identity (the token hash lands in the DB)', async () => {
   const { db } = openDb(':memory:')
   const audits: string[] = []
   const app = buildApp(db, async () => {}, audits)
@@ -44,27 +44,27 @@ test('能力四 M1-2: register 用一次性 join token 换发 agent 身份（tok
   })
   assert.equal(res.statusCode, 200, JSON.stringify(res.body))
   const body = res.json() as { agentId: string; agentToken: string }
-  assert.match(body.agentId, /^agent-/, 'agent id 前缀')
+  assert.match(body.agentId, /^agent-/, 'the agent id prefix')
   assert.ok(body.agentToken.length >= 32)
 
   const rows = db.select().from(schema.agentMachine).all()
   assert.equal(rows.length, 1)
   assert.equal(rows[0]?.hostname, 'srv-b')
-  assert.equal(rows[0]?.tokenHash, sha256(body.agentToken), 'agent token 只存哈希')
+  assert.equal(rows[0]?.tokenHash, sha256(body.agentToken), 'the agent token is stored as a hash only')
   assert.equal(rows[0]?.revokedAt, null)
-  assert.ok(audits.includes('agent_registered'), '注册留痕')
+  assert.ok(audits.includes('agent_registered'), 'registration is audited')
 
-  // 一次性：同一个 join token 再用 = 拒绝
+  // One-time: reusing the same join token = rejected
   const again = await app.inject({
     method: 'POST',
     url: '/api/internal/agents/register',
     payload: { joinToken: join, hostname: 'evil', os: 'linux', arch: 'amd64', nodeVersion: '22' },
   })
-  assert.equal(again.statusCode, 401, 'join token 一次性')
+  assert.equal(again.statusCode, 401, 'the join token is one-time')
   assert.equal((again.json() as { error: string }).error, 'join_token_invalid')
 })
 
-test('能力四 M1-2: register 拒绝无效/过期 join token；非法载荷 400', async () => {
+test('Capability four M1-2: register rejects an invalid/expired join token; a malformed payload is 400', async () => {
   const { db } = openDb(':memory:')
   const app = buildApp(db)
 
@@ -73,9 +73,9 @@ test('能力四 M1-2: register 拒绝无效/过期 join token；非法载荷 400
     url: '/api/internal/agents/register',
     payload: { joinToken: 'nope-not-a-token', hostname: 'x', os: 'linux', arch: 'amd64', nodeVersion: '22' },
   })
-  assert.equal(bad.statusCode, 401, '无效 token 拒绝')
+  assert.equal(bad.statusCode, 401, 'an invalid token is rejected')
 
-  // 过期 token：直接落库一个已过期的
+  // An expired token: write one straight into the DB with a past expiry
   const expired = 'expired-token-value'
   db.insert(schema.agentJoinToken).values({ tokenHash: sha256(expired), expiresAt: Date.now() - 1_000, usedAt: null, createdAt: Date.now() }).run()
   const exp = await app.inject({
@@ -83,13 +83,13 @@ test('能力四 M1-2: register 拒绝无效/过期 join token；非法载荷 400
     url: '/api/internal/agents/register',
     payload: { joinToken: expired, hostname: 'x', os: 'linux', arch: 'amd64', nodeVersion: '22' },
   })
-  assert.equal(exp.statusCode, 401, '过期 token 拒绝')
+  assert.equal(exp.statusCode, 401, 'an expired token is rejected')
 
   const malformed = await app.inject({ method: 'POST', url: '/api/internal/agents/register', payload: { joinToken: 'x' } })
-  assert.equal(malformed.statusCode, 400, '缺字段 400')
+  assert.equal(malformed.statusCode, 400, 'a missing field is 400')
 })
 
-test('能力四 M1-2: revoke 吊销 agent（requireUser 门内；未知 id 404）', async () => {
+test('Capability four M1-2: revoke retires an agent (inside the requireUser gate; an unknown id is 404)', async () => {
   const { db } = openDb(':memory:')
   const audits: string[] = []
   const app = buildApp(db, async () => {}, audits)
@@ -104,14 +104,14 @@ test('能力四 M1-2: revoke 吊销 agent（requireUser 门内；未知 id 404�
   const revoke = await app.inject({ method: 'POST', url: `/api/agents/${agentId}/revoke` })
   assert.equal(revoke.statusCode, 200, JSON.stringify(revoke.body))
   const row = db.select().from(schema.agentMachine).where(eq(schema.agentMachine.id, agentId)).all()[0]
-  assert.ok(row !== undefined && row.revokedAt !== null, '吊销落库')
-  assert.ok(audits.includes('agent_revoked'), '吊销留痕')
+  assert.ok(row !== undefined && row.revokedAt !== null, 'the revocation lands in the DB')
+  assert.ok(audits.includes('agent_revoked'), 'revocation is audited')
 
   const missing = await app.inject({ method: 'POST', url: '/api/agents/agent-nope/revoke' })
   assert.equal(missing.statusCode, 404)
 })
 
-test('舰队 UI 收尾 B: 删除机器记录——仅已吊销可删；machine+commands 随删、账单不受影响；审计留痕', async () => {
+test('Fleet UI wrap-up B: deleting a machine record -- only a revoked one can be deleted; machine+commands go with it, billing is untouched; audited', async () => {
   const { db } = openDb(':memory:')
   const audits: string[] = []
   const app = buildApp(db, async () => {}, audits)
@@ -122,27 +122,27 @@ test('舰队 UI 收尾 B: 删除机器记录——仅已吊销可删；machine+c
     payload: { joinToken: join, hostname: 'old-box', os: 'windows', arch: 'x64', nodeVersion: '22.23.2' },
   })
   const agentId = (registered.json() as { agentId: string }).agentId
-  // 塞一条指令历史
+  // Insert one command history row
   db.insert(schema.agentCommand).values({ agentId, type: 'node.spawn', payload: '{}', state: 'done', result: '{}', createdAt: Date.now() }).run()
 
-  // 未吊销 → 409
+  // Not revoked -> 409
   const notRevoked = await app.inject({ method: 'POST', url: `/api/agents/${agentId}/delete` })
   assert.equal(notRevoked.statusCode, 409, JSON.stringify(notRevoked.body))
-  assert.equal((notRevoked.json() as { error: string }).error, 'agent_not_revoked', '在线身份不可误删')
+  assert.equal((notRevoked.json() as { error: string }).error, 'agent_not_revoked', 'a live identity must not be deleted by mistake')
 
-  // 吊销后 → 删除成功，machine 行与指令历史随删
+  // After revocation -> the delete succeeds, and the machine row and command history go with it
   await app.inject({ method: 'POST', url: `/api/agents/${agentId}/revoke` })
   const del = await app.inject({ method: 'POST', url: `/api/agents/${agentId}/delete` })
   assert.equal(del.statusCode, 200, JSON.stringify(del.body))
-  assert.equal(db.select().from(schema.agentMachine).all().length, 0, 'machine 行已删')
-  assert.equal(db.select().from(schema.agentCommand).all().length, 0, '指令历史随删')
-  assert.ok(audits.includes('agent_deleted'), '删除留痕')
+  assert.equal(db.select().from(schema.agentMachine).all().length, 0, 'the machine row is gone')
+  assert.equal(db.select().from(schema.agentCommand).all().length, 0, 'the command history went with it')
+  assert.ok(audits.includes('agent_deleted'), 'deletion is audited')
 
   const again = await app.inject({ method: 'POST', url: `/api/agents/${agentId}/delete` })
-  assert.equal(again.statusCode, 404, '二次删除 404')
+  assert.equal(again.statusCode, 404, 'a second delete is 404')
 })
 
-test('能力四 M4-3: 版本协商——注册带 agentVersion 落库；心跳刷新；列表暴露 agentVersion + managerVersion', async () => {
+test('Capability four M4-3: version negotiation -- registration stores agentVersion; the heartbeat refreshes it; the list exposes agentVersion + managerVersion', async () => {
   const { db } = openDb(':memory:')
   const app = buildApp(db)
   const join = ((await app.inject({ method: 'POST', url: '/api/agents/join' })).json() as { token: string }).token
@@ -153,7 +153,7 @@ test('能力四 M4-3: 版本协商——注册带 agentVersion 落库；心跳�
   })
   const { agentId, agentToken } = registered.json() as { agentId: string; agentToken: string }
   let row = db.select().from(schema.agentMachine).where(eq(schema.agentMachine.id, agentId)).all()[0]
-  assert.equal(row?.agentVersion, '1.0.0', '注册即报版本')
+  assert.equal(row?.agentVersion, '1.0.0', 'registration reports the version')
 
   await app.inject({
     method: 'POST',
@@ -162,15 +162,15 @@ test('能力四 M4-3: 版本协商——注册带 agentVersion 落库；心跳�
     payload: { events: [{ type: 'heartbeat', detail: { agentVersion: '1.1.2' } }] },
   })
   row = db.select().from(schema.agentMachine).where(eq(schema.agentMachine.id, agentId)).all()[0]
-  assert.equal(row?.agentVersion, '1.1.2', '心跳刷新版本（自更新后上报新版本）')
+  assert.equal(row?.agentVersion, '1.1.2', 'the heartbeat refreshes the version (a self-update reports the new one)')
 
   const list = await app.inject({ method: 'GET', url: '/api/agents' })
   const body = list.json() as { agents: Array<{ agentVersion: string | null }>; managerVersion: string }
   assert.equal(body.agents[0]?.agentVersion, '1.1.2')
-  assert.match(body.managerVersion, /^\d+\.\d+\.\d+/, '列表带 manager 版本（前端徽标比较用）')
+  assert.match(body.managerVersion, /^\d+\.\d+\.\d+/, 'the list carries the manager version (the frontend compares badges with it)')
 })
 
-test('能力四 M4-3: update 端点——在线机器入队 agent.update 指令（携带双文件 + 校验和）；离线 409', async () => {
+test('Capability four M4-3: the update endpoint -- a live machine gets an agent.update command queued (both files + a checksum); offline is 409', async () => {
   const { db } = openDb(':memory:')
   const audits: string[] = []
   const app = buildApp(db, async () => {}, audits)
@@ -185,23 +185,23 @@ test('能力四 M4-3: update 端点——在线机器入队 agent.update 指令�
   const upd = await app.inject({ method: 'POST', url: `/api/agents/${agentId}/update` })
   assert.equal(upd.statusCode, 200, JSON.stringify(upd.body))
   const cmd = db.select().from(schema.agentCommand).all().find((c) => c.type === 'agent.update')
-  assert.ok(cmd !== undefined, '入队 agent.update')
+  assert.ok(cmd !== undefined, 'agent.update is queued')
   const payload = JSON.parse(cmd.payload) as { files: Record<string, string>; sha256: string; managerVersion: string }
   assert.equal(typeof payload.files['runtime.mjs'], 'string')
-  assert.ok((payload.files['runtime.mjs'] ?? '').length > 1000, 'runtime.mjs 内容随载荷')
+  assert.ok((payload.files['runtime.mjs'] ?? '').length > 1000, 'runtime.mjs travels with the payload')
   assert.equal(typeof payload.files['agent.mjs'], 'string')
-  assert.ok((payload.files['agent.mjs'] ?? '').length > 100, 'agent.mjs 内容随载荷')
-  assert.equal(typeof payload.files['update.mjs'], 'string', 'update.mjs 随载荷（入口依赖）')
+  assert.ok((payload.files['agent.mjs'] ?? '').length > 100, 'agent.mjs travels with the payload')
+  assert.equal(typeof payload.files['update.mjs'], 'string', 'update.mjs travels with the payload (the entry depends on it)')
   const digest = createHash('sha256').update(Object.keys(payload.files).sort().map((name) => `${name}:${payload.files[name]}`).join('\n')).digest('hex')
-  assert.equal(payload.sha256, digest, '校验和 = 文件名排序后的 name:内容 拼接摘要')
-  assert.ok(audits.includes('agent_update_requested'), '更新请求留痕')
+  assert.equal(payload.sha256, digest, 'the checksum = the digest of the name:content pairs joined after sorting by file name')
+  assert.ok(audits.includes('agent_update_requested'), 'the update request is audited')
 
   db.update(schema.agentMachine).set({ lastSeenAt: Date.now() - 120_000 }).where(eq(schema.agentMachine.id, agentId)).run()
   const off = await app.inject({ method: 'POST', url: `/api/agents/${agentId}/update` })
-  assert.equal(off.statusCode, 409, '离线机器不投递更新（丢指令）')
+  assert.equal(off.statusCode, 409, 'an offline machine gets no update delivery (the command would be lost)')
 })
 
-test('能力四 M4-4: 心跳指标落库 + 列表带最新快照 + 超 7 天自动清理', async () => {
+test('Capability four M4-4: heartbeat metrics land in the DB + the list carries the latest snapshot + anything older than 7 days is pruned', async () => {
   const { db } = openDb(':memory:')
   const app = buildApp(db)
   const join = ((await app.inject({ method: 'POST', url: '/api/agents/join' })).json() as { token: string }).token
@@ -220,20 +220,20 @@ test('能力四 M4-4: 心跳指标落库 + 列表带最新快照 + 超 7 天自�
   })
   assert.equal(beat.statusCode, 200)
   const rows = db.select().from(schema.agentMetric).all()
-  assert.equal(rows.length, 1, '指标落库')
-  assert.equal(rows[0]?.cpuPercent, 125, 'CPU ×10 整数（125 = 12.5%）')
+  assert.equal(rows.length, 1, 'the metric lands in the DB')
+  assert.equal(rows[0]?.cpuPercent, 125, 'CPU as an integer x10 (125 = 12.5%)')
   assert.equal(rows[0]?.memUsed, 8_000_000_000)
 
   const list = await app.inject({ method: 'GET', url: '/api/agents' })
   const body = list.json() as { agents: Array<{ id: string; latestMetric: { cpuPercent: number } | null }> }
-  assert.equal(body.agents.find((a) => a.id === agentId)?.latestMetric?.cpuPercent, 125, '列表带最新快照')
+  assert.equal(body.agents.find((a) => a.id === agentId)?.latestMetric?.cpuPercent, 125, 'the list carries the latest snapshot')
 
   const series = await app.inject({ method: 'GET', url: `/api/agents/${agentId}/metrics` })
   const sbody = series.json() as { metrics: Array<{ cpuPercent: number }>; latest: { cpuPercent: number } | null }
-  assert.equal(sbody.metrics.length, 1, '趋势端点返回序列')
+  assert.equal(sbody.metrics.length, 1, 'the trend endpoint returns the series')
   assert.equal(sbody.latest?.cpuPercent, 125)
 
-  // 超 7 天清理：插入一条 8 天前的旧指标，再心跳一次 → 旧行被清
+  // Pruning past 7 days: insert a stale metric from 8 days ago, send one more heartbeat -> the old row is gone
   db.insert(schema.agentMetric).values({ agentId, at: Date.now() - 8 * 24 * 60 * 60 * 1000, cpuPercent: 990, memTotal: 1, memUsed: 1, diskTotal: 1, diskFree: 1, uptime: 1, platform: 'linux' }).run()
   await app.inject({
     method: 'POST',
@@ -242,11 +242,11 @@ test('能力四 M4-4: 心跳指标落库 + 列表带最新快照 + 超 7 天自�
     payload: { events: [{ type: 'heartbeat', detail: { metrics: { cpuPercentTenths: 130, memTotal: 1, memUsed: 1, diskTotal: 1, diskFree: 1, uptime: 1, platform: 'linux' } } }] },
   })
   const after = db.select().from(schema.agentMetric).all()
-  assert.equal(after.some((r) => r.cpuPercent === 990), false, '超期指标已清理')
-  assert.ok(after.some((r) => r.cpuPercent === 130), '新指标保留')
+  assert.equal(after.some((r) => r.cpuPercent === 990), false, 'the expired metric was pruned')
+  assert.ok(after.some((r) => r.cpuPercent === 130), 'the new metric is kept')
 })
 
-test('能力四 M4-1: 轮换 agent token——在线才可轮换、旧 token 宽限期可用、ack 后旧 token 失效', async () => {
+test('Capability four M4-1: rotating the agent token -- only a live machine can rotate, the old token works through the grace period, and it dies after the ack', async () => {
   const { db } = openDb(':memory:')
   const audits: string[] = []
   const app = buildApp(db, async () => {}, audits)
@@ -261,23 +261,23 @@ test('能力四 M4-1: 轮换 agent token——在线才可轮换、旧 token 宽
   const rot = await app.inject({ method: 'POST', url: `/api/agents/${agentId}/rotate` })
   assert.equal(rot.statusCode, 200, JSON.stringify(rot.body))
   assert.ok((rot.json() as { ok: boolean }).ok)
-  // 新 token 不回传浏览器——只经 config.deliver 指令投递给 agent（测试从指令载荷取）
+  // The new token never goes back to the browser -- it reaches the agent only through a config.deliver command (the test reads it from the command payload)
   const cmd0 = db.select().from(schema.agentCommand).all().find((c) => c.type === 'config.deliver')
   const newToken = (JSON.parse(cmd0?.payload ?? '{}') as { agentToken?: string }).agentToken
-  assert.ok(typeof newToken === 'string' && newToken.length >= 32, '新 token 在指令载荷里')
+  assert.ok(typeof newToken === 'string' && newToken.length >= 32, 'the new token is in the command payload')
   const row = db.select().from(schema.agentMachine).where(eq(schema.agentMachine.id, agentId)).all()[0]
-  assert.equal(row?.tokenHash, sha256(newToken!), '主 token 换新（只存哈希）')
-  assert.equal(row?.prevTokenHash, sha256(oldToken), '旧 token 进宽限位')
-  assert.ok(audits.includes('agent_token_rotated'), '轮换留痕')
+  assert.equal(row?.tokenHash, sha256(newToken!), 'the primary token is renewed (hash only)')
+  assert.equal(row?.prevTokenHash, sha256(oldToken), 'the old token moves into the grace slot')
+  assert.ok(audits.includes('agent_token_rotated'), 'the rotation is audited')
 
   const auth = (token: string): Promise<number> =>
     app.inject({ method: 'GET', url: `/api/internal/agents/${agentId}/commands`, headers: { authorization: `Bearer ${token}` } }).then((r) => r.statusCode)
-  assert.equal(await auth(newToken!), 200, '新 token 立即可用')
-  assert.equal(await auth(oldToken), 200, '旧 token 宽限期内仍可用（防 ack 丢失把机器打砖）')
+  assert.equal(await auth(newToken!), 200, 'the new token works immediately')
+  assert.equal(await auth(oldToken), 200, 'the old token still works during the grace period (a lost ack must not brick the machine)')
 
-  // 投递 ack：agent 报 config.deliver 成功 → 宽限位清除 → 旧 token 失效
+  // Delivery ack: the agent reports config.deliver success -> the grace slot is cleared -> the old token dies
   const cmd = cmd0
-  assert.ok(cmd !== undefined, '轮换 = 入队一条 config.deliver 指令')
+  assert.ok(cmd !== undefined, 'a rotation = one config.deliver command queued')
   const ack = await app.inject({
     method: 'POST',
     url: `/api/internal/agents/${agentId}/events`,
@@ -286,11 +286,11 @@ test('能力四 M4-1: 轮换 agent token——在线才可轮换、旧 token 宽
   })
   assert.equal(ack.statusCode, 200)
   const after = db.select().from(schema.agentMachine).where(eq(schema.agentMachine.id, agentId)).all()[0]
-  assert.equal(after?.prevTokenHash, null, 'ack 后宽限位清除')
-  assert.equal(await auth(oldToken), 401, '旧 token 此后失效')
+  assert.equal(after?.prevTokenHash, null, 'the grace slot is cleared after the ack')
+  assert.equal(await auth(oldToken), 401, 'the old token no longer works after that')
 })
 
-test('能力四 M4-1: 离线机器轮换 409 agent_offline；apply 失败回滚回旧 token', async () => {
+test('Capability four M4-1: rotating an offline machine is 409 agent_offline; a failed apply rolls back to the old token', async () => {
   const { db } = openDb(':memory:')
   const app = buildApp(db)
   const join = ((await app.inject({ method: 'POST', url: '/api/agents/join' })).json() as { token: string }).token
@@ -300,19 +300,19 @@ test('能力四 M4-1: 离线机器轮换 409 agent_offline；apply 失败回滚�
     payload: { joinToken: join, hostname: 'srv-e', os: 'linux', arch: 'amd64', nodeVersion: '22.23.2' },
   })
   const { agentId, agentToken: oldToken } = registered.json() as { agentId: string; agentToken: string }
-  // 标记离线（lastSeenAt 超出 90s）
+  // Mark it offline (lastSeenAt more than 90s old)
   db.update(schema.agentMachine).set({ lastSeenAt: Date.now() - 120_000 }).where(eq(schema.agentMachine.id, agentId)).run()
   const off = await app.inject({ method: 'POST', url: `/api/agents/${agentId}/rotate` })
   assert.equal(off.statusCode, 409, JSON.stringify(off.body))
-  assert.equal((off.json() as { error: string }).error, 'agent_offline', '离线拒绝轮换（防打砖）')
+  assert.equal((off.json() as { error: string }).error, 'agent_offline', 'an offline machine refuses rotation (no bricking)')
 
-  // 恢复在线后轮换，agent 报 apply 失败 → 回滚
+  // Rotate again once it is back online; the agent reports a failed apply -> roll back
   db.update(schema.agentMachine).set({ lastSeenAt: Date.now() }).where(eq(schema.agentMachine.id, agentId)).run()
   const rot = await app.inject({ method: 'POST', url: `/api/agents/${agentId}/rotate` })
   assert.equal(rot.statusCode, 200)
   const cmd = db.select().from(schema.agentCommand).all().find((c) => c.type === 'config.deliver')
   const newToken = (JSON.parse(cmd?.payload ?? '{}') as { agentToken?: string }).agentToken
-  // 真实时序：agent 先长轮询领取（delivered）再回报结果
+  // The real sequence: the agent picks the command up by long poll (delivered) and only then reports the result
   const claim = await app.inject({
     method: 'GET',
     url: `/api/internal/agents/${agentId}/commands?wait=0`,
@@ -326,7 +326,7 @@ test('能力四 M4-1: 离线机器轮换 409 agent_offline；apply 失败回滚�
     payload: { events: [{ type: 'command_result', commandId: cmd!.id, ok: false, result: { message: 'apply failed' } }] },
   })
   const after = db.select().from(schema.agentMachine).where(eq(schema.agentMachine.id, agentId)).all()[0]
-  assert.equal(after?.tokenHash, sha256(oldToken), 'apply 失败回滚主 token')
+  assert.equal(after?.tokenHash, sha256(oldToken), 'a failed apply rolls the primary token back')
   assert.equal(after?.prevTokenHash, null)
 })
 

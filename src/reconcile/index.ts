@@ -1,11 +1,11 @@
 /**
- * 对账单一化（A 清单 #2，修路阶段第二项，与 SessionDriver 并列拍板）。
+ * One reconcile entry (A list #2, the second item of the road-work phase, decided alongside SessionDriver).
  *
- * 四路同步收敛进本入口：DB 注册表镜像、遗留 run / 孤儿会话收敛（boot 专用）、
- * fleet.md 派生下发、托管节点认领（docker adopt / process 拉起）。
- * **boot 与每次配置变更（provision 路由）都走 reconcileAll**——任何散落的
- * 形态分支（FK 事故 = 分支漏抄）禁止新增：改动只能回到真相源（config），
- * 由本入口收敛派生品。
+ * Four sync paths converge here: the DB registry mirror, leftover run / orphan chat convergence
+ * (boot only), the fleet.md derived handout, and managed node adoption (docker adopt / process start).
+ * **Boot and every config change (the provision route) go through reconcileAll** -- no new scattered
+ * shape branches (the FK incident was a missed branch): a change goes back to the source of truth
+ * (config) and this entry converges the derived artifacts.
  */
 import { eq, inArray } from 'drizzle-orm'
 import type { AppConfig } from '../config.js'
@@ -29,15 +29,15 @@ export interface MirrorResult {
   deleted: number
 }
 
-/** 镜像一行的最小事实面（provision 的 DB-first 步只有这些字段）。 */
+/** The minimum fact surface of one mirrored row (provision's DB-first step has only these fields). */
 export type AgentRowFace = Pick<
   import('../config.js').ResolvedAgent,
   'id' | 'name' | 'workspacePath' | 'endpoint' | 'preset' | 'gitRemote' | 'public'
 >
 
 /**
- * 镜像单个 agent 到 DB registry（insert/update 二选一，幂等）。
- * mirrorAgents 与 provision 的 DB-first 步共用这一个实现——镜像逻辑只此一处。
+ * Mirror one agent into the DB registry (insert or update, idempotent).
+ * mirrorAgents and provision's DB-first step share this one implementation -- mirroring lives here only.
  */
 export const mirrorAgentRow = (db: Db, agent: AgentRowFace): 'inserted' | 'updated' => {
   const rows = db.select({ id: schema.agent.id }).from(schema.agent).where(eq(schema.agent.id, agent.id)).all()
@@ -60,18 +60,18 @@ export const mirrorAgentRow = (db: Db, agent: AgentRowFace): 'inserted' | 'updat
   return 'updated'
 }
 
-/** 删除一行 agent（provision 回滚与收敛删除共用）。 */
+/** Delete one agent row (shared by provision rollback and convergence deletes). */
 export const removeAgentRow = (db: Db, id: string): void => {
   db.delete(schema.agent).where(eq(schema.agent.id, id)).run()
 }
 
 /**
- * DB 注册表 = 配置的派生品：逐 agent 镜像（insert/update），并按需从表里删除
- * 配置已不存在的行——唯一真相源是 manager.config.yaml。
+ * The DB registry is a derived artifact of the config: mirror each agent (insert/update) and delete
+ * rows whose config is gone -- manager.config.yaml is the only source of truth.
  *
- * removeStale=false（债务 R9：provision 热变更路径）：只镜像、不收敛删除——
- * 节点删除后其 agent 行在进程存活期内保留（账单与审计的 FK 引用），
- * boot / 周期对账的 reconcileAll 才做收敛删除。
+ * removeStale=false (Debt R9: provision's hot-change path): mirror only, no convergence deletes --
+ * after a node is deleted its agent row survives for the life of the process (billing and audit FK
+ * references), and only reconcileAll at boot / on the periodic tick converges deletes.
  */
 export const mirrorAgents = (db: Db, config: AppConfig, removeStale = true): MirrorResult => {
   const known = new Set(Object.keys(config.agents))
@@ -84,7 +84,7 @@ export const mirrorAgents = (db: Db, config: AppConfig, removeStale = true): Mir
   }
   let deleted = 0
   if (removeStale) {
-    // 收敛删除：配置里没有的 agent 行不再保留（FK 教训——别让派生品记住已删的真相）。
+    // Convergence delete: an agent row whose config is gone is not kept (FK lesson -- never let a derived artifact remember a deleted truth).
     const all = db.select({ id: schema.agent.id }).from(schema.agent).all()
     for (const row of all) {
       if (!known.has(row.id)) {
@@ -97,8 +97,8 @@ export const mirrorAgents = (db: Db, config: AppConfig, removeStale = true): Mir
 }
 
 /**
- * A run only exists inside a manager process：boot 时仍挂 pending/running 的
- * 行属于上一个已死进程，收敛为 failed。
+ * A run only exists inside a manager process: a row still pending/running at boot belongs to a
+ * dead process, so it converges to failed.
  */
 export const convergeRuns = (db: Db): number => {
   const stale = db
@@ -110,13 +110,13 @@ export const convergeRuns = (db: Db): number => {
 }
 
 /**
- * 发布前优化（2026-09-26）：中断在投递窗口里的指令同属"上一个进程的遗留"。
+ * Pre-release hardening (2026-09-26): a command interrupted inside the delivery window is also a leftover of the previous process.
  *
- * boot 时仍挂 `delivered` 的行 = agent 领走了却没能回报（多半是 manager 重启打断，
- * 2026-09-24/26 两次维护窗口各留 2 行）。此后它既不会被重投（claimCommands 只取
- * pending）、也不会被读，却带着整份 DSH profile bundle 永久占库——生产实测
- * 273 KB/条，清完存量后这 339 KB 反而成了库里最大的一块。
- * 收敛为 failed 并**清 payload**；`pending` 不动：那是真没送达的，仍要投。
+ * A row still `delivered` at boot = the agent claimed it but never reported back (usually a manager
+ * restart; the 2026-09-24/26 maintenance windows left 2 rows each). It is neither redelivered
+ * (claimCommands only takes pending) nor read, yet holds the whole DSH profile bundle forever --
+ * 273 KB per row in production, and those 339 KB became the DB's largest block once cleared.
+ * Converge to failed and **clear the payload**; `pending` stays and is still delivered.
  */
 export const convergeAgentCommands = (db: Db): number => {
   const stale = db
@@ -132,24 +132,25 @@ export const convergeAgentCommands = (db: Db): number => {
   return stale.changes
 }
 
-/** 孤儿会话归档：agent 已从配置删除的会话永远 409 agent_gone。 */
+/** Orphan chat archiving: a chat whose agent is gone from the config always 409s agent_gone. */
 export const convergeOrphanChats = (db: Db, config: AppConfig): number =>
   archiveOrphanChats(db, new Set(Object.keys(config.agents)))
 
-/** fleet.md 派生下发（每工作区一份，随 config 自动同步，幂等）。 */
+/** The derived fleet.md handout (one per workspace, synced automatically with the config, idempotent). */
 export const convergeFleet = async (config: AppConfig, log: (line: string) => void): Promise<string[]> =>
   syncFleetDocs(config, log)
 
 /**
- * 托管节点认领：docker runner 走对账（认领在跑 / 补拉缺失 / 规格不符重建），
- * process runner 直接拉起。幂等：对已认领的节点重复执行不产生第二个容器。
+ * Managed node adoption: a docker runner is reconciled (adopt a running one / pull a missing one /
+ * rebuild on a spec mismatch), a process runner is started directly. Idempotent: repeating it on an
+ * adopted node never creates a second container.
  *
- * healOnly（周期对账用）：**只治 offline + live 态探活**——人手动停的节点
- * （nodes/down）落在 cold，周期 tick 绝不抢拉（「用户手动起的 DSH 不会被
- * 抢管」同理）；live 态经 supervisor.probeLive() 健康对账（修路 A3：连续
- * 失败转 offline），发现即经 restart() 同 tick 自愈（restart 对已死进程/
- * 已清 containerId 的 docker = 直接 start；对僵进程 = stop→重拉）。
- * boot 走 healOnly=false（冷态 = 从未启动，需要拉起 + 完整 docker 认领）。
+ * healOnly (for the periodic tick): **only offline and live-state probing are treated** -- a node a
+ * human stopped (nodes/down) lands in cold and the tick never grabs it (the same rule as 'a DSH the
+ * user started by hand is never taken over'); a live node is health-reconciled through
+ * supervisor.probeLive() (Road work A3: consecutive failures flip it offline) and heals in the same
+ * tick through restart() (a plain start for a dead process or a docker with no containerId, stop then
+ * pull again for a stuck one). Boot runs healOnly=false (cold = never started: start plus full adoption).
  */
 export const convergeNodes = async (
   supervisors: Map<string, NodeSupervisor>,
@@ -160,8 +161,8 @@ export const convergeNodes = async (
   only: Set<string> | null = null,
 ): Promise<void> => {
   for (const [id, supervisor] of supervisors) {
-    // 债务 R9:热变更路径只收敛指定节点(provision 新节点/回滚重同步),
-    // 绝不借机把用户手动停掉的其它冷节点抢拉起来。null = 全部(boot 语义)。
+    // Debt R9: the hot-change path converges only the named nodes (a new provision node / a rollback
+    // resync) and never grabs other cold nodes the user stopped by hand. null = all of them (boot).
     if (only !== null && !only.has(id)) continue
     const spec = config.endpoints[id]?.spawn
     if (spec === null || spec === undefined) continue
@@ -215,18 +216,18 @@ export const convergeNodes = async (
   }
 }
 
-/** 唯一对账入口。runHygiene 只在 boot 打开（变更事件路径不需要收敛历史行）。 */
+/** The one reconcile entry. runHygiene is on at boot only (the change-event path needs no history convergence). */
 export const reconcileAll = async (
   deps: ReconcileContext,
   opts: {
     runHygiene?: boolean
     healOnly?: boolean
     /**
-     * 债务 R9:节点收敛范围。undefined = 全部(boot/周期对账);
-     * Set(可为空)= 只收敛集合内节点(provision 热变更:空集 = 本轮不动任何节点)。
+     * Debt R9: node convergence scope. undefined = all of them (boot / the periodic tick);
+     * a Set (possibly empty) = only the nodes in it (provision hot change: empty = touch nothing).
      */
     onlyNodes?: Set<string>
-    /** 债务 R9:false = 只镜像不收敛删除(热变更路径,进程存活期保留已删 agent 行)。 */
+    /** Debt R9: false = mirror only, no convergence deletes (the hot-change path keeps deleted agent rows for the life of the process). */
     removeStaleAgents?: boolean
   } = {},
 ): Promise<void> => {
@@ -249,8 +250,8 @@ export const reconcileAll = async (
 }
 
 /**
- * 修路 A2：周期对账。intervalMs <= 0 时不开（返回 no-op 停止器）。
- * 返回停止函数（测试与 onClose 用它拆定时器）；timer unref 不挡进程退出。
+ * Road work A2: periodic reconcile. Not started when intervalMs <= 0 (returns a no-op stopper).
+ * Returns a stop function (tests and onClose use it to clear the timer); the timer is unref'd so it never holds the process.
  */
 export const startPeriodicReconcile = (deps: ReconcileContext, intervalMs: number): (() => void) => {
   if (intervalMs <= 0) return () => {}
