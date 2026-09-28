@@ -7,8 +7,10 @@ import { $, ago, banner, esc, icon, setHtml, when, apiFetch, poll, t, loadI18n, 
 import { menuItemHtml, placeSubmenu } from './menu.js'
 
 /**
- * 多语言与品牌：先取字典再画侧栏（顶层 await——首屏不该先显示键名再补译文）。
- * 品牌来自 /api/i18n（唯一真相源是服务端 src/brand.ts），客户端不散写 URL。
+ * Languages and branding: fetch the dictionary before drawing the sidebar (top-level await -- the first paint
+ * should not show key names first and patch translations in afterwards).
+ * Branding comes from /api/i18n (the single source of truth is the server-side src/brand.ts); the client never
+ * hardcodes URLs.
  */
 await loadI18n()
 const brand = brandInfo()
@@ -48,8 +50,8 @@ const renderEndpointLines = (status) => {
     status.endpoints
       .map((ep) => {
         const health = endpointHealth(ep)
-        // apiproxy 端点没有会话数来源（gateway 老 /health 才有）——未知就
-        // 不显示，不拿 0 冒充真数（2026-09-11）。
+        // The apiproxy endpoint has no source for a session count (only the gateway's old /health did) -- when it is
+        // unknown, show nothing rather than passing 0 off as a real number (2026-09-11).
         const reach = ep.reachable ? (typeof ep.sessions === 'number' ? t('side.sessionsCount', { count: ep.sessions }) : '') : t('side.unreachable')
         const label = `${ep.id}${reach}${ep.apiKeySet === false ? t('side.keyUnverified') : ''}`
         const detail = ep.reachable ? '' : ` — ${ep.error ?? t('side.unknownError')}`
@@ -62,20 +64,22 @@ const renderEndpointLines = (status) => {
 }
 
 /**
- * 蜂群 P3：主脑入口。config 里有 brain agent 才渲染——没有主脑就没有这个
- * 块，界面不撒谎。
+ * Hive P3: the brain entry point. Rendered only when config has a brain agent -- no brain means no such
+ * block, and the UI does not lie.
  *
- * 方案 A：主按钮 = 打开最近一次会话（没有才新建）；右侧 chevron = 展开/
- * 收起主脑会话列表（折叠偏好与树同池）；「＋」= 显式新会话。列表行复用
- * 树的会话行与 ⋯ 菜单（改名/归档）——主脑会话有列表、可选、可管控，
- * 不再是没有入口的「二等公民」。主脑仍不进 AGENTS 树。
+ * Option A: the main button opens the most recent chat (creating one only if there is none); the chevron on the
+ * right expands/collapses the brain chat list (its fold preference shares the pool with the tree); "+" starts an
+ * explicit new chat. The list rows reuse the tree's chat row and its ... menu (rename/archive) -- brain chats
+ * have a list, are selectable and can be managed, instead of being second-class citizens with no way in.
+ * The brain still does not join the AGENTS tree.
  */
-// 主脑列表最多 3 条，其余与 agent 树一样折叠在 Show more 后面。
+// The brain list shows at most 3 entries; the rest fold behind Show more, same as the agent tree.
 const BRAIN_CHATS_SHOWN = 3
 
-// 头部两个 ghost 钮的图标直接内联 path，不经过 <use>：曾经只有这两个
-// 按钮的图标画不出来（与 sprite 引用无关的浏览器差异），内联是零依赖
-// 的最稳写法——任何能画 svg path 的内核都能画。
+// The two ghost buttons in the header carry their icon path inline instead of going through <use>: these two
+// were once the only buttons whose icons would not draw (a browser difference unrelated to the sprite
+// reference), and inlining is the zero-dependency way that always works -- any engine that can draw an svg
+// path can draw this.
 const CHEV_SVG =
   '<svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">' +
   '<path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
@@ -146,7 +150,7 @@ const renderBrain = (status) => {
   )
 }
 
-/** 打开主脑会话：fresh=1 强制新建，否则跳到最近一次、没有才新建。 */
+/** Open a brain chat: fresh=1 forces a new one, otherwise jump to the most recent and create one only if there is none. */
 const openBrainChat = async (fresh) => {
   if (!fresh) {
     const latest = (chatsByAgent.get('brain') ?? [])[0]
@@ -172,7 +176,7 @@ const openBrainChat = async (fresh) => {
   }
 }
 
-// 主脑块内的行操作与树完全一致：⋯ 菜单（改名/归档）、Show more 折叠。
+// Row actions inside the brain block match the tree exactly: the ... menu (rename/archive) and the Show more fold.
 $('side-brain')?.addEventListener('click', async (event) => {
   const more = event.target.closest('.row-more')
   if (more !== null) {
@@ -204,11 +208,12 @@ $('side-brain')?.addEventListener('click', async (event) => {
   }
 })
 
-/** 蜂群 P3：节点区。托管节点读监督器状态机，未托管读探活结果。
+/** Hive P3: the node section. Managed nodes read the supervisor state machine; unmanaged ones read the
  *
- * 侧栏对节点的全部表达 = 「节点 N/N」计数（未全活时用警示色，悬停列
- * 出未就绪的节点名）。启动中的 cold/starting 是常态而非异常，不该像
- * 故障一样张嘴；真故障的细节在 /nodes 页，栏底永远安静。
+ * Everything the sidebar says about nodes is the "nodes N/N" count (in a warning colour when not all are
+ * live, with the not-ready node names on hover). A cold/starting node is normal rather than an anomaly and
+ * should not gape open like a failure; the details of a real failure live on the /nodes page, and the foot of
+ * the sidebar stays quiet.
  */
 const renderNodes = (nodesData) => {
   const box = $('side-endpoints')
@@ -234,7 +239,7 @@ const renderNodes = (nodesData) => {
 const segments = window.location.pathname.split('/').filter(Boolean)
 const pathId = (prefix) => (window.location.pathname.startsWith(`/${prefix}/`) ? decodeURIComponent(segments[1] ?? '') : '')
 
-/** 公开版精简（DAC v1.0.0）：大盘页已下线，树行不再有「当前大盘」高亮。 */
+/** Public-edition trim (DAC v1.0.0): the dashboard page is gone, so a tree row no longer highlights as the current dashboard. */
 /** The conversation currently open, so its row can be marked active. */
 const openChatId = pathId('chat')
 
@@ -250,8 +255,9 @@ const CHATS_SHOWN = 5
 /**
  * Which agents are expanded.
  *
- * 蜂群 Q4 起默认全部收起（主脑与各 agent 组都一样）：侧栏一屏要装得下
- * 整支队伍，会话列表是点开才看的第二层。只记住用户主动展开的组。
+ * Since Hive Q4 everything is collapsed by default (the brain and every agent group alike): the sidebar has to
+ * fit the whole team on one screen, and the chat list is a second layer you open on demand. Only groups the
+ * user expanded themselves are remembered.
  *
  * In localStorage because it is a view preference, not state the server owns,
  * and it has to survive the full page loads this app navigates with.
@@ -308,7 +314,7 @@ let chatsByAgent = new Map()
 let chatById = new Map()
 /** Agents holding a live turn, so their rows can say so. */
 let busyByAgent = new Map()
-/** 蜂群 P5.4：每 agent 活跃 run 数，忙点 title 与详情面板用。 */
+/** Hive P5.4: the active run count per agent, used by the busy-dot title and the detail panel. */
 let activeByAgent = new Map()
 
 /**
@@ -358,8 +364,9 @@ const chatRow = (chat) => {
 }
 
 /**
- * AGENTS 树里的 agent：不含主脑。主脑是 manager 级的总控，入口是上方
- * 的独立按钮，再出现在树里就重复了（之前还带着错误的大盘）。
+ * An agent in the AGENTS tree, excluding the brain. The brain is the manager-level master control whose entry
+ * point is the separate button above; showing it in the tree as well would just duplicate it (and it used to
+ * carry the wrong dashboard along).
  */
 const treeAgents = (status) => status.agents.filter((agent) => agent.id !== 'brain')
 
@@ -376,9 +383,9 @@ const agentNav = (status) => {
     .map((agent) => {
       const health = agentHealth(agent, status.endpoints)
       const chats = chatsByAgent.get(agent.id) ?? []
-      // 默认收起：只有用户展开过的组才显示会话。展开过的组不会因为
-      // 重绘被悄悄收起，哪怕它正持有打开的会话——强行展开反而让点击
-      // 看起来像失效了。进入某个会话页时展开其组一次（revealOpenChat）。
+      // Collapsed by default: only groups the user has expanded show their chats. An expanded group is never
+      // quietly collapsed by a redraw, even while it holds the open chat -- force-expanding it instead makes
+      // clicks look broken. Entering a chat page expands its group once (revealOpenChat).
       const open = expanded.has(agent.id)
       const busy = busyByAgent.get(agent.id) ?? null
       const unfolded = chatsMoreSet().has(agent.id)
@@ -447,11 +454,11 @@ const publishStatus = (status) => {
 let lastStatus = null
 
 /**
- * 蜂群 Q5：离开上一个会话时，若它「建了但一个字没写」，顺手清掉。
+ * Hive Q5: on leaving the previous chat, clean it up if it was created but never written to.
  *
- * 用 sessionStorage 记住上一次的会话：刷新同一会话（prev 与当前相同）
- * 不算离开，避免「刷新即删自己」；跳到别的会话/别的页才算切换。判断
- * 交给后端 vacate——有回合或有标题的会话它自己会拒。
+ * sessionStorage remembers the previous chat: refreshing the same chat (prev equals current) does not count as
+ * leaving, which avoids "refresh deletes itself"; only jumping to another chat or page is a switch. The
+ * decision goes to the backend vacate -- it refuses on its own for a chat with turns or a title.
  */
 let prevVacated = false
 const maybeVacatePrevious = () => {
@@ -465,7 +472,7 @@ const maybeVacatePrevious = () => {
   void apiFetch(`/api/chats/${encodeURIComponent(prevId)}/vacate`, { method: 'POST' })
     .then(() => loadShell())
     .catch(() => {
-      // 清理是顺手为之，失败不打扰。
+      // The cleanup is a courtesy; a failure does not interrupt.
     })
 }
 
@@ -485,16 +492,17 @@ export const loadShell = async () => {
       window.location.href = '/login'
       return
     }
-    // 蜂群2计划 P3：首登强制改密 —— 除改密页外一律弹过去。
-    // 顺序关键：改密期间业务 API（status 等）被 403 门挡住，status 必为 null，
-    // 若先判 status 会把改密页弹回 /login 造成死循环（发布前评审 B1）。
+    // Hive plan 2 P3: force a password change on first login -- everything except the password page bounces there.
+    // Order matters: while the password change is pending the business APIs (status and friends) sit behind a 403
+    // gate, so status is necessarily null, and testing status first would bounce the password page back to /login
+    // in an endless loop (pre-release review B1).
     const onPasswordPage = window.location.pathname === '/password'
     if (me.mustChangePassword === true) {
       if (!onPasswordPage) {
         window.location.href = '/password'
         return
       }
-      // 改密页：业务 API 不可用，只画壳 + 用户名，其余渲染直接跳过
+      // Password page: the business APIs are unusable, so draw only the shell plus the username and skip all other rendering
       $('who').textContent = me.username
       const avatar = $('avatar')
       if (avatar !== null) avatar.textContent = [...me.username][0] ?? '?'
@@ -510,8 +518,9 @@ export const loadShell = async () => {
       if (!notifyPanel.hidden) renderNotifyPanel(notifications.items)
     }
 
-    // About 浮窗第一行的产品名 + 版本（`DAC v1.0.0`）。拿到版本之前那一行只写
-    // 产品名——不显示 `v…` 这种半成品（用户实测看到「DAC v…」以为是坏了）。
+    // The product name plus version (`DAC v1.0.0`) on the first line of the About flyout. Before the version is
+    // known that line carries the product name only -- never a half-finished `v...` (users who saw "DAC v..."
+    // assumed it was broken).
     if (typeof status.managerVersion === 'string' && status.managerVersion !== '') {
       const row = document.querySelector('#more-about [data-about-version]')
       if (row !== null) row.replaceChildren(`${brand.name} v${status.managerVersion}`)
@@ -553,7 +562,7 @@ const loadSpendHint = async () => {
   try {
     const response = await apiFetch('/api/usage')
     if (!response.ok) return
-    // 变量名不要用 t：它会遮蔽 ui.js 的翻译函数（2026-09-24 线上事故的同一类）。
+    // Do not name the variable t: it would shadow the translation function from ui.js (the same class of bug as the 2026-09-24 production incident).
     const totals = (await response.json()).totals
     if (totals.runs === 0) return
     const usd = totals.costMicroUsd / 1e6
@@ -565,8 +574,9 @@ const loadSpendHint = async () => {
   }
 }
 
-// 公开版精简（DAC v1.0.0）：侧栏「定时任务」提示随页面一并下线——调度健康度
-// 改由任务页/审计页承载（调度引擎未动，/api/crons 与内部 API 保留）。
+// Public-edition trim (DAC v1.0.0): the sidebar's "scheduled tasks" notice is retired along with the page --
+// scheduling health now lives on the tasks/audit pages (the scheduler engine is untouched, and /api/crons and
+// the internal API remain).
 
 // ---------------------------------------------------------------------------
 // navigation: one sidebar, two presentations
@@ -819,7 +829,7 @@ const rename = async (chatId) => {
 }
 
 const archive = async (chatId) => {
-  // Says what archiving does *not* do, because "归档" has to be believable: the
+  // Says what archiving does *not* do, because archiving has to be believable: the
   // transcript and the bill both survive it.
   if (!window.confirm(t('menu.archiveConfirm', { title: titleOf(chatId) }))) {
     return
@@ -906,7 +916,7 @@ const panelBody = (data) => {
         ? `${esc(t('panel.reachable'))}${typeof endpoint.sessions === 'number' ? esc(t('panel.reachableSessions', { count: endpoint.sessions })) : ''}${endpoint.apiKeySet === false ? t('panel.keyNotSet') : ''}`
         : `<span class="error">${esc(t('panel.unreachable', { reason: endpoint.error ?? t('panel.unknownReason') }))}</span>`,
     ),
-    // 容器形态：镜像标签即节点 DSH 版本的真相，先于版本行展示。
+    // Container form: the image tag is the truth about a node's DSH version, shown ahead of the version row.
     ...(typeof endpoint.image === 'string' && endpoint.image !== ''
       ? [kv(t('panel.image'), `<code>${esc(endpoint.image)}</code>`)]
       : []),
@@ -1078,7 +1088,7 @@ $('agent-nav').addEventListener('click', async (event) => {
 })
 
 // ---------------------------------------------------------------------------
-// 蜂群 P5.3：站内通知（铃铛 + 面板）
+// Hive P5.3: in-app notifications (bell plus panel)
 // ---------------------------------------------------------------------------
 
 const notifyBadge = $('notify-badge')
@@ -1088,11 +1098,12 @@ notifyPanel.hidden = true
 document.body.appendChild(notifyPanel)
 
 // ---------------------------------------------------------------------------
-// 导航分层（DAC v1.0.0）：节点 / 任务 常驻侧栏；技能 / 已归档 / 花费 / 审计 /
-// 改密 收进左下角 ⋮ 弹窗（+ 品牌页脚 + 退出登录）。九个平级入口会让人把侧栏
-// 当文档读，而每天真正用的只有两个。
-// ⋮ 菜单与通知面板同一浮层语言：body 挂载 + fixed rect 定位（抽屉/rail 不裁剪）。
-// markActive() 在下方执行，菜单必须在它之前入 DOM 才能吃到高亮。
+// Navigation layering (DAC v1.0.0): nodes / tasks stay in the sidebar; skills / archived / spend / audit /
+// password move into the ... popup at the bottom left (plus the brand footer and sign out). Nine peer entries
+// make people read the sidebar like documentation, while only two are used every day.
+// The ... menu and the notification panel share one overlay language: mounted on body with fixed-rect
+// positioning (drawers and the rail cannot clip them). markActive() runs below, so the menu has to be in the
+// DOM before it to pick up the highlight.
 // ---------------------------------------------------------------------------
 
 const navLinkHtml = (item) => `<a class="side-link"${item.id === undefined ? '' : ` id="${item.id}"`} href="${item.href}" data-nav="${item.nav}">
@@ -1119,23 +1130,27 @@ const primaryNav = $('side-primary')
 if (primaryNav !== null) primaryNav.innerHTML = PRIMARY_NAV.map(navLinkHtml).join('')
 
 // ---------------------------------------------------------------------------
-// ⋮ 溢出菜单（UI 精简）
+// The ... overflow menu (UI trim)
 //
-// 改前这个 224px 浮窗里混了五种视觉语言：导航项 / 分隔线 / 语言列表（每个语言
-// 一个满高导航行）/ 品牌页脚（全称+口号+版本+GitHub 四行弱化文字）/ 独立红色登出
-// 按钮。用户的原话是「password 以下到 sign out 太乱」。
+// Before this change the 224px flyout mixed five visual languages: navigation items, separators, the language
+// list (one full-height navigation row per language), the brand footer (full name plus tagline plus version
+// plus GitHub, four lines of de-emphasised text) and a standalone red sign-out button. The user's own words
+// were "everything from password down to sign out is a mess".
 //
-// 改后只保留两种语言：**菜单项**（图标 + 文字 + 可选尾注）与**分组标题**，
-// 语言与设置走**右侧浮窗**（第二层）。
+// Afterwards only two languages remain: **menu items** (icon plus text plus an optional trailing note) and
+// **group headings**; language and settings move into a **flyout on the right** (the second layer).
 //
-// 为什么是右侧浮窗而不是就地展开：
-//   这个菜单锚在视口**底部、向上生长**（bottom 定位）。就地展开会改变菜单高度，
-//   于是整个菜单上移——用户正点的那个 item 会当场跳位。浮窗则让主菜单纹丝不动。
-//   顺带与节点行的 ⋮ 菜单变成同一套交互（那本来就是右侧浮窗），只学一次。
-//   主菜单尺寸也与语言数量彻底解耦：加到 20 个语言，主菜单还是 7 项。
+// Why a right-hand flyout instead of expanding in place:
+//   This menu is anchored to the **bottom** of the viewport and **grows upwards** (bottom positioning).
+//   Expanding in place would change the menu height, shifting the whole menu up -- the very item the user is
+//   clicking would jump out from under the pointer. A flyout keeps the main menu perfectly still.
+//   It also makes this the same interaction as the node row's ... menu (which was a right-hand flyout all
+//   along), so there is only one thing to learn.
+//   And the main menu size is fully decoupled from the number of languages: add 20 languages and the main menu
+//   still has 7 entries.
 // ---------------------------------------------------------------------------
 
-/** 语言浮窗的内容：每个语言一项，当前语言带勾。 */
+/** The contents of the language flyout: one entry per language, with a check on the current one. */
 const langItems = availableLocales().map((tag) =>
   menuItemHtml({
     label: t(`lang.${tag}`),
@@ -1145,17 +1160,18 @@ const langItems = availableLocales().map((tag) =>
 )
 
 /**
- * About 浮窗内容（用户指定形态）：
+ * The contents of the About flyout (the shape the user specified):
  *
- *   DAC v1.0.0            ← 产品名 + 版本（版本由 /api/status 回填）
- *   ✉ support@hellodac.com ← 联系方式，点击复制（不是 mailto：见下）
- *   ⬡ Star on GitHub      ← 仓库入口
+ *   DAC v1.0.0             <- product name plus version (the version is filled in from /api/status)
+ *   support@hellodac.com   <- contact address, click to copy (not mailto: see below)
+ *   Star on GitHub         <- repository entry
  *
- * 版本第一行**先只显示产品名**，拿到版本后才补成 `DAC v1.0.0`——不写 `v…` 这种
- * 半成品（用户实测看到「DAC v…」以为是坏了）。
+ * The first version line shows **the product name only at first** and is completed into `DAC v1.0.0` once the
+ * version arrives -- never a half-finished `v...` (users who saw "DAC v..." assumed it was broken).
  *
- * 邮箱按**点击复制**而不是 `mailto:`：桌面端 mailto 会弹一个没配过的邮件客户端，
- * 而这里更常见的诉求是把地址填到别处。复制后弹提示，与节点隧道命令的复制同一套反馈。
+ * Email is **click to copy** rather than `mailto:`: on the desktop a mailto link pops up a mail client that was
+ * never configured, whereas the more common wish here is to paste the address somewhere else. Copying raises a
+ * toast, the same feedback as copying a node's tunnel command.
  */
 const aboutItems = [
   menuItemHtml({ kind: 'note', label: brand.name, attrs: 'data-about-version' }),
@@ -1164,9 +1180,9 @@ const aboutItems = [
     : [
         menuItemHtml({
           label: brand.supportEmail,
-          // 精灵里没有信封图标；改 layout.html 加字形需要重启，所以这里内联
-          //（menuItemHtml 支持 icon: { raw: <svg> }）。样式与精灵图标同源：
-          // 14px、stroke=currentColor、round 线帽。
+          // The sprite has no envelope icon, and adding a glyph to layout.html would need a restart, so it is
+          // inlined here (menuItemHtml accepts icon: { raw: <svg> }). The styling matches the sprite icons: 14px,
+          // stroke=currentColor, round line caps.
           icon: {
             raw: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><rect x="1.75" y="3.5" width="12.5" height="9" rx="1.4"/><path d="m2.5 4.6 5.5 4.4 5.5-4.4"/></svg>',
           },
@@ -1193,7 +1209,7 @@ moreMenu.innerHTML = `${MORE_NAV.map((item) => menuItemHtml({ label: item.label,
     <span class="menu-grow">${esc(t('nav.logout'))}</span>
   </button>`
 
-// 两个浮窗与主菜单同级、同挂 body（脱离 .sidebar 的 overflow 与 transform）。
+// Both flyouts are siblings of the main menu and mounted on body as well (escaping .sidebar's overflow and transform).
 const moreFlyouts = new Map([
   ['more-langs', { panel: document.createElement('div'), items: langItems, label: t('nav.language'), owner: null }],
   ['more-about', { panel: document.createElement('div'), items: aboutItems, label: t('nav.about'), owner: null }],
@@ -1210,10 +1226,10 @@ for (const [id, fly] of moreFlyouts) {
 
 document.body.appendChild(moreMenu)
 
-// 版本号由 /api/status 轮询回填（不在页面里写死）；设置浮窗里那一行留了槽位。
+// The version number is filled in by polling /api/status (never hardcoded in the page); the settings flyout keeps a slot for it.
 
-// 第二层：语言 / 设置 —— 右侧浮窗。定位复用 menu.js 的 placeSubmenu（放不下会
-// 自动翻到左侧），所以窄屏也不会溢出视口。
+// Second layer: language / settings -- the right-hand flyout. Positioning reuses placeSubmenu from menu.js
+// (it flips to the left when there is no room), so even a narrow screen does not overflow the viewport.
 const closeMoreFlyouts = () => {
   for (const [, fly] of moreFlyouts) {
     fly.panel.hidden = true
@@ -1246,11 +1262,12 @@ moreMenu.addEventListener('click', (event) => {
   openMoreFlyout(trigger.dataset.moreFlyout ?? '', trigger)
 })
 
-// 支持邮箱：点击复制（不是 mailto——桌面端会弹一个没配过的邮件客户端，而这里
-// 更常见的诉求是把地址填到别处）。
+// Support email: click to copy (not mailto -- on the desktop that pops up a mail client that was never
+// configured, whereas the more common wish here is to paste the address somewhere else).
 //
-// 反馈**不用 alert**（用户明确不要这种打断式弹窗）：在邮箱项上浮出一个小气泡
-// 「已复制」，1.6 秒后自行淡出。失败时气泡显示完整地址，让用户可以手动抄。
+// Feedback deliberately **does not use alert** (the user explicitly does not want that interrupting dialog):
+// a small bubble reading "copied" floats up on the email item and fades after 1.6 seconds. On failure the
+// bubble shows the full address so the user can copy it by hand.
 const bindEmailCopy = (root) => {
   for (const el of root.querySelectorAll('[data-about-email]')) {
     el.addEventListener('click', () => {
@@ -1263,7 +1280,7 @@ const bindEmailCopy = (root) => {
   }
 }
 
-/** 在菜单项上浮出短提示气泡；气泡在 item 内（.menu-item 是 relative），不挡其它行。 */
+/** Float a short toast bubble on a menu item; the bubble lives inside the item (.menu-item is relative) and does not cover other rows. */
 const flashCopied = (el, text, isError = false) => {
   const old = el.querySelector('.copy-pop')
   if (old !== null) old.remove()
@@ -1280,7 +1297,7 @@ const flashCopied = (el, text, isError = false) => {
 bindEmailCopy(moreMenu)
 for (const [, fly] of moreFlyouts) bindEmailCopy(fly.panel)
 
-// 登出绑定在菜单入 DOM 之后（id 是同一套，绑定时机决定成败）。
+// Sign out is bound after the menu is in the DOM (the ids are the same; the moment of binding decides success).
 $('logout')?.addEventListener('click', async () => {
   await apiFetch('/api/logout', { method: 'POST' })
   window.location.href = '/login'
@@ -1298,15 +1315,16 @@ const openMoreMenu = () => {
   closeNotifyPanel()
   const rect = moreBtn?.getBoundingClientRect()
   if (rect !== undefined) {
-    // 锚在按钮**上方**：用 CSS 的 bottom 而不是 top——bottom 固定后元素向上生长，
-    // 菜单里再展开「语言 / 关于」子项也不会溢出视口下沿（用 top 就会）。
+    // Anchored **above** the button: CSS bottom rather than top -- with bottom fixed the element grows
+    // upwards, so expanding the "language / about" sub-items inside the menu cannot overflow the bottom of the
+    // viewport either (it would with top).
     moreMenu.style.bottom = `${window.innerHeight - rect.top + 8}px`
     moreMenu.style.left = `${Math.min(Math.max(rect.right - 224, 8), window.innerWidth - 232)}px`
   }
   closeMoreFlyouts() // always start collapsed so the language/settings flyout from last time is not left open
   moreMenu.hidden = false
   moreBtn?.setAttribute('aria-expanded', 'true')
-  // 菜单打开焦点进首项（标准菜单行为）；Esc 关闭时归还按钮。
+  // Opening the menu puts focus on the first item (standard menu behaviour); Esc closes it and returns focus to the button.
   moreMenu.querySelector('.menu-item')?.focus()
 }
 
@@ -1319,9 +1337,9 @@ moreBtn?.addEventListener('click', (event) => {
 document.addEventListener('click', (event) => {
   if (moreMenu.hidden) return
   if (event.target.closest('#side-more') !== null) return
-  // 浮窗是 body 上的**兄弟节点**、不在 moreMenu 里：漏掉这一段的话，点语言/设置里
-  // 的任何一项都被判成「外部点击」→ 当场把菜单和浮窗一起关掉，表现就是
-  // 「点了没反应」（2026-09-25 用户实测反馈）。
+  // The flyout is a **sibling node** on body, not inside moreMenu: miss this and clicking anything in the
+  // language/settings flyout counts as an outside click, closing the menu and the flyout on the spot, which
+  // looks exactly like "clicking does nothing" (user feedback from a real test on 2026-09-25).
   if (event.target.closest('[data-more-flyout]') !== null) return
   if (event.target.closest('.more-flyout') !== null) return
   if (!moreMenu.contains(event.target)) closeMoreMenu()
@@ -1387,7 +1405,7 @@ $('notify-bell')?.addEventListener('click', async (event) => {
     renderNotifyPanel(body.items)
     notifyPanel.hidden = false
   } catch {
-    // 面板保持关闭
+    // Keep the panel closed
   }
 })
 
@@ -1402,7 +1420,7 @@ notifyPanel.addEventListener('click', async (event) => {
   const item = event.target.closest('.notify-item')
   if (item === null) return
   await apiFetch(`/api/notifications/${encodeURIComponent(item.dataset.nid)}/read`, { method: 'POST' })
-  // 纯告知（无链接）点了不跳转，只标已读
+  // A pure notice (no link) does not navigate when clicked, it only marks itself read
   if (item.getAttribute('href') === '#') event.preventDefault()
 })
 
@@ -1429,7 +1447,7 @@ void loadArchiveHint()
 // and its requests still compete for the six connections HTTP/1.1 allows an
 // origin -- which the tab you are actually looking at needs. Refreshed on return
 // instead, which is also when a stale sidebar would first be noticed.
-// 债务 F4:本地 poll 已收敛进 ui.js 的 poll(document.hidden 挂起 + 错误退避)。
+// Debt F4: the local poll has been folded into ui.js's poll (suspended while document.hidden plus error backoff).
 
 poll(loadShell, 15_000)
 poll(loadSpendHint, 60_000)
