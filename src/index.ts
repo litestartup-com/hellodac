@@ -12,7 +12,8 @@ import { backupNow } from './backup.js'
 import { generatePassword, hashPassword } from './auth/password.js'
 import { pruneExpiredSessions } from './auth/session.js'
 import { makeRequirePage, makeRequireUser } from './auth/hooks.js'
-import { buildClients } from './gateway/client.js'
+import { buildClients, dummyGatewayClient } from './gateway/client.js'
+import { getChat } from './chat/store.js'
 import { buildUpstreamClients, closeAllMux } from './upstream/client.js'
 import { setMuxLogger } from './upstream/mux.js'
 import { reconcileAll, startPeriodicReconcile } from './reconcile/index.js'
@@ -288,10 +289,10 @@ const main = async (): Promise<void> => {
   registerWorkspaceRoutes(app, config, requireUser)
   registerRunRoutes(app, config, db, clients, requireUser, upstreamClients)
   registerBoardRoutes(app, config, requireUser)
-  registerChatRoutes(app, config, db, clients, requireUser, upstreamClients, (actor, kind, detail) =>
+  // 对外会话面复用后台的同一个回合执行器（同一实例 = 同一份"本会话正在跑"状态）。
+  const chatTurns = registerChatRoutes(app, config, db, clients, requireUser, upstreamClients, (actor, kind, detail) =>
     recordAudit(db, { actor, kind, detail }))
   registerUsageRoutes(app, config, db, requireUser)
-
   const scheduler = new Scheduler({
     db,
     config,
@@ -381,6 +382,27 @@ const main = async (): Promise<void> => {
     config,
     db,
     log: (line, level) => (level === 'error' ? app.log.error(line) : app.log.info(line)),
+    ports: {
+      // 判活口径与后台一致：读 supervisor 的状态机，而不是另发一次探活请求
+      // （两套判活 = 两个真相，界面说在线、分发说离线这种事最难查）。
+      isOnline: (agentId) => {
+        const agent = config.agents[agentId]
+        if (agent === undefined) return false
+        return nodeSupervisors.get(agent.endpoint)?.current.state === 'live'
+      },
+      runTurn: async ({ chatId, agentId, text, apiKeyId }) => {
+        const chat = getChat(db, chatId)
+        if (chat === null) throw new Error(`unknown conversation ${chatId}`)
+        const agent = config.agents[agentId]
+        if (agent === undefined) throw new Error(`agent ${agentId} is not in the config`)
+        const driver = config.endpoints[agent.endpoint]?.driver ?? 'gateway'
+        const upstream = upstreamClients.get(agent.endpoint) ?? null
+        const client = clients.get(agent.endpoint)
+        if (driver === 'apiproxy' && upstream === null) throw new Error(`endpoint ${agent.endpoint} has no apiproxy client`)
+        if (driver === 'gateway' && client === undefined) throw new Error(`endpoint ${agent.endpoint} has no gateway client`)
+        return await chatTurns.startChatTurn(chat, agent, client ?? dummyGatewayClient(), upstream, driver, text, { apiKeyId })
+      },
+    },
   })
   // Started only once the process is fully up: the stale-run sweep above has to
   // have cleared the previous process's locks, or the first fire would collide

@@ -17,7 +17,7 @@ import { cancelQueuedTurn, cancelQueuedTurns, enqueueTurn } from '../chat/queue.
 import { compactHistory } from '../chat/replay.js'
 import { HistoryCache } from '../chat/history-cache.js'
 // 债务 E2:回合编排(会话内串行/会话间并行)已下沉 chat/turn-runner.ts。
-import { makeChatTurnRunner } from '../chat/turn-runner.js'
+import { makeChatTurnRunner, type ChatTurnRunner } from '../chat/turn-runner.js'
 import {
   chatRuns,
   createChat,
@@ -60,7 +60,7 @@ export const registerChatRoutes = (
   upstreamClients?: Map<string, SessionDriver>,
   /** 审计回调（全量沙箱切换留痕用；测试可不传）。 */
   audit?: (actor: string, kind: AuditKind, detail: string) => void,
-): void => {
+): ChatTurnRunner => {
   const agentOf = (chatAgentId: string): ResolvedAgent | undefined => config.agents[chatAgentId]
 
   const driverOf = (endpointId: string): 'gateway' | 'apiproxy' =>
@@ -847,4 +847,8 @@ export const registerChatRoutes = (
   // 债务卡片链:SSE(重)连时重放挂起卡片帧——断流窗口丢掉的 question/approval
   // 帧借此回来(转录帧不重放,reduce 非幂等)。
   registerRelayRoute(app, db, requireUser, pendingCardFrames)
+
+  // 交回同一个回合执行器：对外 API 复用它（同一实例 = 同一份"本会话正在跑"状态，
+  // 否则后台与对外各算各的，同一会话可能被并发跑两轮）。
+  return turns
 }

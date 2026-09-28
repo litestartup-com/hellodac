@@ -13,7 +13,7 @@ import Fastify, { type FastifyInstance } from 'fastify'
 import rateLimit from '@fastify/rate-limit'
 import type { AppConfig } from '../config.js'
 import type { Db } from '../db/index.js'
-import { registerPublicApiRoutes } from './routes.js'
+import { registerPublicApiRoutes, type PublicApiPorts } from './routes.js'
 
 export interface PublicApiState {
   status: 'disabled' | 'listening' | 'failed'
@@ -33,10 +33,12 @@ export interface StartPublicApiDeps {
   config: AppConfig
   db: Db
   log: (line: string, level?: 'info' | 'error') => void
+  /** 会话面要的两件事（判活 + 跑一轮），由 wiring 层注入；缺省 = 只有只读面。 */
+  ports?: PublicApiPorts
 }
 
 /** 统一构建（测试用 `port: 0` 拿随机端口，或直接 inject 路由而不监听）。 */
-export const buildPublicApiApp = (deps: { config: AppConfig; db: Db }): FastifyInstance => {
+export const buildPublicApiApp = (deps: { config: AppConfig; db: Db; ports?: PublicApiPorts }): FastifyInstance => {
   const app = Fastify({
     logger: false,
     trustProxy: deps.config.trustProxy ?? false,

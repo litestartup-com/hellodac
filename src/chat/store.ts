@@ -43,9 +43,20 @@ export interface ChatRow {
   createdAt: number
   lastActiveAt: number
   removedAt: number | null
+  /** 对外归属：三列全 null = 对内会话（口径 CONCEPTS-ALIGNED.md §6）。 */
+  apiKeyId: string | null
+  externalUserId: string | null
+  serviceId: string | null
 }
 
-export const createChat = (db: Db, agentId: string, now = Date.now()): ChatRow => {
+/** 对外会话的归属（对内会话三个都缺省 = null）。`externalUserId` 为 null = 调用方自己存会话号续聊。 */
+export interface ChatOwner {
+  apiKeyId: string
+  externalUserId: string | null
+  serviceId: string
+}
+
+export const createChat = (db: Db, agentId: string, now = Date.now(), owner?: ChatOwner): ChatRow => {
   const row: ChatRow = {
     id: randomUUID(),
     agentId,
@@ -56,9 +67,33 @@ export const createChat = (db: Db, agentId: string, now = Date.now()): ChatRow =
     createdAt: now,
     lastActiveAt: now,
     removedAt: null,
+    apiKeyId: owner?.apiKeyId ?? null,
+    externalUserId: owner?.externalUserId ?? null,
+    serviceId: owner?.serviceId ?? null,
   }
   db.insert(schema.chat).values(row).run()
   return row
+}
+
+/**
+ * 粘性查询：这把钥匙名下、这个外部用户的**活**会话。
+ *
+ * 依靠 `chat_api_key_user_live` 这条部分唯一索引保证最多一条，所以这里不需要排序取最新
+ * ——真有两条就是索引被绕过（手工改库），那时应当抛错而不是随便挑一条让客户失忆。
+ */
+export const findLiveConversation = (db: Db, apiKeyId: string, externalUserId: string): ChatRow | null => {
+  const rows = db
+    .select()
+    .from(schema.chat)
+    .where(
+      and(
+        eq(schema.chat.apiKeyId, apiKeyId),
+        eq(schema.chat.externalUserId, externalUserId),
+        isNull(schema.chat.removedAt),
+      ),
+    )
+    .all()
+  return rows[0] ?? null
 }
 
 export const getChat = (db: Db, id: string): ChatRow | null =>

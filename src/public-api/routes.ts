@@ -11,15 +11,32 @@
  * 审计表灌满。未鉴权流量的兜底是监听器级的按 IP 限流。
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import { z } from 'zod'
 import { allowsService, hasScope, verifyApiKey, type ApiKey, type KeyScope } from '../auth/api-key.js'
 import { recordAudit } from '../audit.js'
+import { createChat, findLiveConversation, getChat } from '../chat/store.js'
 import type { AppConfig } from '../config.js'
 import type { Db } from '../db/index.js'
+import type { RunOutcome } from '../runner.js'
+import { checkAdmission, dispatchConversation, rejectAsHttp, resolveService } from './conversations.js'
 import { quotaSnapshot } from './quota.js'
+import { keySessionsByAgent, loadServiceLoad } from './service-load.js'
+
+/**
+ * 对外会话要的那几件事，由 wiring 层注入（对外面不认识 supervisor/驱动细节）：
+ * - `isOnline`：该 agent 现在可不可达（与后台同一套判活口径）；
+ * - `runTurn`：在某个 agent 上跑一轮并**等它结束**，返回答复与用量。
+ */
+export interface PublicApiPorts {
+  isOnline: (agentId: string) => boolean
+  runTurn: (input: { chatId: string; agentId: string; text: string; apiKeyId: string }) => Promise<RunOutcome>
+}
 
 export interface PublicApiDeps {
   config: AppConfig
   db: Db
+  /** 缺省 = 不含会话面（只读面仍可用）：wiring 未注入时，会话端点回 503 而不是假装成功。 */
+  ports?: PublicApiPorts
 }
 
 declare module 'fastify' {
@@ -96,6 +113,20 @@ const auditCalls = (app: FastifyInstance, db: Db): void => {
   })
 }
 
+const createConversationBody = z.object({
+  /** 钥匙只允许一个服务时可省；允许多个时必须点名（不替调用方猜）。 */
+  service: z.string().min(1).max(64).optional(),
+  /**
+   * 调用方自己的用户 id：给了它就获得粘性——同一个用户下次再来会回到同一个会话。
+   * 不给则每次都新建（调用方自己存会话号也能续，但那就得自己保证不重不漏）。
+   */
+  externalUserId: z.string().min(1).max(128).optional(),
+  /** 第一句话：给了就在同一请求里跑完第一轮并把答复带回来。 */
+  text: z.string().min(1).max(32_000).optional(),
+})
+
+const sendMessageBody = z.object({ text: z.string().min(1).max(32_000) })
+
 /**
  * 注册 `/v1` 面。返回的实例可直接 `app.inject()` 测试（不监听端口）。
  * 门面的启动/绑定由 listener.ts 负责，这里只管路由与鉴权。
@@ -133,4 +164,187 @@ export const registerPublicApiRoutes = (app: FastifyInstance, deps: PublicApiDep
       today: quotaSnapshot(deps.db, key),
     })
   })
+
+  /**
+   * 拒绝：统一走 conversations.ts 的措辞表，状态码与 `Retry-After` 一起给出。
+   * 满载与配额不足都是 429，但错误码不同——调用方据此决定"退避重试"还是"今天别调了"。
+   */
+  const reject = (reply: FastifyReply, reason: Parameters<typeof rejectAsHttp>[0], db: Db, key: ApiKey, what: string): FastifyReply => {
+    const mapped = rejectAsHttp(reason)
+    recordAudit(db, { actor: `api_key:${key.id}`, kind: 'api_call', detail: `${what} → ${mapped.status} (${reason.kind})` })
+    if (mapped.retryAfterSeconds !== undefined) reply.header('retry-after', String(mapped.retryAfterSeconds))
+    return reply.code(mapped.status).send(mapped.body)
+  }
+
+  const usageFor = (key: ApiKey): { runsToday: number; activeRuns: number } => {
+    const today = quotaSnapshot(deps.db, key)
+    return { runsToday: today.used, activeRuns: today.active }
+  }
+
+  /**
+   * 开始（或复用）一次对外会话。
+   *
+   * 两种返回都算成功，靠 `created` 区分：`false` = 命中粘性，回到原会话（同一个外部用户
+   * 不该因为调用方重试就换一个 agent，那等于让客户失忆）。带 `text` 时顺带跑第一轮，
+   * 所以"一句话问答"对调用方是**一次 HTTP 调用**，不用先建会话再发消息。
+   */
+  app.post('/v1/conversations', { preHandler: requireKey(deps, 'conversations:write') }, async (request, reply) => {
+    const key = request.apiKey
+    const ports = deps.ports
+    if (key === undefined) return reply.code(401).send({ error: 'unauthorized' })
+    if (ports === undefined) return reply.code(503).send({ error: 'conversations_unavailable' })
+
+    const parsed = createConversationBody.safeParse(request.body ?? {})
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'invalid_body', detail: parsed.error.issues.map((i) => i.message) })
+    }
+
+    const resolved = resolveService(deps.config, key, parsed.data.service)
+    if (!resolved.ok) return reject(reply, resolved.reason, deps.db, key, 'POST /v1/conversations')
+    const service = resolved.service
+
+    const admission = checkAdmission(key, usageFor(key))
+    if (admission !== null) return reject(reply, admission, deps.db, key, 'POST /v1/conversations')
+
+    const externalUserId = parsed.data.externalUserId
+    const text = parsed.data.text
+
+    // 粘性：命中就直接用原会话，不重新分发。
+    if (externalUserId !== undefined) {
+      const existing = findLiveConversation(deps.db, key.id, externalUserId)
+      if (existing !== null) {
+        const replyPayload: Record<string, unknown> = {
+          conversationId: existing.id,
+          agentId: existing.agentId,
+          service: service.id,
+          created: false,
+        }
+        if (text !== undefined) {
+          const outcome = await runTurn(deps, reply, ports, existing.id, existing.agentId, text, key.id)
+          if (outcome === null) return reply
+          replyPayload.reply = outcome.summary
+          replyPayload.usage = outcome.usage
+          replyPayload.costMicroUsd = outcome.costMicroUsd
+          replyPayload.state = outcome.state
+        }
+        return reply.header('cache-control', 'no-store').send(replyPayload)
+      }
+    }
+
+    const load = loadServiceLoad(service, { db: deps.db, isOnline: ports.isOnline })
+    const picked = dispatchConversation({
+      service,
+      load,
+      keySessionsByAgent: keySessionsByAgent(deps.db, key.id, [...service.workers]),
+      rotationSeed: Date.now() % 1000,
+    })
+    if (!picked.ok) return reject(reply, picked.reason, deps.db, key, 'POST /v1/conversations')
+
+    // 成员不在配置里（服务声明过期）时不能建会话：宁可 503 也不要建一个没人接的会话。
+    if (deps.config.agents[picked.agentId] === undefined) {
+      return reject(reply, { kind: 'agent_unavailable', agentId: picked.agentId }, deps.db, key, 'POST /v1/conversations')
+    }
+
+    const chat = createChat(deps.db, picked.agentId, Date.now(), {
+      apiKeyId: key.id,
+      // 没给外部用户 id = 调用方自己存会话号续聊：此时 external_user_id 为 null，
+      // 而"活会话唯一"那条部分索引带 IS NOT NULL 条件，所以这些会话互不干扰，
+      // 也永远不会被粘性查询命中（粘性只对给了 id 的调用方生效）。
+      externalUserId: externalUserId ?? null,
+      serviceId: service.id,
+    })
+    recordAudit(deps.db, {
+      actor: `api_key:${key.id}`,
+      kind: 'api_call',
+      detail: `conversation ${chat.id} created on ${picked.agentId} for service ${service.id}`,
+    })
+
+    const payload: Record<string, unknown> = {
+      conversationId: chat.id,
+      agentId: picked.agentId,
+      service: service.id,
+      created: true,
+    }
+    if (text !== undefined) {
+      const outcome = await runTurn(deps, reply, ports, chat.id, picked.agentId, text, key.id)
+      if (outcome === null) return reply
+      payload.reply = outcome.summary
+      payload.usage = outcome.usage
+      payload.costMicroUsd = outcome.costMicroUsd
+      payload.state = outcome.state
+    }
+    return reply.code(201).header('cache-control', 'no-store').send(payload)
+  })
+
+  /**
+   * 在某个会话上跑一轮。
+   *
+   * 归属检查先做：不是这把钥匙的会话一律 404（不区分"不存在"与"不是你的"，
+   * 否则调用方可以拿会话号是否存在来探测别人的会话）。
+   */
+  app.post('/v1/conversations/:id/messages', { preHandler: requireKey(deps, 'conversations:write') }, async (request, reply) => {
+    const key = request.apiKey
+    const ports = deps.ports
+    if (key === undefined) return reply.code(401).send({ error: 'unauthorized' })
+    if (ports === undefined) return reply.code(503).send({ error: 'conversations_unavailable' })
+
+    const params = request.params as { id?: string }
+    const chatId = params.id ?? ''
+    const chat = getChat(deps.db, chatId)
+    if (chat === null || chat.apiKeyId !== key.id || chat.removedAt !== null) {
+      return reply.code(404).send({ error: 'unknown_conversation' })
+    }
+
+    const parsed = sendMessageBody.safeParse(request.body ?? {})
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'invalid_body', detail: parsed.error.issues.map((i) => i.message) })
+    }
+
+    const admission = checkAdmission(key, usageFor(key))
+    if (admission !== null) return reject(reply, admission, deps.db, key, `POST /v1/conversations/${chatId}/messages`)
+
+    const outcome = await runTurn(deps, reply, ports, chat.id, chat.agentId, parsed.data.text, key.id)
+    if (outcome === null) return reply
+    return reply.header('cache-control', 'no-store').send({
+      conversationId: chat.id,
+      agentId: chat.agentId,
+      reply: outcome.summary,
+      state: outcome.state,
+      usage: outcome.usage,
+      costMicroUsd: outcome.costMicroUsd,
+      durationMs: outcome.durationMs,
+    })
+  })
+}
+
+/**
+ * 跑一轮并处理失败：返回 null = 已经回过响应（调用方直接 return reply）。
+ *
+ * 失败映射：agent 不在配置里 = 503；回合本身失败 = 502 且带 error 文本（对外措辞是
+ * "这一轮失败了"，不是"你没配对"——配额与鉴权在这一步之前已经查过）。
+ */
+const runTurn = async (
+  deps: PublicApiDeps,
+  reply: FastifyReply,
+  ports: PublicApiPorts,
+  chatId: string,
+  agentId: string,
+  text: string,
+  apiKeyId: string,
+): Promise<RunOutcome | null> => {
+  if (deps.config.agents[agentId] === undefined) {
+    await reply.code(503).send({ error: 'agent_unavailable', agent: agentId })
+    return null
+  }
+  try {
+    const outcome = await ports.runTurn({ chatId, agentId, text, apiKeyId })
+    // 跑完了但结果是失败态：仍然 200 回话（调用方要的是"这一轮怎么了"），
+    // 用 state 与 error 表达，避免把"回合失败"伪装成"请求没送达"。
+    return outcome
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    recordAudit(deps.db, { actor: `api_key:${apiKeyId}`, kind: 'api_call', detail: `turn failed on ${agentId}: ${detail}` })
+    await reply.code(502).send({ error: 'turn_failed', detail })
+    return null
+  }
 }
