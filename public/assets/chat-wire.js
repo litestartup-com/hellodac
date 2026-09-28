@@ -1,8 +1,8 @@
-// 债务 F1:chat.js 拆分第三步——wire 层(加载/重载/SSE 帧分发)。
+// Debt F1, step three of splitting chat.js: the wire layer (load/reload and SSE frame dispatch).
 //
-// 与 render 层对称:全部状态经 refs(getter/setter 盒)注入,帧分发逻辑
-// handleFrame 是纯函数(依赖注入),可独立单测(chat-wire.test.mjs)。
-// chat.js 只把 refs/deps 接好,自身不再持有加载与流逻辑。
+// Symmetric with the render layer: all state is injected through refs (getter/setter boxes) and the
+// frame dispatch logic in handleFrame is a pure function (dependency injection), unit-tested on its own
+// (chat-wire.test.mjs). chat.js only wires up refs/deps and no longer owns the loading or stream logic.
 
 import { esc, icon, apiFetch, uniqueFrames, autoReconnect, t, loadI18n } from './ui.js'
 
@@ -82,11 +82,12 @@ export const makeWire = (refs, deps) => {
   }
 
   /**
-   * 蜂群 P2/P3：主脑派工记录（delegation 帧）。
+   * Hive P2/P3: the brain's delegation records (delegation frames).
    *
-   * 与 transcript 分开的独立区块：帧数据来自 run 表（source_chat_id），不是
-   * 会话历史；按时间与消息流精确交错代价高、收益小，MVP 先平铺在转录上方。
-   * 实时更新 = relay 上的 delegation_done 帧 → 重新拉取。
+   * A separate block from the transcript: the frame data comes from the run table (source_chat_id), not
+   * from the conversation history; interleaving it precisely with the message stream costs a lot and buys
+   * little, so the MVP renders it flat above the transcript. Live updates = the delegation_done frame on the
+   * relay triggering a refetch.
    */
   const DELEGATION_ICON = { done: '✓', failed: '✕', running: '…', pending: '…' }
   const DELEGATION_CLASS = { done: 'ok', failed: 'bad', running: 'warn', pending: 'warn' }
@@ -123,7 +124,7 @@ export const makeWire = (refs, deps) => {
       const body = await response.json()
       renderDelegations(Array.isArray(body.delegations) ? body.delegations : [])
     } catch {
-      // 非主脑会话本就没有派工记录；接口异常也不值得打断对话。
+      // A non-brain conversation has no delegations to begin with, and an API hiccup is not worth interrupting the chat for.
     }
   }
 
@@ -223,11 +224,11 @@ export const makeWire = (refs, deps) => {
         const started = refs.queuedItems.value.shift()
         refs.pendingUserTexts.value.push(started)
       }
-      // goal 帧不是转录帧：直接落状态，不进 blocks。
+      // A goal frame is not a transcript frame: it lands in state directly and does not enter blocks.
       if (f.kind === 'goal') state.goal = f.goal ?? null
     }
     refs.blocks.value = pendingFrames.filter((f) => f.kind !== 'turn_queued' && f.kind !== 'goal').reduce((list, frame) => reduce(list, frame), rebuilt)
-    // 卡片状态在重建后必须与转录一致:清空重放(load 是唯一事实源)。
+    // Card state has to match the transcript after a rebuild, so it is cleared and replayed (load is the only source of truth).
     deps.resetAsks()
     for (const frame of pendingFrames) deps.trackAsks(frame)
     refs.buffered.value = []
@@ -250,9 +251,9 @@ export const makeWire = (refs, deps) => {
     return chain
   }
 
-  /** 测试可注入假 reload 覆盖真实链(避免触发网络);缺省用内部链。 */
+  /** Tests may inject a fake reload to bypass the real chain (and avoid network); the internal chain is the default. */
   const reloadNow = deps.reload ?? reload
-  /** 测试可注入假派工拉取;缺省用内部实现。 */
+  /** Tests may inject a fake delegation fetch; the internal implementation is the default. */
   const refreshDelegations = deps.loadDelegations ?? loadDelegations
 
   /**
@@ -268,7 +269,7 @@ export const makeWire = (refs, deps) => {
       deps.render()
       return
     }
-    // 蜂群 P2：派工结束帧——不是转录帧，刷新派工记录即可。
+    // Hive P2: the delegation-finished frame is not a transcript frame, so refetching the records is enough.
     if (frame.kind === 'delegation_done') {
       void refreshDelegations()
       return
@@ -288,9 +289,9 @@ export const makeWire = (refs, deps) => {
       return
     }
 
-    // goal 帧放在 loading 缓冲之后：加载中收到的目标变化先进 buffer，
-    // load() 完成时经 pendingFrames 拾取（见 load 里的 'goal' 分支）——
-    // 直接应用会打在半截的旧快照上，且 GET 的历史缓存可能还没带上它。
+    // Goal frames are queued behind the loading buffer: a goal change that arrives mid-load goes into the
+    // buffer and is picked up by pendingFrames when load() finishes (see the 'goal' branch in load).
+    // Applying it directly would land on a half-built snapshot, and the GET history cache may not carry it yet.
     if (frame.kind === 'goal' && refs.state.value !== null) {
       refs.state.value.goal = frame.goal ?? null
       deps.render()
@@ -333,7 +334,7 @@ export const makeWire = (refs, deps) => {
   // request, even the HTML document, sits queued behind a socket that will never
   // free up. So this is not battery hygiene, it is the difference between working
   // and hanging.
-  // 债务 F3：重连机制已收敛进 ui.js 的 autoReconnect（3s → ×2 → 30s 封顶）。
+  // Debt F3: the reconnect machinery converged into ui.js autoReconnect (3s -> x2 -> capped at 30s).
   const { connect, disconnect } = autoReconnect(() => {
     // Never two streams for one page: a second one costs a second connection and
     // delivers every frame twice.
