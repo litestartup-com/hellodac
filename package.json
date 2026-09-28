@@ -18,6 +18,7 @@
     "setup": "tsx src/cli/setup.ts",
     "backup": "tsx src/cli/backup.ts",
     "key": "tsx src/cli/apikey.ts",
+    "config:dry": "tsx scripts/config-dry-run.ts",
     "restore": "tsx src/cli/backup.ts restore",
     "drill": "tsx scripts/dr-drill.ts",
     "release:bundle": "node scripts/make-release.mjs",
