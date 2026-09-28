@@ -24,6 +24,7 @@ import { makeCsrfHook } from './routes/auth.js'
 import { registerAuditRoutes } from './routes/audit.js'
 import { registerApiKeyRoutes } from './routes/keys.js'
 import { registerServiceRoutes } from './routes/services.js'
+import { registerServiceEditorRoutes } from './routes/config-services.js'
 import { collectNodeHomes, packNodeHomes } from './nodebackup.js'
 import { seedEmptyWorkspaces } from './workspace/seed.js'
 import { provisionBrainToken, renderFleetDoc } from './workspace/fleet-doc.js'
@@ -299,6 +300,10 @@ const main = async (): Promise<void> => {
       return nodeSupervisors.get(agent.endpoint)?.current.state === 'live'
     },
   })
+  // The service declaration editor: preview + validated write of manager.config.yaml, so "create a
+  // service" stops being "SSH in and edit YAML". Membership changes converge through the same
+  // reconcile entry as every other config change.
+  registerServiceEditorRoutes(app, { config, db, requireUser, reconcile: reconcileDeps })
   registerStatusRoutes(app, config, db, clients, requireUser, upstreamClients, nodeSupervisors)
   registerWorkspaceRoutes(app, config, requireUser)
   registerRunRoutes(app, config, db, clients, requireUser, upstreamClients)

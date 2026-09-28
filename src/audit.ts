@@ -30,6 +30,10 @@ export type AuditKind =
   | 'api_key_created'
   | 'api_key_revoked'
   | 'api_call'
+  // 2026-09-28: the two actions the operator UI gained -- testing a key against the outward door, and
+  // writing a service declaration into the truth source. Both are operator actions worth a trail.
+  | 'api_key_probed'
+  | 'service_applied'
 
 export const recordAudit = (db: Db, entry: { actor: string; kind: AuditKind; detail: string }): void => {
   db.insert(schema.auditLog).values({ at: Date.now(), actor: entry.actor, kind: entry.kind, detail: entry.detail }).run()

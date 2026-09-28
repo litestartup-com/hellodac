@@ -29,17 +29,18 @@ const IGNORED = new Set(['key', '...'])
 
 // Keys assembled in templates are invisible to static analysis (e.g. t(`runs.state.${state}`), t(`lang.${tag}`)),
 // so they are listed as dynamic prefixes: in the "unused" list they would only mislead.
-const DYNAMIC_PREFIXES = ['runs.state.', 'runs.trigger.', 'lang.', 'audit.kind.', 'chat.goal.']
+const DYNAMIC_PREFIXES = ['runs.state.', 'runs.trigger.', 'lang.', 'audit.kind.', 'chat.goal.', 'services.surface.']
 
 const files = [...walk(join(root, 'public')), ...walk(join(root, 'src'))]
 const used = new Map() // key -> where it appears
 for (const file of files) {
   const text = readFileSync(file, 'utf8')
-  for (const match of text.matchAll(/\bt\(\s*'([A-Za-z0-9_.-]+)'/g)) {
+  // The `:` matters: scope ids are keys too (`keys.scope.conversations:write`).
+  for (const match of text.matchAll(/\bt\(\s*'([A-Za-z0-9_.:-]+)'/g)) {
     if (IGNORED.has(match[1])) continue
     if (!used.has(match[1])) used.set(match[1], file)
   }
-  for (const match of text.matchAll(/\{\{t:([A-Za-z0-9_.-]+)\}\}/g)) {
+  for (const match of text.matchAll(/\{\{t:([A-Za-z0-9_.:-]+)\}\}/g)) {
     if (IGNORED.has(match[1])) continue
     if (!used.has(match[1])) used.set(match[1], file)
   }

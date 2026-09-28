@@ -11,6 +11,7 @@
       <h2>{{t:keys.listener}}</h2>
       <span id="keys-listener" class="muted small">{{t:common.loading}}</span>
     </div>
+    <div id="keys-access" class="card muted small" hidden></div>
   </section>
 
   <section class="section">
@@ -29,26 +30,86 @@
       <select id="key-services"></select>
 
       <label>{{t:keys.scopes}}</label>
-      <div id="key-scopes" class="checks">
-        <label class="checkbox-line"><input type="checkbox" value="services:read" checked /> <span>services:read</span></label>
-        <label class="checkbox-line"><input type="checkbox" value="usage:read" checked /> <span>usage:read</span></label>
-        <label class="checkbox-line"><input type="checkbox" value="tasks:write" /> <span>tasks:write</span></label>
-        <label class="checkbox-line"><input type="checkbox" value="conversations:write" /> <span>conversations:write</span></label>
-        <label class="checkbox-line"><input type="checkbox" value="interactions:write" /> <span>interactions:write</span></label>
+      <div id="key-scopes" class="checks"></div>
+      <p class="muted small">{{t:keys.scopesHint}}</p>
+
+      <div class="form-row">
+        <div>
+          <label for="key-quota">{{t:keys.quota}}</label>
+          <input id="key-quota" type="number" min="1" value="200" />
+        </div>
+        <div class="checkbox-line align-end">
+          <input id="key-quota-unlimited" type="checkbox" />
+          <label for="key-quota-unlimited" class="inline">{{t:keys.quotaUnlimited}}</label>
+        </div>
       </div>
 
-      <label for="key-quota">{{t:keys.quota}}</label>
-      <input id="key-quota" type="number" min="1" value="200" />
+      <div class="form-row">
+        <div>
+          <label for="key-rpm">{{t:keys.rpm}}</label>
+          <input id="key-rpm" type="number" min="1" max="6000" value="60" />
+        </div>
+        <div>
+          <label for="key-concurrency">{{t:keys.concurrency}}</label>
+          <input id="key-concurrency" type="number" min="1" max="64" value="4" />
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div>
+          <label for="key-expires">{{t:keys.expires}}</label>
+          <input id="key-expires" type="date" />
+        </div>
+        <p class="muted small">{{t:keys.expiresHint}}</p>
+      </div>
 
       <button type="submit" id="key-create">{{t:keys.createAction}}</button>
-      <div id="key-token" class="token-reveal" hidden></div>
     </form>
+
+    <div id="key-token" class="card" hidden>
+      <div class="node-title">{{t:keys.tokenOnce}}</div>
+      <div class="token-row">
+        <code class="token-value" id="key-token-value"></code>
+        <button type="button" class="btn" id="key-token-copy">{{t:keys.copy}}</button>
+      </div>
+      <p class="muted small">{{t:keys.tokenOnceNote}}</p>
+
+      <h3 class="section-label">{{t:keys.testNow}}</h3>
+      <p class="muted small">{{t:keys.testNowHint}}</p>
+      <button type="button" class="btn" id="key-probe">{{t:keys.testRun}}</button>
+      <div id="key-probe-result"></div>
+
+      <h3 class="section-label">{{t:keys.handover}}</h3>
+      <div id="key-handover" class="muted small"></div>
+      <div class="form-actions">
+        <button type="button" class="btn ghost" id="key-handover-copy">{{t:keys.handoverCopy}}</button>
+        <span id="key-handover-msg" class="muted small"></span>
+      </div>
+    </div>
   </section>
 
   <section class="section">
     <div class="section-head">
       <h2>{{t:keys.existing}}</h2>
+      <button id="key-verify-open" class="btn ghost" type="button">{{t:keys.verify}}</button>
     </div>
     <div id="keys-list" class="nodes-list"><p class="muted small">{{t:common.loading}}</p></div>
+  </section>
+
+  <!-- Verify a key whose secret this page no longer holds (the operator kept it). -->
+  <section id="key-verify" class="section" hidden>
+    <div class="section-head">
+      <h2>{{t:keys.verify}}</h2>
+    </div>
+    <form id="key-verify-form" class="card narrow">
+      <p class="muted small">{{t:keys.verifyHint}}</p>
+      <label for="key-verify-token">{{t:keys.verifyToken}}</label>
+      <input id="key-verify-token" type="password" autocomplete="off" />
+      <div class="form-actions">
+        <button type="submit" class="btn" id="key-verify-run">{{t:keys.verifyRun}}</button>
+        <button type="button" class="btn ghost" id="key-verify-cancel">{{t:common.cancel}}</button>
+      </div>
+      <div id="key-verify-result"></div>
+    </form>
   </section>
 </div>

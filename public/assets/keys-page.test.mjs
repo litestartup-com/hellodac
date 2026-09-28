@@ -2,64 +2,99 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 /**
- * Page-script runtime smoke: run keys.js as a real module and assert it does not throw and that it
- * rendered the data into the matching nodes. This is the hindsight guard added for the 2026-09-27 incident --
- * every widget on the page was there and the API was fine, but the script called `.json()` on the `apiJson`
- * return as if it were a `Response`, so the page sat at "Loading…"; `node --check` and "asset 200" miss it.
+ * Page-script runtime smoke for the API-key page: run keys.js as a real module and assert that the
+ * create flow, the outward probe, the copyable handover and the confirmed revoke actually fire --
+ * the guard added after the 2026-09-27 incident, in which every widget was present and the API was
+ * fine, but the script used the wrong return shape and the page sat at "Loading…" forever.
  *
- * Constraint: this test relies on module top-level side effects, and node --test gives each file its own process ✓.
+ * Constraint: this test relies on module top-level side effects, and node --test gives each file its own process.
  */
 const nodes = new Map()
 
 const el = (id) => {
   const existing = nodes.get(id)
   if (existing !== undefined) return existing
-  const node = { id, innerHTML: '', textContent: '', hidden: false, disabled: false, value: '', options: [], listeners: {}, addEventListener: (type, fn) => { node.listeners[type] = fn } }
+  const node = { id, innerHTML: '', textContent: '', hidden: false, disabled: false, value: '', checked: false, options: [], listeners: {}, addEventListener: (type, fn) => { node.listeners[type] = fn } }
   nodes.set(id, node)
   return node
 }
 
+const docListeners = {}
 globalThis.document = {
   documentElement: { lang: 'en' },
   cookie: '',
   hidden: false,
   getElementById: (id) => nodes.get(id) ?? null,
-  addEventListener: () => undefined,
+  addEventListener: (type, fn) => { docListeners[type] = fn },
   querySelectorAll: () => [
     { value: 'services:read' },
     { value: 'usage:read' },
+    { value: 'conversations:write' },
   ],
 }
 globalThis.window = globalThis
 globalThis.HTMLElement = class {}
-// poll() arms a 15s timer: the test does not let it actually tick (polling behaviour is not what this test is about).
 const realSetTimeout = globalThis.setTimeout
 globalThis.setTimeout = () => 0
 globalThis.clearTimeout = () => undefined
+Object.defineProperty(globalThis, 'navigator', { value: { clipboard: { writeText: async () => undefined } }, configurable: true })
+const confirms = []
+globalThis.confirm = (text) => { confirms.push(text); return true }
 
-// Pre-create the page nodes (the full set of ids in keys.html)
-for (const id of ['keys-listener', 'key-services', 'key-scopes', 'key-create', 'key-create-msg', 'keys-list', 'keys-refresh', 'key-name', 'key-quota', 'key-token', 'key-form']) el(id)
+// Every id in keys.html.
+for (const id of [
+  'keys-refresh', 'keys-note', 'keys-listener', 'keys-access', 'key-form', 'key-create-msg', 'key-name',
+  'key-services', 'key-scopes', 'key-quota', 'key-quota-unlimited', 'key-rpm', 'key-concurrency',
+  'key-expires', 'key-create', 'key-token', 'key-token-value', 'key-token-copy', 'key-probe',
+  'key-probe-result', 'key-handover', 'key-handover-copy', 'key-handover-msg', 'keys-list',
+  'key-verify', 'key-verify-open', 'key-verify-form', 'key-verify-token', 'key-verify-run', 'key-verify-cancel',
+  'key-verify-result',
+]) el(id)
 
 const keyFixture = {
   id: 'b4c36b603b1e',
   name: 'Billing service',
   scopes: ['services:read', 'tasks:write'],
   scopeServices: ['support'],
+  serviceLabels: ['Support'],
   quotaRunsDay: 200,
   rateLimitRpm: 60,
   maxConcurrency: 4,
   expiresAt: null,
   revokedAt: null,
-  lastUsedAt: null,
+  lastUsedAt: Date.now() - 3_600_000,
+  createdBy: 'admin',
   createdAt: 1_790_000_000_000,
+  usedToday: 12,
+  active: 1,
 }
 
+const postBodies = []
 globalThis.fetch = async (url, options) => {
   const path = String(url)
-  if (path.includes('/api/i18n/')) return { ok: true, json: async () => ({ locale: 'en', dict: { 'keys.listenerUp': 'listening on' }, locales: [] }) }
+  if (path.includes('/api/i18n/')) {
+    return { ok: true, json: async () => ({ locale: 'en', dict: { 'keys.listenerUp': 'listening on', 'keys.scope.conversations:write': 'Start conversations', 'keys.scopeUnreleased': 'not released yet', 'keys.tokenOnce': 'Shown once', 'keys.revokeConfirm': 'Revoke {name}?' }, locales: [] }) }
+  }
   if (path.endsWith('/api/keys') && options?.method === 'POST') {
-    postBodies.push(options?.body ?? '')
-    return { ok: true, status: 201, json: async () => ({ token: 'dac_9f2c1ab7e2d4_TESTTOKEN', key: { id: '9f2c1ab7e2d4' } }) }
+    postBodies.push({ path, body: options?.body ?? '' })
+    return { ok: true, status: 201, json: async () => ({ token: 'dac_9f2c1ab7e2d4_TESTTOKEN', key: { ...keyFixture, id: '9f2c1ab7e2d4' } }) }
+  }
+  if (path.endsWith('/api/keys/probe')) {
+    postBodies.push({ path, body: options?.body ?? '' })
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ok: true,
+        target: 'http://127.0.0.1:8081',
+        steps: [{ path: 'GET /v1/health', ok: true, status: 200, detail: 'the outward door answers' }],
+        notes: [],
+      }),
+    }
+  }
+  if (path.endsWith('/revoke')) {
+    postBodies.push({ path, body: '' })
+    return { ok: true, status: 200, json: async () => ({ ok: true }) }
   }
   if (path.endsWith('/api/keys')) {
     return {
@@ -69,56 +104,84 @@ globalThis.fetch = async (url, options) => {
         keys: [keyFixture],
         publicApi: { status: 'listening', host: '127.0.0.1', port: 8081, detail: null },
         services: [{ id: 'support', label: 'Support' }],
+        access: { baseUrl: 'http://127.0.0.1:8081/v1', quotaTimeZone: 'Asia/Shanghai', quotaResetsAt: 0 },
       }),
     }
   }
   return { ok: false, status: 404, json: async () => ({ error: 'not_found' }) }
 }
-const postBodies = []
 
-test('keys page script: loading does not throw, and the data lands in the matching nodes (guards the "Loading…" incident)', async () => {
+test('keys page: loading renders the listener, the explained scope checklist and the key list', async () => {
   await import('./keys.js')
-
-  // load() is a synchronous chain after the top-level await; give it a microtask window to finish rendering.
   await new Promise((resolve) => realSetTimeout(resolve, 20))
 
   const listener = nodes.get('keys-listener')
-  assert.ok(listener !== undefined && listener.innerHTML.includes('127.0.0.1:8081'), `the facade state did not render: ${listener?.innerHTML}`)
+  assert.ok(listener !== undefined && listener.innerHTML.includes('127.0.0.1:8081'), `the outward address did not render: ${listener?.innerHTML}`)
+
+  const scopes = nodes.get('key-scopes')
+  assert.ok(scopes !== undefined && scopes.innerHTML.includes('Start conversations'), 'scopes are rendered in human terms')
+  assert.ok(scopes !== undefined && scopes.innerHTML.includes('conversations:write'), 'the real scope id stays visible in small print')
+  assert.ok(scopes !== undefined && scopes.innerHTML.includes('not released yet'), 'unreleased scopes are flagged instead of silently grantable')
 
   const list = nodes.get('keys-list')
   assert.ok(list !== undefined && list.innerHTML.includes('Billing service'), `the key list did not render: ${list?.innerHTML}`)
-  assert.ok(list !== undefined && list.innerHTML.includes('b4c36b603b1e'), 'the list must show the keyId')
-
-  const services = nodes.get('key-services')
-  assert.ok(services !== undefined && services.innerHTML.includes('support'), 'the service dropdown must be filled')
-
-  const msg = nodes.get('key-create-msg')
-  assert.ok(msg !== undefined && msg.textContent === '', 'with a service configured the "no services" notice must not show')
+  assert.ok(list !== undefined && list.innerHTML.includes('12/200'), 'today usage vs quota is spelled out')
 })
 
-test('keys form: submit -> issue -> the plaintext is shown once (drives the real form handler)', async () => {
+test('keys form: submit sends the extended fields and reveals the token once', async () => {
   await import('./keys.js')
   await new Promise((resolve) => realSetTimeout(resolve, 20))
 
   const form = nodes.get('key-form')
-  assert.ok(form !== undefined && typeof form.listeners?.submit === 'function', 'the form must register a submit handler')
-
-  const nameEl = nodes.get('key-name')
-  const serviceEl = nodes.get('key-services')
-  nameEl.value = 'acceptance key'
-  serviceEl.value = 'support'
+  nodes.get('key-name').value = 'acceptance key'
+  nodes.get('key-services').value = 'support'
+  nodes.get('key-quota').value = '300'
+  nodes.get('key-rpm').value = '120'
+  nodes.get('key-concurrency').value = '8'
+  nodes.get('key-expires').value = '2027-01-01'
 
   await form.listeners.submit({ preventDefault: () => undefined })
   await new Promise((resolve) => realSetTimeout(resolve, 20))
 
-  const body = postBodies[0]
-  assert.ok(body !== undefined, 'a submit must send POST /api/keys')
-  const parsed = JSON.parse(body)
-  assert.equal(parsed.name, 'acceptance key')
-  assert.deepEqual(parsed.services, ['support'])
-  assert.deepEqual(parsed.scopes, ['services:read', 'usage:read'], 'default read-only scopes (the checked boxes)')
+  const sent = JSON.parse(postBodies[0].body)
+  assert.equal(sent.name, 'acceptance key')
+  assert.deepEqual(sent.services, ['support'])
+  assert.deepEqual(sent.scopes, ['services:read', 'usage:read', 'conversations:write'], 'default read-only scopes')
+  assert.equal(sent.rateLimitRpm, 120, 'the per-minute cap is now part of the form')
+  assert.equal(sent.maxConcurrency, 8, 'the in-flight cap is now part of the form')
+  assert.equal(sent.quotaRunsDay, 300)
+  assert.ok(sent.expiresAt > Date.now(), 'an expiry date becomes an epoch')
 
   const reveal = nodes.get('key-token')
-  assert.ok(reveal !== undefined && reveal.hidden === false, 'after a successful issue the plaintext area must be shown')
-  assert.ok(reveal !== undefined && reveal.innerHTML.includes('TESTTOKEN'), 'the plaintext area must contain the token')
+  assert.equal(reveal.hidden, false, 'after a successful issue the plaintext area is shown')
+  assert.ok(nodes.get('key-token-value').textContent.includes('TESTTOKEN'), 'the plaintext area contains the token')
+  assert.ok(nodes.get('key-handover').innerHTML.includes('127.0.0.1:8081'), 'the handover block carries the outward address')
+})
+
+test('keys page: the probe button tests the fresh token against the real outward door', async () => {
+  await import('./keys.js')
+  await new Promise((resolve) => realSetTimeout(resolve, 20))
+
+  await nodes.get('key-form').listeners.submit({ preventDefault: () => undefined })
+  await new Promise((resolve) => realSetTimeout(resolve, 20))
+  await nodes.get('key-probe').listeners.click({})
+  await new Promise((resolve) => realSetTimeout(resolve, 20))
+
+  const probe = postBodies.find((entry) => entry.path.endsWith('/api/keys/probe'))
+  assert.ok(probe !== undefined, 'the test button must fire the probe')
+  assert.equal(JSON.parse(probe.body).token, 'dac_9f2c1ab7e2d4_TESTTOKEN', 'the probe uses the plaintext the page just received')
+  assert.ok(nodes.get('key-probe-result').innerHTML.includes('/v1/health'), 'the probe steps render')
+})
+
+test('keys page: revoking asks for confirmation first, and the confirm text names the key', async () => {
+  await import('./keys.js')
+  await new Promise((resolve) => realSetTimeout(resolve, 20))
+
+  const target = Object.assign(new HTMLElement(), { dataset: { revoke: 'b4c36b603b1e', revokeName: 'Billing service' }, disabled: false })
+  await docListeners.click({ target })
+  await new Promise((resolve) => realSetTimeout(resolve, 20))
+
+  assert.equal(confirms.length, 1, 'revocation must be confirmed before it happens')
+  assert.ok(confirms[0].includes('Billing service'), 'the confirmation names the key being revoked')
+  assert.ok(postBodies.some((entry) => entry.path.endsWith('/revoke')), 'after confirmation the revoke fires')
 })

@@ -1,10 +1,88 @@
 <div class="wrap">
   <div class="page-head">
     <h1 class="grow">{{t:services.title}}</h1>
+    <button id="service-new" class="btn" type="button" hidden>{{t:services.new}}</button>
     <span id="services-refresh" class="muted small"></span>
   </div>
 
   <div id="services-note" class="card muted small">{{t:services.note}}</div>
+
+  <!-- The declaration editor: fill a form, see exactly what would be written, apply with validation. -->
+  <section id="editor" class="section" hidden>
+    <div class="section-head">
+      <h2 id="editor-title">{{t:services.editorNew}}</h2>
+      <span class="muted small">{{t:services.editorHint}}</span>
+    </div>
+
+    <form id="service-form" class="card">
+      <label for="svc-label">{{t:services.form.label}}</label>
+      <input id="svc-label" type="text" maxlength="80" placeholder="{{t:services.form.labelHint}}" />
+
+      <label for="svc-id">{{t:services.form.id}}</label>
+      <input id="svc-id" type="text" maxlength="41" pattern="[a-z0-9][a-z0-9-]{0,40}" placeholder="{{t:services.form.idHint}}" />
+
+      <label>{{t:services.form.surfaces}}</label>
+      <div class="checks">
+        <label class="checkbox-line"><input id="svc-surface-conversations" type="checkbox" value="conversations" checked /> <span>{{t:services.form.surface.conversations}}</span></label>
+        <label class="checkbox-line"><input id="svc-surface-tasks" type="checkbox" value="tasks" /> <span>{{t:services.form.surface.tasks}}</span> <span class="muted small">{{t:services.form.surface.tasksNote}}</span></label>
+      </div>
+
+      <label>{{t:services.form.agents}}</label>
+      <div id="svc-agents" class="checks"></div>
+      <p id="svc-agents-note" class="muted small">{{t:services.form.agentsHint}}</p>
+
+      <div class="form-row">
+        <div>
+          <label for="svc-capacity">{{t:services.form.capacity}}</label>
+          <input id="svc-capacity" type="number" min="1" max="64" value="4" />
+        </div>
+        <div>
+          <label for="svc-idle">{{t:services.form.idle}}</label>
+          <input id="svc-idle" type="number" min="1" max="8760" value="24" />
+        </div>
+      </div>
+
+      <label for="svc-permission">{{t:services.form.permission}}</label>
+      <select id="svc-permission">
+        <option value="read">{{t:services.form.permission.read}}</option>
+        <option value="write">{{t:services.form.permission.write}}</option>
+      </select>
+      <p class="muted small">{{t:services.form.permissionHint}}</p>
+
+      <label for="svc-placement">{{t:services.form.placement}}</label>
+      <select id="svc-placement">
+        <option value="spread">{{t:services.form.placement.spread}}</option>
+        <option value="pack">{{t:services.form.placement.pack}}</option>
+        <option value="pin">{{t:services.form.placement.pin}}</option>
+      </select>
+
+      <div id="svc-machines-wrap" hidden>
+        <label>{{t:services.form.machines}}</label>
+        <div id="svc-machines" class="checks"></div>
+        <p class="muted small">{{t:services.form.machinesHint}}</p>
+      </div>
+
+      <label>{{t:services.form.knowledge}}</label>
+      <div id="svc-knowledge"></div>
+      <button id="svc-knowledge-add" class="btn" type="button">{{t:services.form.knowledgeAdd}}</button>
+      <p class="muted small">{{t:services.form.knowledgeHint}}</p>
+
+      <div id="svc-preview-wrap" hidden>
+        <h3 class="section-label">{{t:services.form.preview}}</h3>
+        <div id="svc-preview-state" class="banner"></div>
+        <div id="svc-preview-errors"></div>
+        <div id="svc-preview-warnings"></div>
+        <div id="svc-preview-diff"></div>
+        <pre class="yaml-preview"><code id="svc-preview-yaml"></code></pre>
+      </div>
+
+      <div class="form-actions">
+        <button id="svc-apply" class="btn" type="button">{{t:services.form.apply}}</button>
+        <button id="svc-cancel" class="btn ghost" type="button">{{t:common.cancel}}</button>
+        <span id="svc-msg" class="muted small"></span>
+      </div>
+    </form>
+  </section>
 
   <div id="services-list"><p class="muted small">{{t:common.loading}}</p></div>
 </div>
