@@ -23,6 +23,7 @@ import { recordAudit } from './audit.js'
 import { makeCsrfHook } from './routes/auth.js'
 import { registerAuditRoutes } from './routes/audit.js'
 import { registerApiKeyRoutes } from './routes/keys.js'
+import { registerServiceRoutes } from './routes/services.js'
 import { collectNodeHomes, packNodeHomes } from './nodebackup.js'
 import { seedEmptyWorkspaces } from './workspace/seed.js'
 import { provisionBrainToken, renderFleetDoc } from './workspace/fleet-doc.js'
@@ -275,6 +276,8 @@ const main = async (): Promise<void> => {
   // Public API: the key management page (the back-office face; the customer face is /v1 on 8081, and the two doors do
   // not recognise each other). Miss this line and /keys 404s while /api/keys works -- pages-routes.test.ts now guards that.
   app.get('/keys', { preHandler: requirePage }, page('keys'))
+  // P2.5: the outward-service overview. Same trap as /keys above: the page needs its own route line.
+  app.get('/services', { preHandler: requirePage }, page('services'))
 
   // P1-5: wipe the initial password from .env once the password change succeeds.
   // Debt R6: the path now comes from config.envPath (derived from the single source of truth; the old dist/../.env
@@ -285,6 +288,17 @@ const main = async (): Promise<void> => {
   registerAuditRoutes(app, db, requireUser)
   // The key management face of the public API (back office; the customer face is in public-api/)
   registerApiKeyRoutes(app, config, db, requireUser)
+  // P2.5: the outward-service overview (read-only; liveness comes from the same supervisor state dispatch reads).
+  registerServiceRoutes(app, {
+    db,
+    config,
+    requireUser,
+    isOnline: (agentId) => {
+      const agent = config.agents[agentId]
+      if (agent === undefined) return false
+      return nodeSupervisors.get(agent.endpoint)?.current.state === 'live'
+    },
+  })
   registerStatusRoutes(app, config, db, clients, requireUser, upstreamClients, nodeSupervisors)
   registerWorkspaceRoutes(app, config, requireUser)
   registerRunRoutes(app, config, db, clients, requireUser, upstreamClients)

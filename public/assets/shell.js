@@ -1123,6 +1123,9 @@ const MORE_NAV = [
   { href: '/spend', nav: 'spend', icon: 'coin', label: t('nav.spend'), hint: 'spend-hint' },
   { href: '/audit', nav: 'audit', icon: 'shield', label: t('nav.audit'), hint: null },
   { href: '/keys', nav: 'keys', icon: 'key', label: t('nav.keys'), hint: null },
+  // P2.5: the outward-service overview (agents online, capacity in use, queue). `bot` reads as
+  // "the agents that answer", which is what the page is about.
+  { href: '/services', nav: 'services', icon: 'bot', label: t('nav.services'), hint: null },
   { href: '/password', nav: 'password', icon: 'pencil', label: t('nav.password'), hint: null },
 ]
 

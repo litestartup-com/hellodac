@@ -103,6 +103,14 @@ export const PAGES: Record<string, PageDef> = {
     script: 'keys.js',
     contentClass: 'wide',
   },
+  // P2.5: the outward-service overview (what a service promises vs what is actually running).
+  services: {
+    file: 'services.html',
+    title: `{{t:services.title}} · ${BRAND.name}`,
+    css: [],
+    script: 'services.js',
+    contentClass: 'wide',
+  },
   // Hive plan 2 P3: forced password change on first login + the audit trail
   password: {
     file: 'password.html',
