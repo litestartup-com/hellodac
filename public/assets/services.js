@@ -51,6 +51,7 @@ const draft = {
   machines: [],
   capacity: 4,
   maxAgentsPerMachine: 4,
+  thresholds: null, // kept verbatim from the declaration (the form has no such field)
   knowledge: [], // { host, mount }
 }
 
@@ -238,6 +239,7 @@ const openEditor = (serviceId = null) => {
       draft.machines = [...raw.machines]
       draft.capacity = raw.capacity.max_sessions_per_agent
       draft.maxAgentsPerMachine = raw.max_agents_per_machine ?? 4
+      draft.thresholds = raw.thresholds ?? null
       draft.knowledge = raw.knowledge.map((k) => ({ host: k.host, mount: k.mount }))
     }
   } else {
@@ -251,6 +253,7 @@ const openEditor = (serviceId = null) => {
     draft.machines = []
     draft.capacity = 4
     draft.maxAgentsPerMachine = 4
+    draft.thresholds = null
     draft.knowledge = []
   }
   const editor = $('editor')
@@ -280,6 +283,7 @@ const currentDraft = () => ({
   placement: draft.placement,
   machines: [...draft.machines],
   max_agents_per_machine: draft.maxAgentsPerMachine,
+  ...(draft.thresholds === null ? {} : { thresholds: draft.thresholds }),
   capacity: { max_sessions_per_agent: draft.capacity },
   knowledge: draft.knowledge.map((k) => ({ host: k.host, mount: k.mount, read_only: true })),
 })

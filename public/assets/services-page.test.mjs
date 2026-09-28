@@ -71,7 +71,7 @@ const snapshotPayload = {
 
 const contextPayload = {
   configHash: 'hash-1234',
-  services: [{ id: 'chat', label: 'Support', workers: ['svc-chat-1'], surfaces: ['conversations'], permission: 'read', session_idle_hours: 24, placement: 'pin', machines: ['box-1'], max_agents_per_machine: 4, capacity: { max_sessions_per_agent: 4 }, knowledge: [] }],
+  services: [{ id: 'chat', label: 'Support', workers: ['svc-chat-1'], surfaces: ['conversations'], permission: 'read', session_idle_hours: 24, placement: 'pin', machines: ['box-1'], max_agents_per_machine: 4, thresholds: { min_free_mem_bytes: 300_000_000 }, capacity: { max_sessions_per_agent: 4 }, knowledge: [] }],
   workers: [{ id: 'svc-chat-1', name: 'Support 1', public: true, serviceId: 'chat', endpoint: 'svc-chat-1', machine: 'box-1', provider: 'deepseek-official', model: 'deepseek-v4-flash', priced: true, blockedReason: null }],
   machines: [{ id: 'box-1', hostname: null, services: ['chat'], outwardAgents: 1 }],
 }
@@ -120,6 +120,20 @@ test('services page: ?create=1 opens the editor by itself, the snapshot renders,
 
   assert.equal(nodes.get('svc-preview-wrap').hidden, false, 'a filled form reveals the preview')
   assert.ok(nodes.get('svc-preview-yaml').textContent.includes('id: chat'), 'the exact YAML to be written is shown')
+})
+
+test('services page: editing an existing declaration keeps the thresholds the form does not expose', async () => {
+  await import('./services.js')
+  await new Promise((resolve) => realSetTimeout(resolve, 20))
+  const hook = globalThis.__DAC_SERVICES_TEST__
+
+  hook.openEditor('chat')
+  hook.setDraft({ label: 'Support (renamed)' })
+  await hook.runPreview()
+  await new Promise((resolve) => realSetTimeout(resolve, 20))
+
+  const sent = calls.previewBodies.at(-1)
+  assert.deepEqual(sent.thresholds, { min_free_mem_bytes: 300_000_000 }, 'a write-only declaration field round-trips through the edit, never dropped')
 })
 
 test('services page: applying with ?return=keys redirects back with the new service preselected', async () => {

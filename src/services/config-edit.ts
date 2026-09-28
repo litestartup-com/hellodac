@@ -37,6 +37,12 @@ export interface ServiceDraft {
   max_agents_per_machine: number
   capacity: { max_sessions_per_agent: number }
   knowledge: Array<{ host: string; mount: string; read_only: boolean }>
+  /**
+   * Placement watermarks the editor does not expose. They must still round-trip: editing a service
+   * whose declaration carries them must write them back unchanged -- dropping them would silently
+   * change the placement rules (real incident: a no-op apply on production removed thresholds:).
+   */
+  thresholds?: { min_free_cpu_percent?: number; min_free_mem_bytes?: number; min_free_disk_bytes?: number }
 }
 
 /** One agent that could serve a service, with the reason it may not. */
@@ -98,6 +104,11 @@ const draftOf = (raw: Record<string, unknown>): ServiceDraft => {
     machines: Array.isArray(raw['machines']) ? raw['machines'].map(String) : [],
     max_agents_per_machine: typeof raw['max_agents_per_machine'] === 'number' ? raw['max_agents_per_machine'] : 4,
     capacity: { max_sessions_per_agent: typeof capacity['max_sessions_per_agent'] === 'number' ? capacity['max_sessions_per_agent'] : 4 },
+    // The editor has no thresholds field, but the declaration may carry one: keep it so an edit
+    // writes it back instead of dropping it (see ServiceDraft.thresholds).
+    ...(typeof raw['thresholds'] === 'object' && raw['thresholds'] !== null
+      ? { thresholds: raw['thresholds'] as NonNullable<ServiceDraft['thresholds']> }
+      : {}),
     knowledge: knowledge.map((k) => {
       const row = rec(k)
       return { host: String(row['host'] ?? ''), mount: String(row['mount'] ?? ''), read_only: row['read_only'] !== false }
@@ -190,6 +201,7 @@ export const serviceEntryOf = (draft: ServiceDraft): Record<string, unknown> => 
   placement: draft.placement,
   ...(draft.placement === 'pin' ? { machines: [...draft.machines] } : {}),
   max_agents_per_machine: draft.max_agents_per_machine,
+  ...(draft.thresholds === undefined ? {} : { thresholds: draft.thresholds }),
   ...(draft.knowledge.length === 0
     ? {}
     : { knowledge: draft.knowledge.map((k) => ({ host: k.host, mount: k.mount, read_only: k.read_only })) }),
@@ -214,6 +226,28 @@ const mergeInto = (doc: Document, entry: Record<string, unknown>): void => {
     }
   }
   doc.addIn(['services'], entry)
+}
+
+/**
+ * Fields the editor does not expose (`thresholds`) must survive an edit even when the caller's draft
+ * does not carry them: the write layer never drops data it does not understand. The round trip through
+ * the UI already carries them; this is the second net for direct callers.
+ */
+const entryOf = (configPath: string, draft: ServiceDraft): Record<string, unknown> => {
+  const entry = serviceEntryOf(draft)
+  if (entry['thresholds'] !== undefined) return entry
+  const onDisk = parseDocument(readFileSync(configPath, 'utf8'))
+  const seq = onDisk.get('services')
+  const items = seq !== null && typeof seq === 'object' && Array.isArray((seq as { items?: unknown }).items)
+    ? ((seq as { items: unknown[] }).items)
+    : []
+  for (let i = 0; i < items.length; i += 1) {
+    if (onDisk.getIn(['services', i, 'id']) !== draft.id) continue
+    const existing = onDisk.getIn(['services', i, 'thresholds'])
+    if (existing !== undefined && existing !== null) entry['thresholds'] = existing
+    break
+  }
+  return entry
 }
 
 /** A minimal line diff (enough to show an operator what is about to be written). */
@@ -246,7 +280,7 @@ export const previewService = (deps: { config: AppConfig; configPath: string; dr
       resolved: null,
     }
   }
-  mergeInto(doc, serviceEntryOf(draft))
+  mergeInto(doc, entryOf(configPath, draft))
   const next = stringify(doc, { lineWidth: 0 })
 
   const dir = mkdtempSync(join(tmpdir(), 'dac-service-preview-'))
@@ -310,7 +344,7 @@ export const applyService = async (deps: {
     let resolved: ResolvedService | null = null
     mutateYamlFile(
       configPath,
-      (doc) => { mergeInto(doc, serviceEntryOf(draft)) },
+      (doc) => { mergeInto(doc, entryOf(configPath, draft)) },
       { validate: 'full' },
     )
     // `validate: 'full'` already ran loadConfig and rolled back on failure, so reaching here means the

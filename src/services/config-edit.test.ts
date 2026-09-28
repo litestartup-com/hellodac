@@ -160,6 +160,32 @@ test('service editor: editing an existing declaration replaces it in place inste
   assert.equal(config.services?.[0]?.maxSessionsPerAgent, 8)
 })
 
+test('service editor: a declaration the editor does not expose (thresholds) survives an edit, not silently dropped', async () => {
+  // The production config carries a service-level threshold override; the editor has no such field,
+  // so the only correct behaviour is to round-trip it unchanged. Losing it would silently change the
+  // placement rules (real incident: a no-op apply on production dropped thresholds:).
+  const configPath = fileFor({
+    services: [
+      {
+        id: 'chat',
+        label: 'Support',
+        workers: ['svc-1'],
+        count: 1,
+        thresholds: { min_free_mem_bytes: 300_000_000 },
+      },
+    ],
+  })
+  const config = loadConfig(configPath)
+  const hash = serviceEditorContext({ config, configPath }).configHash
+
+  const result = await applyService({ config, configPath, draft: draft({ label: 'Support (renamed)' }), expectHash: hash })
+
+  assert.equal(result.ok, true, result.errors.join('\n'))
+  const onDisk = readFileSync(configPath, 'utf8')
+  assert.ok(onDisk.includes('min_free_mem_bytes: 300000000'), 'the threshold override survives the edit')
+  assert.equal(loadConfig(configPath).services?.[0]?.thresholds?.minFreeMemBytes, 300_000_000, 'and the loader still reads it')
+})
+
 test('service editor: the context lists candidates with a reason attached, never a bare disabled row', () => {
   // Two outward agents on two machines (a machine may serve only one service), and a service already
   // holding the first one.

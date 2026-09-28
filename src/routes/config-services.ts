@@ -30,6 +30,14 @@ const draftSchema = z.object({
   machines: z.array(z.string().min(1)).default([]),
   max_agents_per_machine: z.number().int().min(1).max(64),
   capacity: z.object({ max_sessions_per_agent: z.number().int().min(1).max(64) }),
+  // Not editable in the form, but a declaration on disk may carry it -- it must round-trip.
+  thresholds: z
+    .object({
+      min_free_cpu_percent: z.number().min(0).max(100).optional(),
+      min_free_mem_bytes: z.number().nonnegative().optional(),
+      min_free_disk_bytes: z.number().nonnegative().optional(),
+    })
+    .optional(),
   knowledge: z
     .array(z.object({ host: z.string().min(1), mount: z.string().startsWith('/'), read_only: z.boolean() }))
     .default([]),
