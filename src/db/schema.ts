@@ -99,6 +99,18 @@ export const chat = sqliteTable('chat', {
    * 真实沙箱，故以本列为准。null = 尚未经 manager 钉入（退宿主推导/agent 默认）。
    */
   accessMode: text('access_mode'),
+  /**
+   * 对外 API 归属（口径：内部设计库 `manager/topics/CONCEPTS-ALIGNED.md` §6）。
+   *
+   * 三列全是 null = 对内会话（后台自己开的）。对外会话必须有前两列：
+   * `apiKeyId` = 哪把钥匙开的（配额、计费、审计、可见范围都以它为准）；
+   * `externalUserId` = **调用方自己的用户 id**，粘性锚点就是"钥匙 + 它"——同一个
+   * 用户在调用方系统里再来时必须回到同一个会话（换会话 = 客户失忆）；
+   * `serviceId` = 属于哪个对外服务（服务成员增减后仍能追溯）。
+   */
+  apiKeyId: text('api_key_id').references(() => apiKey.id, { onDelete: 'set null' }),
+  externalUserId: text('external_user_id'),
+  serviceId: text('service_id'),
 })
 
 /**

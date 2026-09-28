@@ -31,11 +31,21 @@ export interface TurnRunnerDeps {
   invalidateHistory: (sessionId: string) => void
 }
 
+export interface TurnOptions {
+  /**
+   * 这一轮的账记在哪把对外钥匙上（对外 API 调用）。缺省 = 对内回合。
+   * 单独一个对象参数而不是第 7 个位置参数：调用点两种（对内、对外）差别只在这里，
+   * 位置参数一排到底最容易在某个调用点漏传。
+   */
+  apiKeyId?: string | null
+}
+
 export interface ChatTurnRunner {
   /** 该 chat 是否有回合在跑(会话内串行判断)。 */
   hasRunningTurn: (chatId: string) => boolean
   /** 中止在跑回合(abort 信号);true = 确实有回合被中止。 */
   abortTurn: (chatId: string) => boolean
+  /** 跑一轮并**等它跑完**：对外 API 要的是"这一轮的答复"，所以必须能拿到结果。 */
   startChatTurn: (
     chat: ChatRow,
     agent: ResolvedAgent,
@@ -43,7 +53,8 @@ export interface ChatTurnRunner {
     upstream: SessionDriver | null,
     driver: 'gateway' | 'apiproxy',
     text: string,
-  ) => Promise<unknown>
+    options?: TurnOptions,
+  ) => Promise<RunOutcome>
 }
 
 export const makeChatTurnRunner = (deps: TurnRunnerDeps): ChatTurnRunner => {
@@ -62,6 +73,7 @@ export const makeChatTurnRunner = (deps: TurnRunnerDeps): ChatTurnRunner => {
     driver: 'gateway' | 'apiproxy',
     text: string,
     signal: AbortSignal,
+    options: TurnOptions = {},
   ): Promise<RunOutcome> => {
     const outcome = await runAgent(
       {
@@ -80,6 +92,7 @@ export const makeChatTurnRunner = (deps: TurnRunnerDeps): ChatTurnRunner => {
         driver,
         prompt: text,
         trigger: 'manual',
+        apiKeyId: options.apiKeyId ?? null,
         timeoutMs: config.runner.timeoutMs,
         silenceMs: config.runner.silenceMs,
         chatId: chat.id,
@@ -131,14 +144,17 @@ export const makeChatTurnRunner = (deps: TurnRunnerDeps): ChatTurnRunner => {
     upstream: SessionDriver | null,
     driver: 'gateway' | 'apiproxy',
     text: string,
-  ): Promise<unknown> => {
+    options: TurnOptions = {},
+  ): Promise<RunOutcome> => {
     const controller = new AbortController()
     chatCancels.set(chat.id, controller)
     const tracked = (async () => {
       try {
-        await runChatTurn(chat, agent, client, upstream, driver, text, controller.signal)
+        return await runChatTurn(chat, agent, client, upstream, driver, text, controller.signal, options)
       } catch (error) {
-        // No HTTP reply carries the failure any more; the relay does.
+        // 后台界面靠 relay 收失败（没有哪个 HTTP 回复承载它）；但**必须同时把异常抛给
+        // 调用方**：对外 API 是同步问答，吞掉异常会让客户拿到一个"成功但空"的响应。
+        // 因此内部调用点统一 `.catch(() => undefined)`（帧已经发过了）。
         const doneFrame = {
           kind: 'turn_done',
           state: 'failed',
@@ -146,6 +162,7 @@ export const makeChatTurnRunner = (deps: TurnRunnerDeps): ChatTurnRunner => {
         }
         rememberLiveFrame(chat.id, doneFrame)
         publish(chat.id, doneFrame)
+        throw error
       } finally {
         if (chatCancels.get(chat.id) === controller) chatCancels.delete(chat.id)
         chatTurns.delete(chat.id)

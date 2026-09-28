@@ -605,7 +605,7 @@ export const registerChatRoutes = (
             execute: () => {
               const fresh = getChat(db, chat.id)
               if (fresh === null || fresh.removedAt !== null) return Promise.resolve()
-              return turns.startChatTurn(fresh, agent, client, upstream, driver, text).then(() => undefined)
+              return turns.startChatTurn(fresh, agent, client, upstream, driver, text).then(() => undefined).catch(() => undefined)
             },
           })
           publish(chat.id, { kind: 'turn_queued', id: queuedId, position, text })
@@ -616,7 +616,7 @@ export const registerChatRoutes = (
           })
         }
 
-        void turns.startChatTurn(chat, agent, client, upstream, driver, text)
+        void turns.startChatTurn(chat, agent, client, upstream, driver, text).catch(() => undefined)
         return reply.code(202).send({ accepted: true, chat: getChat(db, chat.id) })
       } catch (error) {
         app.log.error(`chat turn failed for ${chat.id}: ${(error as Error).message}`)

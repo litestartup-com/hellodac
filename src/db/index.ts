@@ -343,6 +343,20 @@ const MIGRATIONS: readonly string[][] = [
     // 按钥匙聚合用量（花费页的调用方维度）+ 日配额计数，都走这条索引。
     `CREATE INDEX IF NOT EXISTS run_api_key ON run(api_key_id, started_at)`,
   ],
+  // 23 -- 对外会话归属（口径 CONCEPTS-ALIGNED.md §6）：会话要记住"哪把钥匙、
+  // 调用方的哪个用户、哪个服务"，粘性才有锚点，配额/计费/审计才有归属。
+  // 三列全 null = 对内会话，所以对既有数据是纯增量（没有回填、不会误解老行）。
+  [
+    `ALTER TABLE chat ADD COLUMN api_key_id TEXT REFERENCES api_key(id) ON DELETE SET NULL`,
+    `ALTER TABLE chat ADD COLUMN external_user_id TEXT`,
+    `ALTER TABLE chat ADD COLUMN service_id TEXT`,
+    // 粘性查询：按 (钥匙, 外部用户) 找还活着的会话。
+    `CREATE INDEX IF NOT EXISTS chat_api_key_user ON chat(api_key_id, external_user_id)`,
+    // 同一把钥匙下的同一个外部用户，同时只能有一个活会话——并发重复创建
+    // （调用方重试、双开）靠这条唯一索引挡住，而不是靠"查一下再插"的竞态。
+    // 部分索引：归档/移除的会话（removed_at 非空）不参与唯一性。
+    `CREATE UNIQUE INDEX IF NOT EXISTS chat_api_key_user_live ON chat(api_key_id, external_user_id) WHERE removed_at IS NULL AND external_user_id IS NOT NULL`,
+  ],
 ]
 
 export interface OpenDbResult {

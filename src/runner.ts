@@ -81,6 +81,12 @@ export interface RunInput {
   trigger: RunTrigger
   cronId?: string | null
   idempotencyKey?: string | null
+  /**
+   * 这一轮是谁的账（对外 API 钥匙）。**必须在创建 run 行时就写**，不能等跑完再补：
+   * 并发上限（同一把钥匙同时在跑的回合数）靠这列在跑的过程中就可见，事后补记等于
+   * 允许一把钥匙无限并发。
+   */
+  apiKeyId?: string | null
   timeoutMs?: number
   /** Cancel after this long with no frames at all; 0 disables. */
   silenceMs?: number
@@ -249,6 +255,7 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
         dshSessionId: input.sessionId ?? null,
         trigger: input.trigger,
         idempotencyKey: input.idempotencyKey ?? null,
+        apiKeyId: input.apiKeyId ?? null,
         state: 'running',
         resultSummary: null,
         startedAt,
