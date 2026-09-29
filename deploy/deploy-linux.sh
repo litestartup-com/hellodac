@@ -64,9 +64,12 @@ if [ "$SKIP_PUSH" -eq 0 ]; then
 fi
 
 # --- 3. gate before building (optional; runs inside a build container) ----
+# The FULL node image, not -slim: better-sqlite3 compiles native code through
+# node-gyp during npm ci, which needs python3/make/g++ (the slim image lacks all
+# three -- measured on the first AWS run).
 if [ "$TEST_FIRST" -eq 1 ]; then
   echo "deploy: running the release gate in a container (needs network for npm install)..."
-  docker run --rm -v "$(pwd)":/repo -w /repo node:22-slim \
+  docker run --rm -v "$(pwd)":/repo -w /repo node:22 \
     sh -c "corepack enable && npm ci && npm run release:check -- --quick"
 fi
 
