@@ -10,6 +10,7 @@
 #   ./deploy/deploy-linux.sh --skip-push         # local-only build + redeploy (no Docker Hub)
 #   ./deploy/deploy-linux.sh --rollback          # redeploy the previous SHA image (last resort)
 #   ./deploy/deploy-linux.sh --deep-clean        # also drop all unused images + stopped containers
+#   ./deploy/deploy-linux.sh --help              # full usage: steps, flags, env overrides
 #
 # Immutable tags: images are tagged ${VERSION}-${GIT_SHA}. The same tag is never
 # overwritten, so a rollback is just "point the compose env at the previous SHA".
@@ -26,8 +27,50 @@ COMPOSE_DIR="${COMPOSE_DIR:-.}"
 SHA="$(git rev-parse --short HEAD)"
 PREV_SHA="${PREV_SHA:-}"
 
+# --- help -------------------------------------------------------------------
+usage() {
+  cat <<'EOF'
+deploy-linux.sh -- build, publish and redeploy the DAC container stack.
+
+What it does, in order:
+  0. docker cleanup: build cache + dangling images (df printed before/after).
+     Tagged images and volumes are NEVER touched (tagged images are the local
+     rollback path; volumes are data).
+  1. git pull the deploy branch (refuses to run on a dirty worktree).
+  2. docker login check (skipped with --skip-push).
+  3. optional release gate in a node:22 container (--test).
+  4. build linux/amd64 images with immutable tags:
+       hellodac/dac-manager:${VERSION}-${GIT_SHA}  (+ :latest)
+       hellodac/dac-node:${DSH_VERSION}-${GIT_SHA} (+ :${DSH_VERSION})  [--with-nodes]
+  5. push to Docker Hub (skipped with --skip-push).
+  6. optional snapshot of ./data into backups/ (--backup).
+  7. docker compose pull + up -d (single invocation carrying both image variables).
+  8. health-probe the manager from inside the compose network (30 x 5s); on failure
+     print its last 50 log lines, and roll back to PREV_SHA when one is set.
+
+Flags:
+  --with-nodes   also build and push the pinned-DSH-version node image
+  --backup       tar ./data into backups/ before redeploying
+  --skip-push    local build + redeploy only, no Docker Hub (also skips compose pull)
+  --test         run `npm run release:check -- --quick` in a container before building
+  --deep-clean   step 0 also removes ALL unused images and stopped containers
+  --rollback     redeploy the PREV_SHA manager image instead of building (needs PREV_SHA)
+  -h, --help     print this text
+
+Environment overrides:
+  DOCKER_ORG=hellodac   DAC_VERSION=1.0.0   DSH_VERSION=0.1.5-rc.2
+  BRANCH=main           COMPOSE_DIR=.       PREV_SHA=<git sha>
+  HEALTH_URL=http://127.0.0.1:8081/v1/health   (probed inside the manager container)
+
+Examples:
+  ./deploy/deploy-linux.sh --test --with-nodes     # full release
+  ./deploy/deploy-linux.sh --skip-push             # local validation, no Hub
+  PREV_SHA=abc1234 ./deploy/deploy-linux.sh --rollback
+EOF
+}
+
 # --- flags ---------------------------------------------------------------
-WITH_NODES=0; BACKUP=0; SKIP_PUSH=0; ROLLBACK=0; TEST_FIRST=0; DEEP_CLEAN=0
+WITH_NODES=0; BACKUP=0; SKIP_PUSH=0; ROLLBACK=0; TEST_FIRST=0; DEEP_CLEAN=0; HELP=0
 for arg in "$@"; do
   case "$arg" in
     --with-nodes) WITH_NODES=1 ;;
@@ -36,9 +79,11 @@ for arg in "$@"; do
     --rollback)   ROLLBACK=1 ;;
     --test)       TEST_FIRST=1 ;;
     --deep-clean) DEEP_CLEAN=1 ;;
-    *) echo "unknown flag: $arg" >&2; exit 1 ;;
+    -h|--help)    HELP=1 ;;
+    *) echo "unknown flag: $arg (try --help)" >&2; exit 1 ;;
   esac
 done
+if [ "$HELP" -eq 1 ]; then usage; exit 0; fi
 
 # --- 0. free docker disk space before every run ----------------------------
 # Only what is regenerable or already disposable is removed:
