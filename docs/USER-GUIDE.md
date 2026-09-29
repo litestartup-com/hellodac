@@ -178,6 +178,29 @@ which service it may enter, how often, until when). One service, many keys.
    calls a customer will make. The *handover* block is a copyable **AI-agent brief** (endpoint,
    auth, curl examples, quota and error rules) — paste it to any coding agent as-is.
 
+**Persona, knowledge mounts and the permission tier**
+
+- **Service persona** (`persona`, under "More settings") is the service's outward voice: role,
+  tone, what it may answer, escalation wording. The manager delivers it into the agents'
+  workspace rules together with the platform rules every outward agent gets (never block on an
+  interactive prompt, never invent facts, mirror the customer's language). Keep knowledge out
+  of the persona — declare it as a manual instead; the persona says *how* to talk, the manuals
+  say *what* to talk from.
+- **Read-only knowledge mounts** (`knowledge`) name the directories holding the service's
+  manuals (FAQ, pricing, policies): the agent reads them as its source of truth and nobody
+  served through the API can change them. Status note: the declaration validates and shows on
+  the service page today, while the automatic mount layer is still landing — on process/agent
+  nodes the agent can read whatever exists at the declared path on that machine (the sandbox
+  restricts writes, not reads), and container bind-mounts arrive with the mount layer.
+- **Permission tier**: `read` (the default) pins the agent's sandbox read-only — every write is
+  refused, which fits support / FAQ / query services where the output is text. `write` allows
+  writing **inside the agent's own workspace only** — pick it when the service produces files
+  (code drafts, reports, conversions); the workspace carries a git trail and can be reset
+  wholesale. There is deliberately **no full-access tier** for outward agents. The tier is
+  enforced today through each member agent's own `sandbox_mode` (pinned on every turn); the
+  service field becomes the source for auto-created agents once that capability lands. Rule of
+  thumb: *does the service produce files for the customer? No → read. Yes → write.*
+
 **What the customer gets**
 
 | Piece | Value |
