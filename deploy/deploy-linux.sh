@@ -144,25 +144,33 @@ if [ "$SKIP_PUSH" -eq 0 ]; then
     DSH_NODE_IMAGE="$NODE_TAG" docker compose pull node-brain || true
   fi
 fi
-MANAGER_VERSION="${VERSION}-${SHA}" docker compose up -d --remove-orphans
-if [ -n "$NODE_TAG" ]; then
-  DSH_NODE_IMAGE="$NODE_TAG" docker compose up -d --remove-orphans
-fi
+# ONE up with both variables. Two separate invocations made the second one recreate
+# the manager with compose's default tag (measured on the first AWS run: manager came
+# back as :1.0.0 while the node carried the SHA tag). An empty DSH_NODE_IMAGE is safe:
+# compose's ${DSH_NODE_IMAGE:-default} falls back to its own default when empty.
+MANAGER_VERSION="${VERSION}-${SHA}" DSH_NODE_IMAGE="${NODE_TAG}" \
+  docker compose up -d --remove-orphans
 
 # --- 7. healthcheck with automatic rollback --------------------------------
-echo "deploy: waiting for the manager to come up (30 x 5s)..."
+# The manager publishes NO ports to the host in compose (nginx fronts the stack), so
+# probing 127.0.0.1:8081 from the host can never work -- curl from inside the
+# container instead (the manager image ships curl). Override with HEALTH_URL.
+HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8081/v1/health}"
+echo "deploy: waiting for the manager to become healthy (30 x 5s)..."
 UP=0
 for _ in $(seq 1 30); do
-  if curl -fsS -m 3 http://127.0.0.1:8081/v1/health >/dev/null 2>&1; then UP=1; break; fi
+  if docker compose exec -T manager curl -fsS -m 3 "$HEALTH_URL" >/dev/null 2>&1; then UP=1; break; fi
   sleep 5
 done
 if [ "$UP" -eq 0 ]; then
-  echo "deploy: manager did not come up -- rolling back to the previous image." >&2
+  echo "deploy: manager did not become healthy -- last 50 log lines:" >&2
+  docker compose logs --tail 50 manager >&2 || true
   if [ -n "$PREV_SHA" ] && [ "$PREV_SHA" != "$SHA" ]; then
+    echo "deploy: rolling back manager to ${VERSION}-${PREV_SHA}" >&2
     MANAGER_VERSION="${VERSION}-${PREV_SHA}" docker compose up -d manager
   else
-    echo "deploy: no PREV_SHA given; set it and run: ./deploy/deploy-linux.sh --rollback" >&2
+    echo "deploy: no previous SHA to roll back to (first deploy?). Fix the logs above, then re-run." >&2
   fi
   exit 1
 fi
-echo "deploy: ok -- manager ${MANAGER_TAG} is serving (admin API should answer 401 unauth)."
+echo "deploy: ok -- manager ${MANAGER_TAG} is healthy inside the compose network."
