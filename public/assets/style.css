@@ -3263,9 +3263,59 @@ label.inline {
   background: var(--surface-sunken);
   border-radius: var(--r);
   padding: 10px 12px;
-  overflow-x: auto;
+  overflow: auto;
+  /* The full config file is long; cap it so the preview area keeps its shape and
+     the diff above stays visible while scrolling. */
+  max-height: 360px;
   font: 12px/1.6 var(--mono);
   white-space: pre;
+}
+
+/* ---- services editor: the "what would be written" preview area ----
+   Five siblings (state banner, errors, warnings, diff, full-file details) used to
+   stack with no spacing and no visual hierarchy -- errors even shared the warning
+   colour. The wrap now spaces them evenly, the diff gets its own sunken scroll box
+   with semantic line colours, and empty containers collapse instead of adding gaps. */
+#svc-preview-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+#svc-preview-wrap .section-label {
+  margin: 0;
+}
+
+#svc-preview-errors,
+#svc-preview-warnings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#svc-preview-errors:empty,
+#svc-preview-warnings:empty,
+#svc-preview-diff:empty {
+  display: none;
+}
+
+#svc-preview-diff {
+  background: var(--surface-sunken);
+  border-radius: var(--r);
+  padding: 8px 10px;
+  max-height: 240px;
+  overflow: auto;
+  font: 12px/1.7 var(--mono);
+  white-space: pre;
+}
+
+#svc-preview-diff .diff-add {
+  color: var(--ok);
+}
+
+#svc-preview-diff .diff-remove {
+  color: var(--bad);
 }
 
 details > summary {

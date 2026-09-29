@@ -421,13 +421,13 @@ const renderPreview = (preview) => {
   if (wrap !== null) wrap.hidden = false
   const state = $('svc-preview-state')
   if (state !== null) {
-    state.className = 'banner'
+    state.className = preview.ok ? 'banner ok' : 'banner bad'
     state.innerHTML = preview.ok
       ? `<strong>${esc(t('services.form.previewOk'))}</strong>`
       : `<strong>${esc(t('services.form.previewError'))}</strong>`
   }
   const errors = $('svc-preview-errors')
-  if (errors !== null) errors.innerHTML = (preview.errors ?? []).map((line) => `<div class="banner warn">${esc(line)}</div>`).join('')
+  if (errors !== null) errors.innerHTML = (preview.errors ?? []).map((line) => `<div class="banner bad">${esc(line)}</div>`).join('')
   const warnings = $('svc-preview-warnings')
   if (warnings !== null) warnings.innerHTML = (preview.warnings ?? []).map((line) => `<div class="banner warn">${esc(line)}</div>`).join('')
   const diff = $('svc-preview-diff')
