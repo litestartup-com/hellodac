@@ -71,15 +71,17 @@ if [ "$TEST_FIRST" -eq 1 ]; then
 fi
 
 # --- 4. build + tag + push ------------------------------------------------
+# Pinned to linux/amd64 (decision 2026-09-28): the fleet is amd64 today; buildx
+# multi-arch is the upgrade path if an arm64 machine ever joins.
 MANAGER_TAG="${ORG}/dac-manager:${VERSION}-${SHA}"
 echo "deploy: building ${MANAGER_TAG}"
-docker build -t "$MANAGER_TAG" -t "${ORG}/dac-manager:latest" images/manager
+docker build --platform linux/amd64 -t "$MANAGER_TAG" -t "${ORG}/dac-manager:latest" images/manager
 
 NODE_TAG=""
 if [ "$WITH_NODES" -eq 1 ]; then
   NODE_TAG="${ORG}/dac-node:${DSH_VERSION}-${SHA}"
   echo "deploy: building ${NODE_TAG}"
-  docker build \
+  docker build --platform linux/amd64 \
     --build-arg DSH_VERSION="$DSH_VERSION" \
     -t "$NODE_TAG" -t "${ORG}/dac-node:${DSH_VERSION}" \
     images/node
