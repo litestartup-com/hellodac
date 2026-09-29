@@ -73,9 +73,15 @@ fi
 # --- 4. build + tag + push ------------------------------------------------
 # Pinned to linux/amd64 (decision 2026-09-28): the fleet is amd64 today; buildx
 # multi-arch is the upgrade path if an arm64 machine ever joins.
+#
+# Build contexts matter: the manager Dockerfile COPYs package.json/src/public/
+# templates from the REPO ROOT (like compose: context .), while the node Dockerfile
+# only needs images/node. Passing the wrong context makes every COPY fail with
+# "failed to calculate checksum ... not found" -- measured on the first real run.
 MANAGER_TAG="${ORG}/dac-manager:${VERSION}-${SHA}"
 echo "deploy: building ${MANAGER_TAG}"
-docker build --platform linux/amd64 -t "$MANAGER_TAG" -t "${ORG}/dac-manager:latest" images/manager
+docker build --platform linux/amd64 -f images/manager/Dockerfile \
+  -t "$MANAGER_TAG" -t "${ORG}/dac-manager:latest" .
 
 NODE_TAG=""
 if [ "$WITH_NODES" -eq 1 ]; then
