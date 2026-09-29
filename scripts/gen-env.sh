@@ -29,7 +29,7 @@ ensure BRAIN_TOKEN "$(openssl rand -hex 24)"
 ensure MANAGER_USERNAME "admin"
 # Respect the password passed in by install.sh/the environment; generate randomly only when none was given
 ensure MANAGER_INITIAL_PASSWORD "${MANAGER_PASSWORD:-$(openssl rand -hex 8)}"
-ensure DSH_NODE_IMAGE "hellodac/dac-node:0.1.2-rc.1"
+ensure DSH_NODE_IMAGE "hellodac/dac-node:0.1.5-rc.2"
 # Debt D5: the single source of truth for the version number = package.json (same source as inject-version in build)
 ensure MANAGER_VERSION "$(node -p "require('./package.json').version" 2>/dev/null || echo 0.0.0)"
 # Debt H1: the manager container can reach docker.sock only by joining the host docker group via group_add.

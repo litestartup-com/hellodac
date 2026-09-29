@@ -311,7 +311,7 @@ export class NodeSupervisor {
     }
   }
 
-  /** The image tag the node container currently uses (e.g. hellodac/dac-node:0.1.2-rc.1); null for a non-docker shape or when it cannot be found. */
+  /** The image tag the node container currently uses (e.g. hellodac/dac-node:0.1.5-rc.2); null for a non-docker shape or when it cannot be found. */
   async containerImage(): Promise<string | null> {
     if (this.deps.docker === undefined || this.containerId === null) return null
     return this.deps.docker.containerImage(this.containerId)

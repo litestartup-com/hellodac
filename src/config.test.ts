@@ -396,7 +396,7 @@ test('Hive plan 2 P5: the container example config shipped with the repo must al
     assert.ok(brain !== undefined && personal !== undefined)
     assert.equal(brain.spawn, null, 'the brain is declared by compose (the spine, unmanaged)')
     assert.equal(personal.spawn?.runner, 'docker')
-    assert.equal(personal.spawn?.docker?.image, 'hellodac/dac-node:0.1.2-rc.1')
+    assert.equal(personal.spawn?.docker?.image, 'hellodac/dac-node:0.1.5-rc.2')
     assert.equal(personal.spawn?.docker?.network, 'dac-hive', 'the same as the explicit network name in compose')
     // The two views of the workspace path are unified: the path inside the node container = the path as the manager sees it (the root cause of the EACCES mkdir, as a regression)
     assert.equal(personal.spawn?.docker?.hostVolumes['/opt/dac/workspaces/personal'], '/opt/dac/workspaces/personal')

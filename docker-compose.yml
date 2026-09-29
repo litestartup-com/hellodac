@@ -58,7 +58,7 @@ services:
     build:
       context: images/node
       dockerfile: Dockerfile
-    image: ${DSH_NODE_IMAGE:-hellodac/dac-node:0.1.2-rc.1}
+    image: ${DSH_NODE_IMAGE:-hellodac/dac-node:0.1.5-rc.2}
     container_name: dac-node-brain
     # Capability three v1: the GUI port is published to the host loopback only (an SSH tunnel target; never on the public surface)
     ports:
