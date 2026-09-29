@@ -47,6 +47,7 @@ const DYNAMIC = [
   /^service-more-/, // services.js: the three-dot trigger
   /^svc-/, // services.js: the shared editor form (rendered into the drawer / edit slot)
   /^kf-/, // keys.js: the shared key form (rendered into the drawer / edit slot)
+  /^kx-/, // keys.js: the call-examples drawer body (secret input, setup line, copy feedback)
 ]
 
 /** The shell script: every page loads it, so its references must be findable on every page. */

@@ -13,6 +13,7 @@ import { schema, type Db } from '../db/index.js'
 import { archiveOrphanChats } from '../chat/store.js'
 import { sweepIdleConversations } from '../public-api/idle-sweep.js'
 import { syncFleetDocs } from '../workspace/fleet-doc.js'
+import { syncOutwardAgentDocs } from '../workspace/outward-doc.js'
 import type { NodeSupervisor } from '../nodes/supervisor.js'
 import { DockerRunner, NODE_LABEL, type DockerRunner as DockerRunnerType } from '../nodes/docker-runner.js'
 
@@ -266,6 +267,10 @@ export const reconcileAll = async (
   }
   const fleet = await convergeFleet(config, log)
   if (fleet.length > 0) log(`fleet.md synced: ${fleet.join(', ')}`)
+  // The outward agents' workspace rules (platform rules + service persona) ride the same single
+  // reconcile entry as fleet.md: boot + change events + the periodic tick, no scheduler of its own.
+  const outward = await syncOutwardAgentDocs(config, log)
+  if (outward.length > 0) log(`outward AGENTS.md synced: ${outward.join(', ')}`)
   await convergeNodes(supervisors, config, docker, log, opts.healOnly === true, opts.onlyNodes ?? null)
 }
 

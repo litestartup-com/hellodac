@@ -27,14 +27,15 @@
   <section id="view-detail" hidden>
     <div class="page-head">
       <h1 id="key-detail-title" class="grow"></h1>
+      <button id="key-detail-examples" class="btn-quiet btn-sm" type="button">{{t:keys.examples}}</button>
       <button id="key-detail-edit" class="btn-quiet btn-sm" type="button">{{t:keys.edit}}</button>
-      <button id="key-detail-revoke" class="btn-quiet btn-sm" type="button">{{t:keys.revoke}}</button>
+      <button id="key-detail-revoke" class="btn-quiet btn-sm danger" type="button">{{t:keys.revoke}}</button>
     </div>
     <button id="back-list" class="btn-quiet btn-sm back-link" type="button">← {{t:keys.all}}</button>
     <div id="key-detail-body"></div>
     <section id="key-activity" class="section" hidden>
       <div class="section-head"><h2>{{t:keys.activity}}</h2></div>
-      <div class="card"><div id="key-activity-body" class="nodes-list"></div></div>
+      <div class="card"><div id="key-activity-body" class="log-list"></div></div>
     </section>
   </section>
 
@@ -83,5 +84,21 @@
         </div>
       </div>
     </div>
+  </aside>
+</div>
+
+<!-- ── Drawer: call examples for an existing key ─────────────────────────────
+     The secret was shown once at creation and the server keeps only its hash,
+     so every example here is env-var shaped; a local paste completes them. -->
+<div id="key-examples" class="panel" hidden>
+  <div class="panel-backdrop" data-close-examples="1"></div>
+  <aside class="panel-body panel-wide" role="dialog" aria-modal="true" aria-labelledby="key-examples-title">
+    <header class="panel-head">
+      <h2 id="key-examples-title">{{t:keys.examples}}</h2>
+      <button class="icon-btn" type="button" data-close-examples="1" aria-label="{{t:common.close}}">
+        <svg width="16" height="16" aria-hidden="true"><use href="#i-close" /></svg>
+      </button>
+    </header>
+    <div class="panel-content" id="key-examples-body"></div>
   </aside>
 </div>

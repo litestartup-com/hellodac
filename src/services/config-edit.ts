@@ -43,6 +43,12 @@ export interface ServiceDraft {
    * change the placement rules (real incident: a no-op apply on production removed thresholds:).
    */
   thresholds?: { min_free_cpu_percent?: number; min_free_mem_bytes?: number; min_free_disk_bytes?: number }
+  /**
+   * The service's outward voice (the editor DOES expose it, unlike thresholds): free text the
+   * manager delivers into the member agents' workspace rules. Absent or empty = no persona
+   * declared; clearing it in the editor must clear it on disk, so it is never inherited back.
+   */
+  persona?: string
 }
 
 /** One agent that could serve a service, with the reason it may not. */
@@ -109,6 +115,7 @@ const draftOf = (raw: Record<string, unknown>): ServiceDraft => {
     ...(typeof raw['thresholds'] === 'object' && raw['thresholds'] !== null
       ? { thresholds: raw['thresholds'] as NonNullable<ServiceDraft['thresholds']> }
       : {}),
+    ...(typeof raw['persona'] === 'string' && raw['persona'].trim() !== '' ? { persona: raw['persona'] } : {}),
     knowledge: knowledge.map((k) => {
       const row = rec(k)
       return { host: String(row['host'] ?? ''), mount: String(row['mount'] ?? ''), read_only: row['read_only'] !== false }
@@ -202,6 +209,9 @@ export const serviceEntryOf = (draft: ServiceDraft): Record<string, unknown> => 
   ...(draft.placement === 'pin' ? { machines: [...draft.machines] } : {}),
   max_agents_per_machine: draft.max_agents_per_machine,
   ...(draft.thresholds === undefined ? {} : { thresholds: draft.thresholds }),
+  // An empty persona is omitted, not written as '': clearing the field in the editor clears the
+  // declaration (and the delivered rules fall back to the neutral voice).
+  ...(draft.persona === undefined || draft.persona.trim() === '' ? {} : { persona: draft.persona.trim() }),
   ...(draft.knowledge.length === 0
     ? {}
     : { knowledge: draft.knowledge.map((k) => ({ host: k.host, mount: k.mount, read_only: k.read_only })) }),

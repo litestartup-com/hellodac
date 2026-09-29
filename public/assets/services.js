@@ -45,6 +45,7 @@ const draft = {
   maxAgentsPerMachine: 4,
   thresholds: null, // kept verbatim from the declaration (the form has no such field)
   knowledge: [],
+  persona: '', // the service's outward voice; delivered into the agents' workspace rules
 }
 
 let editorCtx = null // { configHash, services, workers, machines }
@@ -234,6 +235,11 @@ const editorFormHtml = () => `<form id="service-form" class="card" novalidate>
         </label>
       </div>
       <label class="field">
+        <span class="field-label">${esc(t('services.form.persona'))}</span>
+        <textarea id="svc-persona" class="text-input" rows="4" maxlength="8000" placeholder="${esc(t('services.form.personaPlaceholder'))}"></textarea>
+        <span class="field-hint muted small">${esc(t('services.form.personaHint'))}</span>
+      </label>
+      <label class="field">
         <span class="field-label">${esc(t('services.form.knowledge'))}</span>
         <span id="svc-knowledge"></span>
       </label>
@@ -270,6 +276,7 @@ const renderForm = () => {
   const maxAgents = $('svc-max-agents'); if (maxAgents !== null) maxAgents.value = String(draft.maxAgentsPerMachine)
   const permission = $('svc-permission'); if (permission !== null) permission.value = draft.permission
   const placement = $('svc-placement'); if (placement !== null) placement.value = draft.placement
+  const persona = $('svc-persona'); if (persona !== null) persona.value = draft.persona
   const surfaceConv = $('svc-surface-conversations'); if (surfaceConv !== null) surfaceConv.checked = draft.surfaces.includes('conversations')
   const surfaceTasks = $('svc-surface-tasks'); if (surfaceTasks !== null) surfaceTasks.checked = draft.surfaces.includes('tasks')
 
@@ -328,6 +335,7 @@ const resetDraft = () => {
   draft.maxAgentsPerMachine = 4
   draft.thresholds = null
   draft.knowledge = []
+  draft.persona = ''
 }
 
 const loadDraft = (serviceId) => {
@@ -345,6 +353,7 @@ const loadDraft = (serviceId) => {
   draft.maxAgentsPerMachine = raw.max_agents_per_machine ?? 4
   draft.thresholds = raw.thresholds ?? null
   draft.knowledge = raw.knowledge.map((k) => ({ host: k.host, mount: k.mount }))
+  draft.persona = raw.persona ?? ''
 }
 
 const renderEditorInto = (slotId) => {
@@ -380,6 +389,9 @@ const currentDraft = () => ({
   machines: [...draft.machines],
   max_agents_per_machine: draft.maxAgentsPerMachine,
   ...(draft.thresholds === null ? {} : { thresholds: draft.thresholds }),
+  // Whitespace-only omits the field: the server treats an editor draft without persona as
+  // "the operator cleared it", so clearing here must clear on disk.
+  ...(draft.persona.trim() === '' ? {} : { persona: draft.persona.trim() }),
   capacity: { max_sessions_per_agent: draft.capacity },
   knowledge: draft.knowledge.map((k) => ({ host: k.host, mount: k.mount, read_only: true })),
 })
@@ -474,10 +486,11 @@ const agentRowOfService = (agent) => {
 </div>`
 }
 
+// Rendered through setHtml (write only on real change): the detail re-renders on every poll, and
+// rewriting identical innerHTML would clear a text selection mid-copy for nothing.
 const renderDetail = (service) => {
   const draftRaw = (editorCtx?.services ?? []).find((s) => s.id === service.id)
-  const title = $('service-detail-title')
-  if (title !== null) title.innerHTML = `${esc(service.label)} <code class="muted">${esc(service.id)}</code>`
+  setHtml('service-detail-title', `${esc(service.label)} <code class="muted">${esc(service.id)}</code>`)
 
   const issueKey = $('service-detail-key')
   if (issueKey !== null) issueKey.setAttribute('href', `/keys?service=${encodeURIComponent(service.id)}`)
@@ -487,9 +500,7 @@ const renderDetail = (service) => {
     ? '—'
     : (draftRaw?.knowledge ?? []).map((k) => `<code>${esc(k.host)} → ${esc(k.mount)} (ro)</code>`).join(', ')
 
-  const body = $('service-detail-body')
-  if (body !== null) {
-    body.innerHTML = `
+  setHtml('service-detail-body', `
     <section class="section">
       <div class="section-head"><h2>${esc(t('services.overview'))}</h2></div>
       <div class="card dl">
@@ -503,13 +514,12 @@ const renderDetail = (service) => {
     </section>
     <section class="section">
       <div class="section-head"><h2>${esc(t('services.agents'))}</h2><span class="muted small">${String(service.agents.length)}</span></div>
-      <div class="card"><div class="nodes-list">${service.agents.map(agentRowOfService).join('')}</div></div>
+      <div class="card"><div class="nodes-list flat">${service.agents.length === 0 ? `<p class="muted small">${esc(t('services.noAgents'))}</p>` : service.agents.map(agentRowOfService).join('')}</div></div>
     </section>
     <section class="section">
       <div class="section-head"><h2>${esc(t('services.keysServing'))}</h2><span class="muted small">${String(service.keys.length)}</span></div>
-      <div class="card"><div class="nodes-list">${service.keys.length === 0 ? `<p class="muted small">${esc(t('services.noKeys'))}</p>` : service.keys.map(keyRowOfService).join('')}</div></div>
-    </section>`
-  }
+      <div class="card"><div class="nodes-list flat">${service.keys.length === 0 ? `<p class="muted small">${esc(t('services.noKeys'))}</p>` : service.keys.map(keyRowOfService).join('')}</div></div>
+    </section>`)
 }
 
 const openDetail = (id) => {
@@ -646,7 +656,8 @@ document.addEventListener('keydown', (event) => {
 
 document.addEventListener('input', (event) => {
   const target = event.target
-  if (!(target instanceof HTMLInputElement)) return
+  // The persona field is a <textarea>; every other text field is an <input>.
+  if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return
   const knowledgeHost = target.dataset.knowledge
   if (knowledgeHost !== undefined && target.dataset.field !== undefined) {
     const row = draft.knowledge[Number(knowledgeHost)]
@@ -660,6 +671,7 @@ document.addEventListener('input', (event) => {
     case 'svc-capacity': draft.capacity = Number(target.value) || 4; break
     case 'svc-idle': draft.sessionIdleHours = Number(target.value) || 24; break
     case 'svc-max-agents': draft.maxAgentsPerMachine = Number(target.value) || 4; break
+    case 'svc-persona': draft.persona = target.value; break
     default: return
   }
   schedulePreview()

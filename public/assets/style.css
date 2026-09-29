@@ -1276,6 +1276,18 @@ button:disabled {
   box-shadow: none;
 }
 
+/* A quiet button can be the dangerous one (Revoke on the key detail, Delete on the service
+   detail): same convention as .menu-item.danger -- a destructive action must not wear the exact
+   same face as Edit right next to it. */
+.btn-quiet.danger {
+  color: var(--bad);
+}
+
+.btn-quiet.danger:hover {
+  background: var(--bad-bg);
+  color: var(--bad);
+}
+
 .btn-sm {
   font-size: 12px;
   padding: 6px 10px;
@@ -3263,17 +3275,19 @@ details > summary {
   margin-top: 12px;
 }
 
-/* v2 detail view: description list + usage bar (keys/services detail pages) */
+/* v2 detail view: description list + usage bar (keys/services detail pages).
+   Spacing pass 2026-09-29: rows breathe -- 10px padding and the hairline alone carries the
+   separation (the extra 2px inter-row gap on top of the hairline read cramped). */
 .dl {
   display: grid;
-  gap: 2px;
+  gap: 0;
 }
 
 .dl-row {
   display: flex;
   align-items: baseline;
   gap: 16px;
-  padding: 8px 2px;
+  padding: 10px 2px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -3309,6 +3323,106 @@ details > summary {
   display: block;
   height: 100%;
   background: var(--accent);
+}
+
+/* Detail-page lists inside a card (spacing pass 2026-09-29): on the page background a node-row
+   floats as its own card, but inside a card the same treatment becomes chip-in-chip -- identical
+   --surface over --surface, separated only by a faint shadow and 8px. The house rule for rows in
+   a card is a hairline (see .list > .row), so detail lists opt into `nodes-list flat` and their
+   rows flatten. The list pages keep the floating rows. */
+.nodes-list.flat {
+  gap: 0;
+}
+
+.nodes-list.flat > .node-row {
+  background: none;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 12px 2px;
+}
+
+.nodes-list.flat > .node-row + .node-row {
+  border-top: 1px solid var(--border);
+}
+
+.nodes-list.flat .node-sub {
+  margin-top: 3px;
+  line-height: 1.5;
+}
+
+/* The key's activity log (spacing pass 2026-09-29): one hairline-separated line per outward
+   call, tabular time on the left and the request on the right. It used to be .node-meta stacked
+   at 11.5px with a 2px margin -- a cramped wall of tiny text. */
+.log-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.log-row {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding: 9px 2px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+}
+
+.log-row:last-child {
+  border-bottom: 0;
+}
+
+.log-at {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.log-what {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  /* The request line is the row's whole payload, not an inline chip: drop the sunken box the
+     global code style adds, or a 20-line log reads as 20 stacked chips inside the card. */
+  background: none;
+  padding: 0;
+  color: var(--text);
+}
+
+/* Call-examples drawer (2026-09-29): label + copy button on one line, note, then the code
+   block (reusing .yaml-preview's sunken mono + horizontal scroll). */
+.ex-block {
+  margin-top: 18px;
+}
+
+.ex-block:first-child {
+  margin-top: 2px;
+}
+
+.ex-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ex-head .section-label {
+  margin: 0;
+}
+
+.ex-note {
+  margin: 6px 0;
+}
+
+.ex-actions {
+  margin-top: 22px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ex-quota {
+  margin-top: 10px;
 }
 
 /* back link below the page title (v2 detail/edit views) */

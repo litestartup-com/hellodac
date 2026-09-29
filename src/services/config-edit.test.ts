@@ -186,6 +186,30 @@ test('service editor: a declaration the editor does not expose (thresholds) surv
   assert.equal(loadConfig(configPath).services?.[0]?.thresholds?.minFreeMemBytes, 300_000_000, 'and the loader still reads it')
 })
 
+test('service editor: the persona round-trips -- an unrelated edit keeps it, and clearing it in the editor clears it on disk', async () => {
+  const voice = 'Be warm, brief, and never guess a price.'
+  const configPath = fileFor({
+    services: [{ id: 'chat', label: 'Support', workers: ['svc-1'], count: 1, persona: voice }],
+  })
+  const config = loadConfig(configPath)
+
+  const ctx = serviceEditorContext({ config, configPath })
+  assert.equal(ctx.services[0]?.persona, voice, 'the form is fed the declared persona')
+
+  const hash = ctx.configHash
+  const renamed = await applyService({ config, configPath, draft: draft({ label: 'Support (renamed)', persona: ctx.services[0]?.persona }), expectHash: hash })
+  assert.equal(renamed.ok, true, renamed.errors.join('\n'))
+  assert.equal(loadConfig(configPath).services?.[0]?.persona, voice, 'an unrelated edit does not drop the voice')
+
+  // Clearing must clear: the persona is editor-exposed, so a draft without it means "the operator
+  // emptied the field" -- never inherit it back (that would make the field un-clearable).
+  const hash2 = serviceEditorContext({ config, configPath }).configHash
+  const cleared = await applyService({ config, configPath, draft: draft({ persona: '   ' }), expectHash: hash2 })
+  assert.equal(cleared.ok, true, cleared.errors.join('\n'))
+  assert.equal(loadConfig(configPath).services?.[0]?.persona, undefined, 'whitespace-only clears the voice')
+  assert.ok(!readFileSync(configPath, 'utf8').includes('persona:'), 'the field leaves the file entirely')
+})
+
 test('service editor: deleting a service removes its declaration and hot-swaps it out of memory', async () => {
   const configPath = fileFor()
   const config = loadConfig(configPath)

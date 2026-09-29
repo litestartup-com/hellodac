@@ -166,14 +166,17 @@ which service it may enter, how often, until when). One service, many keys.
 **Setup in two steps**
 
 1. **Services page → Build a service**: name it, pick the agents that answer, set the concurrency
-   and the permission tier (read-only is the default). The page shows the exact declaration that
-   will be written to `manager.config.yaml` and validates it with the same rules boot uses; saving
-   is atomic and takes effect without a restart.
+   and the permission tier (read-only is the default). "More settings" also holds the **service
+   persona** — role, tone, what it may answer, escalation wording — which the manager delivers
+   into the agents' workspace rules together with the platform rules for outward agents (never
+   block on an interactive prompt, never invent facts, mirror the customer's language). The page
+   shows the exact declaration that will be written to `manager.config.yaml` and validates it with
+   the same rules boot uses; saving is atomic and takes effect without a restart.
 2. **API keys page → create a key**: name, service, daily quota — three fields. "More settings"
    holds scopes, per-minute rate, in-flight cap and an expiry date. The secret is shown **once**;
    copy it immediately. Before handing it out, use *Test this key* — it makes the same read-only
-   calls a customer will make. The *handover* block is a copyable starter kit (endpoint, example
-   call, quota rules).
+   calls a customer will make. The *handover* block is a copyable **AI-agent brief** (endpoint,
+   auth, curl examples, quota and error rules) — paste it to any coding agent as-is.
 
 **What the customer gets**
 
@@ -195,13 +198,20 @@ which service it may enter, how often, until when). One service, many keys.
 - Error codes: `401` bad/revoked key · `403` scope or service not allowed · `404` unknown resource
   · `429` quota/concurrency/agents full (with `Retry-After` where applicable) · `503` no agent
   online. `502` means the turn ran and failed; the body carries `state` and `error`.
+- When the agent needs clarification it **asks in its reply text** and ends the turn — an outward
+  turn never blocks on an interactive prompt (such prompts are auto-declined after a short grace
+  window). A turn that cannot finish within the outward timeout (`runner.outward_timeout_minutes`,
+  default 5) comes back as `state: "failed"` with the reason, never as an endless hang.
 - The full contract is in [`docs/openapi.yaml`](openapi.yaml).
 
 **Operating it**
 
 - Services page: agents online, capacity in use, queue, per-key usage. Keys page: per-key detail
-  (last calls and turns with costs), verify-by-token, revoke (with confirmation). Every key and
-  every call lands in the audit trail.
+  (last calls and turns with costs), verify-by-token, revoke (with confirmation). Every key's
+  **⋮ → Examples** opens copy-ready curl calls filtered to that key's scopes plus the one-click
+  AI-agent brief; the examples are `$DAC_API_KEY`-shaped (the secret is shown only at creation),
+  and pasting the secret into the drawer completes them — memory only, discarded on close. Every
+  key and every call lands in the audit trail.
 
 ## 9. Troubleshooting
 

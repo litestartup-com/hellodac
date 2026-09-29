@@ -183,6 +183,12 @@ export const fileSchema = z.object({
       // whole time, so silence means stopped, not slow -- usually blocked on a
       // prompt nobody can answer from here. 0 disables the backstop.
       silence_timeout_minutes: z.number().int().min(0).default(5),
+      // Total timeout for an OUTWARD turn (a public-API conversation). Much shorter than the
+      // internal one on purpose: an outward turn holds a customer's HTTP request open, so
+      // "wait a quarter of an hour" is not an option -- five minutes of nothing is already a
+      // failed call the caller should hear about honestly (2026-09-29, the ask_user_question
+      // hang: the outward caller rode the internal 15-minute ceiling).
+      outward_timeout_minutes: z.number().int().positive().default(5),
       max_consecutive_failures: z.number().int().positive().default(3),
       // Auto-disable after repeated failures stops a job that keeps breaking. It
       // does nothing about a job that keeps succeeding expensively -- which is
@@ -190,7 +196,7 @@ export const fileSchema = z.object({
       // Unset means no ceiling.
       daily_budget_usd: z.number().positive().optional(),
     })
-    .default({ timeout_minutes: 15, silence_timeout_minutes: 5, max_consecutive_failures: 3 }),
+    .default({ timeout_minutes: 15, silence_timeout_minutes: 5, outward_timeout_minutes: 5, max_consecutive_failures: 3 }),
   database: z.object({ path: z.string().min(1) }).default({ path: './data/manager.db' }),
   // Hive plan 2 Road work A2: periodic reconcile interval in minutes. 0 = off (boot + changes only).
   // Reconcile is idempotent and healOnly (a cold node a human stopped stays put; offline self-heals).
@@ -277,6 +283,11 @@ export const fileSchema = z.object({
               }),
             )
             .default([]),
+          // The service's outward voice (the "话术" half of "a team of agents + a read-only manual +
+          // one outward voice"): role, tone, what it may answer, escalation wording. The manager
+          // delivers it into the agents' workspace rules (derived file); it is free text and is
+          // never interpolated into anything but that document.
+          persona: z.string().max(8000).optional(),
         })
         // Strict: a wrong field name in the source of truth (an `agents:` left from the rename)
         // must error, not vanish silently -- that reads as 'the service started fewer agents'.
@@ -393,6 +404,12 @@ export interface ResolvedService {
    * global threshold, so write a fitting set here instead of loosening the global one for everyone.
    */
   thresholds?: Thresholds
+  /**
+   * The service's outward voice (role / tone / boundaries), free text from the declaration.
+   * The manager delivers it into the member agents' workspace rules; absent = the platform
+   * rules alone. Trimmed; whitespace-only is treated as absent by loadConfig.
+   */
+  persona?: string
 }
 
 /**
@@ -459,6 +476,11 @@ export interface AppConfig {
     timeoutMs: number
     /** Cancel a turn after this long with no frames at all; 0 disables. */
     silenceMs: number
+    /**
+     * Total timeout for an outward (public-API) turn; always set by loadConfig. Optional in the
+     * type so a hand-written test literal may omit it -- readers fall back to `timeoutMs`.
+     */
+    outwardTimeoutMs?: number
     maxConsecutiveFailures: number
     /** Ceiling for one local day's scheduled spend, or null for no ceiling. */
     dailyBudgetMicroUsd: number | null
@@ -814,6 +836,8 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
       placement: svc.placement,
       machines: [...svc.machines],
       maxAgentsPerMachine: svc.max_agents_per_machine,
+      // Whitespace-only counts as absent: an empty voice adds nothing to the delivered rules.
+      ...(svc.persona === undefined || svc.persona.trim() === '' ? {} : { persona: svc.persona.trim() }),
       // The thresholds are always the full trio (global defaults with the service's entries on top):
       // the placer gets a fixed set and never merges per call site -- the merge rule lives here only.
       thresholds: {
@@ -917,6 +941,7 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
     runner: {
       timeoutMs: file.runner.timeout_minutes * 60_000,
       silenceMs: file.runner.silence_timeout_minutes * 60_000,
+      outwardTimeoutMs: file.runner.outward_timeout_minutes * 60_000,
       maxConsecutiveFailures: file.runner.max_consecutive_failures,
       // Money is integer micro-USD everywhere past this line, so no float ever
       // reaches a comparison or the database.

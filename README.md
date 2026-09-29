@@ -191,7 +191,12 @@ declaration) and an **API key** (the credential one customer holds).
    daily quota); "more settings" holds scopes, per-minute rate, in-flight cap
    and an expiry date. The secret is shown once; right after issuing you can
    **test the key** against the real outward door (read-only, no spend) and
-   copy a handover block (endpoint + example + quota rules) for the customer.
+   copy an **AI-agent brief** (endpoint, auth, scope-filtered curl calls, quota
+   and error rules) a customer — or their coding agent — can run as-is. The
+   same brief and copy-ready examples stay reachable later from any key's
+   **⋮ → Examples**; since the secret is never recoverable, those come in
+   `$DAC_API_KEY` env-var shape (pasting the secret into the drawer completes
+   them, memory-only).
 
 Customer side: `Authorization: Bearer dac_<id>_<secret>` against
 `http://<host>:8081/v1` (bound to `127.0.0.1` by default — expose it through a

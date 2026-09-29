@@ -93,7 +93,12 @@ export const makeChatTurnRunner = (deps: TurnRunnerDeps): ChatTurnRunner => {
         prompt: text,
         trigger: 'manual',
         apiKeyId: options.apiKeyId ?? null,
-        timeoutMs: config.runner.timeoutMs,
+        // An outward turn holds a customer's HTTP request open, so it rides the (much shorter)
+        // outward ceiling instead of the internal one; a hand-written test config may omit it.
+        timeoutMs:
+          options.apiKeyId !== undefined && options.apiKeyId !== null
+            ? (config.runner.outwardTimeoutMs ?? config.runner.timeoutMs)
+            : config.runner.timeoutMs,
         silenceMs: config.runner.silenceMs,
         chatId: chat.id,
         sessionId: chat.dshSessionId,

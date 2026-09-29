@@ -70,6 +70,10 @@ agents:
 runner:
   timeout_minutes: 15
   silence_timeout_minutes: 5
+  # An outward (public-API) turn holds a customer's HTTP request open, so it gets a much shorter
+  # ceiling than internal work; on top of that, questions/approvals on an outward turn are
+  # auto-declined after a short grace window (nobody answers prompts on the outward surface).
+  outward_timeout_minutes: 5
   max_consecutive_failures: 3
   daily_budget_usd: 2.0
 

@@ -14,6 +14,9 @@ import { schema, type Db } from '../db/index.js'
 import { GatewayClient } from '../gateway/client.js'
 import { runAgent } from '../runner.js'
 import { FakeSessionDriver, type FakeScript } from './fake.js'
+import type { MuxListener } from '../upstream/mux.js'
+import type { GatewayFrame } from '../gateway/stream.js'
+import { mintApiKey } from '../auth/api-key.js'
 // Debt C3: makeDb/agentFor moved into the test harness (local aliases kept, behavior unchanged).
 import { makeDb as makeHarnessDb, personalAgent } from '../test-harness.js'
 
@@ -213,6 +216,118 @@ test('Debt card chain regression: a reconnect while someone is answering -> do n
   })
   assert.equal(outcome.state, 'done', 'a reconnect while someone is answering must not kill the turn')
   assert.deepEqual(seen, ['question_asked', 'stream_reconnected', 'question_resolved', 'turn_end'])
+})
+
+// ---------------------------------------------------------------------------
+// Outward turns (2026-09-29, the ask_user_question hang): a public-API caller rides a
+// synchronous HTTP request, and nobody sits at a screen on this side -- a pending question
+// or approval must be declined after a short grace window, not waited out.
+// ---------------------------------------------------------------------------
+
+/**
+ * A fake whose decline pumps follow-up frames, modelling what the real host does: the tool
+ * returns "aborted before the user answered", the agent continues (usually re-asking in plain
+ * text) and the turn ends. The subclass captures the runner's live listener to pump into it.
+ */
+/** run.api_key_id is a foreign key: an outward turn needs a real key row to hang its billing on. */
+const outwardKey = (db: Db): string =>
+  mintApiKey(db, {
+    name: 'outward-test',
+    scopes: ['conversations:write'],
+    scopeServices: ['*'],
+    quotaRunsDay: null,
+    rateLimitRpm: 60,
+    maxConcurrency: 4,
+    expiresAt: null,
+    createdBy: 'test',
+  }).key.id
+
+class DecliningFake extends FakeSessionDriver {
+  private readonly live: MuxListener[] = []
+  constructor(id: string, script: FakeScript, private readonly after: GatewayFrame[]) {
+    super(id, script)
+  }
+  override subscribe(sessionId: string, listener: MuxListener): () => void {
+    this.live.push(listener)
+    return super.subscribe(sessionId, listener)
+  }
+  private pump(sessionId: string): void {
+    for (const frame of this.after) for (const listener of this.live) listener(sessionId, frame)
+  }
+  override async declineQuestion(rpcId: string, sessionId: string) {
+    const receipt = await super.declineQuestion(rpcId, sessionId)
+    this.pump(sessionId)
+    return receipt
+  }
+  override async decideApproval(rpcId: string, sessionId: string, approvalId: string, outcome: 'allowed-once' | 'rejected') {
+    const receipt = await super.decideApproval(rpcId, sessionId, approvalId, outcome)
+    this.pump(sessionId)
+    return receipt
+  }
+}
+
+test('outward turn: a pending question is auto-declined after the grace window and the turn completes with the agent re-asking in text', async () => {
+  const db = makeDb()
+  const fake = new DecliningFake(
+    'A',
+    { frames: [{ kind: 'question_asked', seq: 0, questionId: 'q1', questions: [{ id: 'a', question: 'what do you mean?' }] }] },
+    [
+      { kind: 'question_resolved', seq: 0, questionId: 'q1', outcome: 'cancelled' },
+      { kind: 'message', seq: 0, text: 'Could you tell me what you need?', reasoning: null, usage: null },
+      { kind: 'turn_end', seq: 0, turn: 1, reason: 'completed', detail: null },
+    ],
+  )
+  const outcome = await runAgent({ db }, {
+    agent: agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))),
+    client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'follow-up', trigger: 'api',
+    apiKeyId: outwardKey(db),
+    outwardGraceMs: 20,
+    silenceMs: 0, timeoutMs: 5_000,
+  })
+  assert.equal(outcome.state, 'done', 'the turn ends once the agent continues after the decline')
+  assert.match(outcome.summary, /Could you tell me what you need/, 'the reply text carries the question the customer CAN answer')
+  assert.deepEqual(fake.declined, [{ rpcId: 'q1', sessionId: outcome.sessionId }], 'the decline went out through the port')
+})
+
+test('outward turn: a pending approval is auto-rejected after the grace window', async () => {
+  const db = makeDb()
+  const fake = new DecliningFake(
+    'A',
+    { frames: [{ kind: 'approval_pending', seq: 0, decisionId: 'd1', approvalId: 'ap1', toolName: 'write', reason: 'writes a file' }] },
+    [
+      { kind: 'approval_resolved', seq: 0, decisionId: 'd1', approvalId: 'ap1', outcome: 'rejected' },
+      { kind: 'message', seq: 0, text: 'I cannot write files in this service.', reasoning: null, usage: null },
+      { kind: 'turn_end', seq: 0, turn: 1, reason: 'completed', detail: null },
+    ],
+  )
+  const outcome = await runAgent({ db }, {
+    agent: agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))),
+    client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'write something', trigger: 'api',
+    apiKeyId: outwardKey(db),
+    outwardGraceMs: 20,
+    silenceMs: 0, timeoutMs: 5_000,
+  })
+  assert.equal(outcome.state, 'done')
+  assert.deepEqual(fake.decided, [{ rpcId: 'd1', sessionId: outcome.sessionId, approvalId: 'ap1', outcome: 'rejected' }], 'the approval was rejected through the port')
+})
+
+test('inward turn: questions are left to the humans at the screen even with a tiny grace window configured', async () => {
+  const db = makeDb()
+  const fake = new FakeSessionDriver('A', {
+    frames: [
+      { kind: 'question_asked', seq: 0, questionId: 'q1', questions: [{ id: 'a', question: 'go?' }] },
+      { kind: 'question_resolved', seq: 0, questionId: 'q1', outcome: 'answered' },
+      { kind: 'turn_end', seq: 0, turn: 1, reason: 'completed', detail: null },
+    ],
+  })
+  const outcome = await runAgent({ db }, {
+    agent: agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))),
+    client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'hi', trigger: 'manual',
+    outwardGraceMs: 5, // ignored without an apiKeyId
+    silenceMs: 0, timeoutMs: 5_000,
+  })
+  assert.equal(outcome.state, 'done')
+  assert.deepEqual(fake.declined, [], 'an inward turn never auto-declines: an operator may be mid-answer')
 })
 
 test('Debt card chain: a question frame lost in the outage window is recovered through pendingAsks -- the card is rebuilt and the turn is not killed', async () => {

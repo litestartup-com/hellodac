@@ -45,6 +45,13 @@ export const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000
  * turn hangs indefinitely regardless of what the other side does.
  */
 export const DEFAULT_SILENCE_MS = 5 * 60 * 1000
+/**
+ * How long an OUTWARD turn lets a question/approval frame wait for a human before declining it
+ * (see trackAwaiting). Long enough for an operator who happens to be watching the conversation
+ * in the admin chat to answer first; short enough that a customer's HTTP call is not staring at
+ * a dead socket. The DSH tool itself has no timeout (DSH-FACTS §17), so this is the only floor.
+ */
+export const DEFAULT_OUTWARD_GRACE_MS = 30 * 1000
 
 /**
  * True when two paths denote the same directory.
@@ -90,6 +97,11 @@ export interface RunInput {
   timeoutMs?: number
   /** Cancel after this long with no frames at all; 0 disables. */
   silenceMs?: number
+  /**
+   * Outward turns only: the grace window before a pending question/approval is auto-declined
+   * (DEFAULT_OUTWARD_GRACE_MS in production; tests pass something small). Ignored on inward turns.
+   */
+  outwardGraceMs?: number
   /**
    * Continue this gateway session instead of creating a fresh one.
    *
@@ -299,27 +311,124 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
    * would throw the turn's work away at the worst possible moment, so the
    * backstop stands down while the count is above zero -- the total timeout still
    * bounds the whole thing.
+   *
+   * OUTWARD turns are the exception (2026-09-29, the ask_user_question hang): nobody is on
+   * screen there -- the caller is an HTTP client waiting for its reply. Standing the backstop
+   * down let one blocking question ride the internal 15-minute ceiling with the customer's
+   * request open the whole time. So on an outward turn the backstop stays armed AND every
+   * question/approval frame gets a short grace window (an operator watching this conversation
+   * in the admin chat can still answer inside it); when the window expires the manager declines
+   * the frame through the same ports the chat UI uses. The tool then returns "aborted before
+   * the user answered", the agent continues, and -- with the outward rules seeded into its
+   * workspace -- re-asks in plain reply text, which the customer's next message CAN answer.
    */
   let awaitingHuman = 0
+  const isOutward = input.apiKeyId !== undefined && input.apiKeyId !== null
+  const outwardGraceMs = input.outwardGraceMs ?? DEFAULT_OUTWARD_GRACE_MS
+  /** Auto-decline timers keyed by frame id (question id / decision id), so a human answering first cancels one. */
+  const pendingDeclines = new Map<string, ReturnType<typeof setTimeout>>()
+  const clearDeclines = (): void => {
+    for (const timer of pendingDeclines.values()) clearTimeout(timer)
+    pendingDeclines.clear()
+  }
+  const askIdOfFrame = (frame: GatewayFrame): string | null => {
+    if (frame.kind === 'question_asked' || frame.kind === 'question_resolved') {
+      return typeof frame.questionId === 'string' && frame.questionId !== '' ? frame.questionId : null
+    }
+    if (frame.kind === 'approval_pending' || frame.kind === 'approval_resolved') {
+      return typeof frame.decisionId === 'string' && frame.decisionId !== '' ? frame.decisionId : null
+    }
+    return null
+  }
+
+  const declineFrame = async (frame: GatewayFrame): Promise<void> => {
+    const sid = turnState.sessionId
+    if (sid === null) return
+    const useUpstream = (input.driver ?? 'gateway') === 'apiproxy' && input.upstream !== undefined
+    const graceSec = Math.round(outwardGraceMs / 1000)
+    try {
+      if (frame.kind === 'question_asked') {
+        const qid = typeof frame.questionId === 'string' ? frame.questionId : null
+        if (qid === null) return
+        // apiproxy: the questionId IS the rpc id; the gateway client takes the arguments the other way round.
+        if (useUpstream) await input.upstream?.declineQuestion(qid, sid)
+        else await client.declineQuestion(sid, qid)
+        log?.info(`run ${runId}: outward turn — nobody can answer prompts here, so question ${qid} was auto-declined after ${graceSec}s`)
+      } else if (frame.kind === 'approval_pending') {
+        const did = typeof frame.decisionId === 'string' ? frame.decisionId : null
+        const ap = typeof frame.approvalId === 'string' ? frame.approvalId : null
+        if (did === null || ap === null) return
+        if (useUpstream) await input.upstream?.decideApproval(did, sid, ap, 'rejected')
+        else await client.decideApproval(sid, did, 'rejected')
+        const toolName = typeof (frame as { toolName?: unknown }).toolName === 'string' ? (frame as { toolName?: string }).toolName : ''
+        log?.info(`run ${runId}: outward turn — approval ${did}${toolName === '' ? '' : ` (${toolName})`} was auto-rejected after ${graceSec}s`)
+      } else {
+        return
+      }
+      // Update the local count without waiting for the resolved frame to come back through the
+      // mux: it normally does (and the Math.max guard absorbs the double decrement), but a lost
+      // frame must not leave this turn's own state lying about a wait that is over.
+      awaitingHuman = Math.max(0, awaitingHuman - 1)
+      armSilence()
+    } catch (error) {
+      // A failed decline leaves the frame pending; the armed silence backstop and the (outward)
+      // total timeout still bound the turn, so this is a warning, not a failure.
+      log?.warn(`run ${runId}: auto-decline failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  const scheduleAutoDecline = (frame: GatewayFrame): void => {
+    const id = askIdOfFrame(frame)
+    if (id === null || pendingDeclines.has(id)) return
+    pendingDeclines.set(
+      id,
+      setTimeout(() => {
+        pendingDeclines.delete(id)
+        void declineFrame(frame)
+      }, outwardGraceMs),
+    )
+  }
+
+  const cancelAutoDecline = (frame: GatewayFrame): void => {
+    const id = askIdOfFrame(frame)
+    if (id === null) return
+    const timer = pendingDeclines.get(id)
+    if (timer !== undefined) {
+      clearTimeout(timer)
+      pendingDeclines.delete(id)
+    }
+  }
+
   const trackAwaiting = (frame: GatewayFrame) => {
     switch (frame.kind) {
       case 'question_asked':
       case 'approval_pending':
         awaitingHuman += 1
+        if (isOutward) scheduleAutoDecline(frame)
         return
       case 'question_resolved':
       case 'approval_resolved':
         awaitingHuman = Math.max(0, awaitingHuman - 1)
+        if (isOutward) cancelAutoDecline(frame)
         return
       case 'hello': {
         // A stream can open onto a session that is already waiting on something.
         const questions = Array.isArray(frame.questions) ? frame.questions.length : 0
         const approvals = Array.isArray(frame.approvals) ? frame.approvals.length : 0
         awaitingHuman = questions + approvals
+        if (isOutward && awaitingHuman > 0) {
+          // The gateway hello replay carries pending prompts with no frame ids to decline them by,
+          // and the gateway driver is a dead path for outward agents anyway (DSH-FACTS §15): count
+          // honestly and say so -- the armed silence backstop bounds the wait.
+          log?.warn(
+            `run ${runId}: outward turn opened onto ${awaitingHuman} pending prompt(s) it cannot decline (gateway hello replay); the silence backstop stays armed`,
+          )
+        }
         return
       }
       case 'turn_end':
         awaitingHuman = 0
+        clearDeclines()
         return
       default:
         return
@@ -329,7 +438,9 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
   const armSilence = () => {
     if (silenceMs <= 0) return
     clearSilence()
-    if (awaitingHuman > 0) return
+    // An inward turn waiting on a human stands the backstop down (someone may be mid-answer);
+    // an outward turn has nobody to wait for, so it stays armed (see trackAwaiting).
+    if (awaitingHuman > 0 && !isOutward) return
     silenceTimer = setTimeout(() => {
       silenced = true
       controller.abort(new Error('no frames'))
@@ -361,6 +472,7 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
   const clearTimers = (): void => {
     clearTimeout(timer)
     clearSilence()
+    clearDeclines()
   }
   const finish = makeFinish(turnState, {
     runId,

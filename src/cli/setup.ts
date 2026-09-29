@@ -282,6 +282,7 @@ export const buildManagerConfig = (options: {
     runner: {
       timeout_minutes: 15,
       silence_timeout_minutes: 5,
+      outward_timeout_minutes: 5,
       max_consecutive_failures: 3,
       daily_budget_usd: 2.0,
     },

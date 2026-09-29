@@ -37,6 +37,7 @@ globalThis.window = globalThis
 Object.defineProperty(globalThis, 'location', { value: { search: '?create=1&return=keys' }, configurable: true })
 globalThis.HTMLElement = StubElement
 globalThis.Element = StubElement
+globalThis.HTMLTextAreaElement = StubElement
 const realSetTimeout = globalThis.setTimeout
 globalThis.setTimeout = () => 0
 globalThis.clearTimeout = () => undefined
@@ -48,7 +49,7 @@ for (const id of [
   'back-list', 'service-detail-title', 'service-detail-key', 'service-detail-edit', 'service-detail-delete', 'service-detail-body',
   'back-detail', 'edit-form-slot', 'service-editor', 'service-editor-title', 'service-editor-slot',
   'service-form', 'svc-msg', 'svc-label', 'svc-id', 'svc-agents', 'svc-capacity', 'svc-permission',
-  'svc-surface-conversations', 'svc-surface-tasks', 'svc-idle', 'svc-max-agents', 'svc-placement',
+  'svc-surface-conversations', 'svc-surface-tasks', 'svc-idle', 'svc-max-agents', 'svc-placement', 'svc-persona',
   'svc-machines-wrap', 'svc-machines', 'svc-knowledge', 'svc-knowledge-add', 'svc-preview-wrap',
   'svc-preview-state', 'svc-preview-errors', 'svc-preview-warnings', 'svc-preview-diff', 'svc-preview-yaml',
   'svc-cancel', 'svc-apply',
@@ -72,7 +73,7 @@ const snapshotPayload = {
 
 const contextPayload = {
   configHash: 'hash-1234',
-  services: [{ id: 'chat', label: 'Support', workers: ['svc-chat-1'], surfaces: ['conversations'], permission: 'read', session_idle_hours: 24, placement: 'pin', machines: ['box-1'], max_agents_per_machine: 4, thresholds: { min_free_mem_bytes: 300_000_000 }, capacity: { max_sessions_per_agent: 4 }, knowledge: [] }],
+  services: [{ id: 'chat', label: 'Support', workers: ['svc-chat-1'], surfaces: ['conversations'], permission: 'read', session_idle_hours: 24, placement: 'pin', machines: ['box-1'], max_agents_per_machine: 4, thresholds: { min_free_mem_bytes: 300_000_000 }, capacity: { max_sessions_per_agent: 4 }, knowledge: [], persona: 'Be warm and terse.' }],
   workers: [{ id: 'svc-chat-1', name: 'Support 1', public: true, serviceId: 'chat', endpoint: 'svc-chat-1', machine: 'box-1', provider: 'deepseek-official', model: 'deepseek-v4-flash', priced: true, blockedReason: null }],
   machines: [{ id: 'box-1', hostname: null, services: ['chat'], outwardAgents: 1 }],
 }
@@ -139,6 +140,22 @@ test('services v2: editing an existing declaration keeps the thresholds the form
   assert.equal(sent.label, 'Support (renamed)')
   assert.deepEqual(sent.thresholds, { min_free_mem_bytes: 300_000_000 }, 'the write-only thresholds round-trip through the edit')
   assert.equal(sent.max_agents_per_machine, 4, 'the per-machine cap rides along')
+})
+
+test('services v2: the persona rides the editor round trip -- prefilled from the declaration, sent with the draft, omitted when blank', async () => {
+  await import('./services.js')
+  const hook = globalThis.__DAC_SERVICES_TEST__
+
+  hook.openEdit('chat')
+  assert.equal(nodes.get('svc-persona').value, 'Be warm and terse.', 'the form is prefilled from the declaration')
+
+  hook.setDraft({ persona: 'Renamed voice' })
+  await hook.runPreview()
+  await new Promise((resolve) => realSetTimeout(resolve, 20))
+  assert.equal(calls.previewBodies.at(-1).persona, 'Renamed voice', 'the draft carries the voice to the loader preview')
+
+  hook.setDraft({ persona: '   ' })
+  assert.equal(hook.currentDraft().persona, undefined, 'whitespace-only omits the field, so clearing the form clears the declaration')
 })
 
 test('services v2: the create drawer applies the declaration and redirects back to the key page', async () => {

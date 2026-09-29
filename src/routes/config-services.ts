@@ -38,6 +38,8 @@ const draftSchema = z.object({
       min_free_disk_bytes: z.number().nonnegative().optional(),
     })
     .optional(),
+  // The service's outward voice; the form edits it, empty/absent clears it (never inherited back).
+  persona: z.string().max(8000).optional(),
   knowledge: z
     .array(z.object({ host: z.string().min(1), mount: z.string().startsWith('/'), read_only: z.boolean() }))
     .default([]),

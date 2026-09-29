@@ -768,6 +768,32 @@ test('service declaration: the idle chat reclaim duration can be given when the 
   }
 })
 
+test('service declaration: the persona (the service\'s outward voice) round-trips trimmed, and whitespace-only counts as absent', () => {
+  const cfg = loadWithKeyEnv(
+    serviceConfig({ services: [{ id: 's', label: 'x', workers: ['worker-1'], persona: '  Be warm, brief, never guess a price.  ' }] }),
+  )
+  assert.equal(cfg.services?.[0]?.persona, 'Be warm, brief, never guess a price.')
+
+  const blank = loadWithKeyEnv(serviceConfig({ services: [{ id: 's', label: 'x', workers: ['worker-1'], persona: '   ' }] }))
+  assert.equal(blank.services?.[0]?.persona, undefined, 'an empty voice adds nothing to the delivered rules')
+
+  const absent = loadWithKeyEnv(serviceConfig({ services: [{ id: 's', label: 'x', workers: ['worker-1'] }] }))
+  assert.equal(absent.services?.[0]?.persona, undefined)
+})
+
+test('outward turn timeout: defaults to 5 minutes so a public-API caller never rides the internal 15, and is configurable', () => {
+  const def = loadWithKeyEnv(serviceConfig({}))
+  assert.equal(def.runner.outwardTimeoutMs, 5 * 60_000)
+  assert.equal(def.runner.timeoutMs, 15 * 60_000, 'the internal ceiling is unchanged')
+
+  const tuned = loadWithKeyEnv(serviceConfig({ runner: { outward_timeout_minutes: 2 } }))
+  assert.equal(tuned.runner.outwardTimeoutMs, 2 * 60_000)
+
+  for (const bad of [0, -1, 1.5]) {
+    assert.throws(() => loadWithKeyEnv(serviceConfig({ runner: { outward_timeout_minutes: bad } })), /outward_timeout_minutes|positive|integer/)
+  }
+})
+
 test('service declaration: the placement watermark thresholds can be overridden per service (the rest follow the global defaults), and an unknown key fails loud', () => {
   const def = loadWithKeyEnv(serviceConfig({ services: [{ id: 's', label: 'x', workers: ['worker-1'] }] }))
   assert.deepEqual(
