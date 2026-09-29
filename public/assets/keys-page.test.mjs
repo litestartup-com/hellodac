@@ -20,7 +20,14 @@ const el = (id) => {
 
 class StubElement {
   constructor() { this.dataset = {} }
-  closest() { return null }
+  // The production handlers resolve actions via closest('[data-...]'); mirror that: a selector
+  // naming one of this stub's dataset keys matches itself.
+  closest(selector) {
+    const match = /^\[data-([a-zA-Z-]+)\]$/.exec(selector)
+    if (match === null) return null
+    const key = match[1].replace(/-([a-z])/g, (_all, letter) => letter.toUpperCase())
+    return this.dataset[key] !== undefined ? this : null
+  }
 }
 
 const docListeners = {}

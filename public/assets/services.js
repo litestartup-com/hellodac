@@ -564,12 +564,15 @@ const load = async () => {
 }
 
 document.addEventListener('click', (event) => {
-  // An SVG inside a button (the icon) is an Element, not an HTMLElement: guarding on HTMLElement
-  // made every click on the icon a no-op -- the "menu does not react" bug.
+  // Same two lessons as the keys page: SVG icons are Elements, not HTMLElements, and the
+  // actionable data-* attribute lives on the button while the click lands on its inner <span> --
+  // every branch resolves via closest() so the deepest element still finds its action.
   const target = event.target
   if (!(target instanceof Element)) return
+  const trace = globalThis.__DAC_TRACE__ === true
 
-  if (target.dataset.close !== undefined) {
+  const closeBtn = target.closest('[data-close]')
+  if (closeBtn !== null) {
     closeEditor()
     if (view === 'form') showView('detail')
     return
@@ -579,15 +582,20 @@ document.addEventListener('click', (event) => {
   if (trigger !== null) {
     const serviceId = trigger.id.replace('service-more-', '')
     const service = (snapshot.services ?? []).find((s) => s.id === serviceId)
+    if (trace) console.debug('[services:menu]', serviceId, 'service-found:', service !== undefined)
     if (service !== undefined) openMenu(service, trigger)
     return
   }
-  if (!target.closest('.menu-panel')) closeMenu()
+  if (target.closest('.menu-panel') === null) closeMenu()
 
-  if (target.dataset.serviceDetail !== undefined) { closeMenu(); openDetail(target.dataset.serviceDetail); return }
-  if (target.dataset.serviceEdit !== undefined) { closeMenu(); openEdit(target.dataset.serviceEdit); return }
-  if (target.dataset.serviceKey !== undefined) { closeMenu(); redirect(`/keys?service=${encodeURIComponent(target.dataset.serviceKey)}`); return }
-  if (target.dataset.serviceDelete !== undefined) { closeMenu(); void deleteService(target.dataset.serviceDelete, target.dataset.serviceDeleteName ?? target.dataset.serviceDelete); return }
+  const detail = target.closest('[data-service-detail]')
+  if (detail !== null) { closeMenu(); if (trace) console.debug('[services:menu] detail', detail.dataset.serviceDetail); openDetail(detail.dataset.serviceDetail ?? ''); return }
+  const edit = target.closest('[data-service-edit]')
+  if (edit !== null) { closeMenu(); if (trace) console.debug('[services:menu] edit', edit.dataset.serviceEdit); openEdit(edit.dataset.serviceEdit ?? ''); return }
+  const issueKey = target.closest('[data-service-key]')
+  if (issueKey !== null) { closeMenu(); if (trace) console.debug('[services:menu] key', issueKey.dataset.serviceKey); redirect(`/keys?service=${encodeURIComponent(issueKey.dataset.serviceKey ?? '')}`); return }
+  const del = target.closest('[data-service-delete]')
+  if (del !== null) { closeMenu(); if (trace) console.debug('[services:menu] delete', del.dataset.serviceDelete); void deleteService(del.dataset.serviceDelete ?? '', del.dataset.serviceDeleteName ?? del.dataset.serviceDelete ?? ''); return }
 
   if (target.id === 'new-service') { openEditor(); return }
   if (target.id === 'back-list') { detailId = null; showView('list'); return }
@@ -610,23 +618,23 @@ document.addEventListener('click', (event) => {
     return
   }
 
-  const agent = target.dataset.agent
-  if (agent !== undefined && target instanceof HTMLInputElement) {
-    if (target.checked && !draft.workers.includes(agent)) draft.workers.push(agent)
-    if (!target.checked) draft.workers = draft.workers.filter((id) => id !== agent)
+  const agent = target.closest('[data-agent]')
+  if (agent !== null && agent instanceof HTMLInputElement) {
+    if (agent.checked && !draft.workers.includes(agent.dataset.agent ?? '')) draft.workers.push(agent.dataset.agent ?? '')
+    if (!agent.checked) draft.workers = draft.workers.filter((id) => id !== agent.dataset.agent)
     schedulePreview()
     return
   }
-  const machine = target.dataset.machine
-  if (machine !== undefined && target instanceof HTMLInputElement) {
-    if (target.checked && !draft.machines.includes(machine)) draft.machines.push(machine)
-    if (!target.checked) draft.machines = draft.machines.filter((id) => id !== machine)
+  const machine = target.closest('[data-machine]')
+  if (machine !== null && machine instanceof HTMLInputElement) {
+    if (machine.checked && !draft.machines.includes(machine.dataset.machine ?? '')) draft.machines.push(machine.dataset.machine ?? '')
+    if (!machine.checked) draft.machines = draft.machines.filter((id) => id !== machine.dataset.machine)
     schedulePreview()
     return
   }
-  const removeIndex = target.dataset.knowledgeRemove
-  if (removeIndex !== undefined) {
-    draft.knowledge = draft.knowledge.filter((_row, index) => index !== Number(removeIndex))
+  const removeIndex = target.closest('[data-knowledge-remove]')
+  if (removeIndex !== null) {
+    draft.knowledge = draft.knowledge.filter((_row, index) => index !== Number(removeIndex.dataset.knowledgeRemove))
     renderForm()
     schedulePreview()
   }

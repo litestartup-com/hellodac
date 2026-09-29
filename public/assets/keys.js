@@ -559,12 +559,19 @@ const load = async () => {
 }
 
 document.addEventListener('click', (event) => {
-  // An SVG inside a button (the icon) is an Element, not an HTMLElement: guarding on HTMLElement
-  // made every click on the icon a no-op -- the "menu does not react" bug.
+  // Two lessons from the "menu does not react" bug:
+  //   1. an SVG inside a button (the icon) is an Element, not an HTMLElement -- guarding on
+  //      HTMLElement made every icon click a no-op;
+  //   2. the actionable attribute lives on the *button*, while the click lands on its inner <span>:
+  //      reading event.target.dataset misses it. Every branch below resolves via closest() so the
+  //      deepest element (span/svg/use) still finds its action.
   const target = event.target
   if (!(target instanceof Element)) return
+  const trace = globalThis.__DAC_TRACE__ === true
+  if (trace) console.debug('[keys:click]', target.tagName, target.className, 'closest-close:', target.closest('[data-close]') !== null)
 
-  if (target.dataset.close !== undefined) {
+  const closeBtn = target.closest('[data-close]')
+  if (closeBtn !== null) {
     closeCreateDrawer()
     return
   }
@@ -573,17 +580,23 @@ document.addEventListener('click', (event) => {
   if (trigger !== null) {
     const rowId = trigger.id.replace('key-more-', '')
     const key = (pageData?.keys ?? []).find((k) => k.id === rowId)
+    if (trace) console.debug('[keys:menu]', rowId, 'key-found:', key !== undefined)
     if (key !== undefined) openMenu(key, trigger)
     return
   }
-  if (!target.closest('.menu-panel')) closeMenu()
+  if (target.closest('.menu-panel') === null) closeMenu()
 
-  if (target.dataset.keyDetail !== undefined) { closeMenu(); void openKeyDetail(target.dataset.keyDetail); return }
-  if (target.dataset.keyEdit !== undefined) { closeMenu(); void openKeyEdit(target.dataset.keyEdit); return }
-  if (target.dataset.keyLogs !== undefined) { closeMenu(); void scrollToActivity(target.dataset.keyLogs); return }
-  if (target.dataset.keyRevoke !== undefined) { closeMenu(); void revokeKey(target.dataset.keyRevoke, target.dataset.keyRevokeName ?? target.dataset.keyRevoke); return }
-  if (target.dataset.filter !== undefined) {
-    activeFilter = target.dataset.filter === '' ? null : target.dataset.filter
+  const detail = target.closest('[data-key-detail]')
+  if (detail !== null) { closeMenu(); if (trace) console.debug('[keys:menu] detail', detail.dataset.keyDetail); void openKeyDetail(detail.dataset.keyDetail ?? ''); return }
+  const edit = target.closest('[data-key-edit]')
+  if (edit !== null) { closeMenu(); if (trace) console.debug('[keys:menu] edit', edit.dataset.keyEdit); void openKeyEdit(edit.dataset.keyEdit ?? ''); return }
+  const logs = target.closest('[data-key-logs]')
+  if (logs !== null) { closeMenu(); if (trace) console.debug('[keys:menu] logs', logs.dataset.keyLogs); void scrollToActivity(logs.dataset.keyLogs ?? ''); return }
+  const revoke = target.closest('[data-key-revoke]')
+  if (revoke !== null) { closeMenu(); if (trace) console.debug('[keys:menu] revoke', revoke.dataset.keyRevoke); void revokeKey(revoke.dataset.keyRevoke ?? '', revoke.dataset.keyRevokeName ?? revoke.dataset.keyRevoke ?? ''); return }
+  const filter = target.closest('[data-filter]')
+  if (filter !== null) {
+    activeFilter = filter.dataset.filter === '' ? null : filter.dataset.filter
     lastRenderedList = ''
     void loadList()
     return
