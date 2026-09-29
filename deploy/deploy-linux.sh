@@ -112,9 +112,11 @@ fi
 
 # --- 6. redeploy the stack -------------------------------------------------
 cd "$COMPOSE_DIR"
-MANAGER_VERSION="${VERSION}-${SHA}" docker compose pull manager
-if [ -n "$NODE_TAG" ]; then
-  DSH_NODE_IMAGE="$NODE_TAG" docker compose pull node-brain || true
+if [ "$SKIP_PUSH" -eq 0 ]; then
+  MANAGER_VERSION="${VERSION}-${SHA}" docker compose pull manager
+  if [ -n "$NODE_TAG" ]; then
+    DSH_NODE_IMAGE="$NODE_TAG" docker compose pull node-brain || true
+  fi
 fi
 MANAGER_VERSION="${VERSION}-${SHA}" docker compose up -d --remove-orphans
 if [ -n "$NODE_TAG" ]; then
