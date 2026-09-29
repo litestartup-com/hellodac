@@ -49,13 +49,15 @@ What it does, in order:
      print its last 50 log lines, and roll back to PREV_SHA when one is set.
 
 Flags:
-  --with-nodes   also build and push the pinned-DSH-version node image
-  --backup       tar ./data into backups/ before redeploying
-  --skip-push    local build + redeploy only, no Docker Hub (also skips compose pull)
-  --test         run `npm run release:check -- --quick` in a container before building
-  --deep-clean   step 0 also removes ALL unused images and stopped containers
-  --rollback     redeploy the PREV_SHA manager image instead of building (needs PREV_SHA)
-  -h, --help     print this text
+  --with-nodes     also build and push the pinned-DSH-version node image
+  --publish-only   stop after pushing: no backup, no compose pull/up, no healthcheck
+                   (use it to refresh Hub images without touching the running stack)
+  --backup         tar ./data into backups/ before redeploying
+  --skip-push      local build + redeploy only, no Docker Hub (also skips compose pull)
+  --test           run `npm run release:check -- --quick` in a container before building
+  --deep-clean     step 0 also removes ALL unused images and stopped containers
+  --rollback       redeploy the PREV_SHA manager image instead of building (needs PREV_SHA)
+  -h, --help       print this text
 
 Environment overrides:
   DOCKER_ORG=hellodac   DAC_VERSION=1.0.0   DSH_VERSION=0.1.5-rc.2
@@ -65,25 +67,33 @@ Environment overrides:
 Examples:
   ./deploy/deploy-linux.sh --test --with-nodes     # full release
   ./deploy/deploy-linux.sh --skip-push             # local validation, no Hub
+  BRANCH=feat-x ./deploy/deploy-linux.sh --skip-push   # try a feature branch on the server,
+                                                       # without publishing it anywhere
+  ./deploy/deploy-linux.sh --with-nodes --publish-only # refresh Hub images only
   PREV_SHA=abc1234 ./deploy/deploy-linux.sh --rollback
 EOF
 }
 
 # --- flags ---------------------------------------------------------------
-WITH_NODES=0; BACKUP=0; SKIP_PUSH=0; ROLLBACK=0; TEST_FIRST=0; DEEP_CLEAN=0; HELP=0
+WITH_NODES=0; BACKUP=0; SKIP_PUSH=0; ROLLBACK=0; TEST_FIRST=0; DEEP_CLEAN=0; PUBLISH_ONLY=0; HELP=0
 for arg in "$@"; do
   case "$arg" in
-    --with-nodes) WITH_NODES=1 ;;
-    --backup)     BACKUP=1 ;;
-    --skip-push)  SKIP_PUSH=1 ;;
-    --rollback)   ROLLBACK=1 ;;
-    --test)       TEST_FIRST=1 ;;
-    --deep-clean) DEEP_CLEAN=1 ;;
-    -h|--help)    HELP=1 ;;
+    --with-nodes)   WITH_NODES=1 ;;
+    --backup)       BACKUP=1 ;;
+    --skip-push)    SKIP_PUSH=1 ;;
+    --publish-only) PUBLISH_ONLY=1 ;;
+    --rollback)     ROLLBACK=1 ;;
+    --test)         TEST_FIRST=1 ;;
+    --deep-clean)   DEEP_CLEAN=1 ;;
+    -h|--help)      HELP=1 ;;
     *) echo "unknown flag: $arg (try --help)" >&2; exit 1 ;;
   esac
 done
 if [ "$HELP" -eq 1 ]; then usage; exit 0; fi
+if [ "$PUBLISH_ONLY" -eq 1 ] && [ "$ROLLBACK" -eq 1 ]; then
+  echo "deploy: --publish-only and --rollback contradict each other." >&2
+  exit 1
+fi
 
 # --- 0. free docker disk space before every run ----------------------------
 # Only what is regenerable or already disposable is removed:
@@ -171,6 +181,16 @@ if [ "$SKIP_PUSH" -eq 0 ]; then
     docker push "$NODE_TAG"
     docker push "${ORG}/dac-node:${DSH_VERSION}"
   fi
+fi
+
+# --publish-only stops here: the Hub is refreshed, the running stack is untouched.
+if [ "$PUBLISH_ONLY" -eq 1 ]; then
+  if [ "$SKIP_PUSH" -eq 1 ]; then
+    echo "deploy: --publish-only with --skip-push publishes nothing; did you mean a plain local build?" >&2
+    exit 1
+  fi
+  echo "deploy: published ${MANAGER_TAG}$( [ -n "$NODE_TAG" ] && echo " and ${NODE_TAG}" ); no deployment performed."
+  exit 0
 fi
 
 # --- 5. optional DB snapshot (the manager data dir is a bind mount: ./data) ----
