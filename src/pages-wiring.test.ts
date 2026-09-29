@@ -46,6 +46,7 @@ const DYNAMIC = [
   /^service-menu-/, // services.js: one menu popover per service row
   /^service-more-/, // services.js: the three-dot trigger
   /^svc-/, // services.js: the shared editor form (rendered into the drawer / edit slot)
+  /^kf-/, // keys.js: the shared key form (rendered into the drawer / edit slot)
 ]
 
 /** The shell script: every page loads it, so its references must be findable on every page. */

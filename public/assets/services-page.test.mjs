@@ -36,6 +36,7 @@ globalThis.document = {
 globalThis.window = globalThis
 Object.defineProperty(globalThis, 'location', { value: { search: '?create=1&return=keys' }, configurable: true })
 globalThis.HTMLElement = StubElement
+globalThis.Element = StubElement
 const realSetTimeout = globalThis.setTimeout
 globalThis.setTimeout = () => 0
 globalThis.clearTimeout = () => undefined
@@ -119,6 +120,7 @@ test('services v2: the detail view shows the overview, its agents and the keys i
   const body = nodes.get('service-detail-body')
   assert.ok(body.innerHTML.includes('Support 1'), 'the agents render')
   assert.ok(body.innerHTML.includes('Acme'), 'the serving keys render')
+  assert.ok(body.innerHTML.includes('/keys?key=a814ce63ac3b'), 'each key row ends in an explicit detail link, not a row jump')
   assert.ok(body.innerHTML.includes('2/4'), 'capacity in use is spelled out')
   assert.equal(nodes.get('service-detail-key').getAttribute('href'), '/keys?service=chat', 'issue-a-key preselects this service')
 })

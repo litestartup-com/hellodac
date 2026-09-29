@@ -55,6 +55,7 @@ let view = 'list' // list | detail | form
 let previewTimer = null
 let openMenuService = null
 let openedFromParam = false
+let lastRenderedList = ''
 
 const menuId = (id) => `service-menu-${id}`
 
@@ -77,7 +78,7 @@ const capacityLine = (service) => {
 
 const serviceRow = (service) => {
   const dot = service.capacity.onlineAgents > 0 ? 'ok' : 'bad'
-  return `<div class="node-row" data-service-row="${esc(service.id)}">
+  return `<div class="node-row">
   <div class="node-main">
     <div class="node-title"><span class="dot ${dot}"></span>${esc(service.label)} <code class="muted">${esc(service.id)}</code></div>
     <div class="node-sub">${capacityLine(service)}</div>
@@ -109,7 +110,11 @@ const closeMenu = () => {
 }
 
 const openMenu = (service, trigger) => {
-  if (openMenuService !== null) closeMenu()
+  if (openMenuService === service.id) {
+    closeMenu()
+    return
+  }
+  closeMenu()
   openMenuService = service.id
   const panel = document.getElementById(menuId(service.id))
   if (panel === null || trigger === null) return
@@ -119,6 +124,7 @@ const openMenu = (service, trigger) => {
   panel.style.left = `${pos.left}px`
   panel.style.top = `${pos.top}px`
   trigger.setAttribute('aria-expanded', 'true')
+  panel.querySelector('.menu-item')?.focus()
 }
 
 const renderList = () => {
@@ -127,6 +133,12 @@ const renderList = () => {
   const services = snapshot.services ?? []
   const count = $('services-count')
   if (count !== null) count.textContent = String(services.length)
+  // Same guard as the keys page: re-rendering on every poll wipes an open three-dot menu out from
+  // under the cursor -- only render when the visible data actually changed.
+  const next = JSON.stringify(services.map((s) => ({ id: s.id, label: s.label, keys: s.keys.length, capacity: s.capacity, agents: s.agents.map((a) => [a.online, a.sessions, a.queueDepth]) })))
+  if (next === lastRenderedList) return
+  lastRenderedList = next
+  closeMenu()
   setHtml('services-list', services.length === 0
     ? `<p class="muted small">${esc(t('services.empty'))}</p>`
     : services.map(serviceRow).join('') + services.map(serviceMenuHtml).join(''))
@@ -236,7 +248,12 @@ const editorFormHtml = () => `<form id="service-form" class="card" novalidate>
     <div id="svc-preview-errors"></div>
     <div id="svc-preview-warnings"></div>
     <div id="svc-preview-diff"></div>
-    <pre class="yaml-preview"><code id="svc-preview-yaml"></code></pre>
+    <!-- The full file is the boring 99%; the diff and the verdict above are the point. Keep the raw
+         file available but out of the way for whoever wants to double-check the exact bytes. -->
+    <details class="yaml-collapse">
+      <summary>${esc(t('services.form.previewFull'))}</summary>
+      <pre class="yaml-preview"><code id="svc-preview-yaml"></code></pre>
+    </details>
   </div>
 
   <div class="form-actions">
@@ -434,11 +451,14 @@ const apply = async () => {
 // ---------------------------------------------------------------------------
 // Detail view
 // ---------------------------------------------------------------------------
-const keyRowOfService = (key) => `<div class="node-row" data-key-row="${esc(key.id)}">
+const keyRowOfService = (key) => `<div class="node-row">
   <div class="node-main">
     <div class="node-title"><span class="dot ok"></span>${esc(key.name)} <code class="muted">${esc(key.id)}</code>${key.revokedAt === null ? '' : ` <span class="pill-mini muted">${esc(t('services.keyRevoked'))}</span>`}</div>
     <div class="node-sub">${esc(t('services.keyToday'))}: ${key.quotaRunsDay === null ? `${key.usedToday} ${esc(t('keys.runsUnlimitedShort'))}` : `${key.usedToday}/${key.quotaRunsDay}`}</div>
   </div>
+  <a class="icon-btn" href="/keys?key=${encodeURIComponent(key.id)}" title="${esc(t('keys.detail'))}" aria-label="${esc(t('keys.detail'))}">
+    <svg width="16" height="16" aria-hidden="true"><use href="#i-chev" /></svg>
+  </a>
 </div>`
 
 const agentRowOfService = (agent) => {
@@ -544,8 +564,10 @@ const load = async () => {
 }
 
 document.addEventListener('click', (event) => {
+  // An SVG inside a button (the icon) is an Element, not an HTMLElement: guarding on HTMLElement
+  // made every click on the icon a no-op -- the "menu does not react" bug.
   const target = event.target
-  if (!(target instanceof HTMLElement)) return
+  if (!(target instanceof Element)) return
 
   if (target.dataset.close !== undefined) {
     closeEditor()
@@ -557,10 +579,7 @@ document.addEventListener('click', (event) => {
   if (trigger !== null) {
     const serviceId = trigger.id.replace('service-more-', '')
     const service = (snapshot.services ?? []).find((s) => s.id === serviceId)
-    if (service !== undefined) {
-      if (openMenuService === service.id) closeMenu()
-      else openMenu(service, trigger)
-    }
+    if (service !== undefined) openMenu(service, trigger)
     return
   }
   if (!target.closest('.menu-panel')) closeMenu()
@@ -610,17 +629,6 @@ document.addEventListener('click', (event) => {
     draft.knowledge = draft.knowledge.filter((_row, index) => index !== Number(removeIndex))
     renderForm()
     schedulePreview()
-    return
-  }
-
-  const row = target.closest('[data-service-row]')
-  if (row !== null) {
-    openDetail(row.dataset.serviceRow ?? '')
-    return
-  }
-  const keyLink = target.closest('[data-key-row]')
-  if (keyLink !== null) {
-    redirect(`/keys?key=${encodeURIComponent(keyLink.dataset.keyRow ?? '')}`)
   }
 })
 

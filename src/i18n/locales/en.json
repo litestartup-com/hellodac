@@ -394,7 +394,7 @@
   "keys.handoverToken": "Key (secret)",
   "keys.handoverExample": "Example — first message",
   "keys.handoverQuota": "Quota",
-  "keys.serving": "Services it may enter",
+  "keys.serving": "Services",
   "keys.today": "Today",
   "keys.revokeConfirm": "Revoke \"{name}\"? It stops working immediately and this cannot be undone. Its history and billing stay.",
   "keys.moreSettings": "More settings",
@@ -622,7 +622,6 @@
   "keys.surface.tasks": "Tasks",
   "keys.surface.conversations": "Conversations",
   "keys.newServiceLink": "Create a new service",
-  "keys.tokenOnceNoteShort": "Shown once",
   "keys.done": "Done",
   "audit.kind.api_key_edited": "API key edited",
   "audit.kind.service_deleted": "service declaration removed",
@@ -635,5 +634,6 @@
   "services.sessionsShort": "sessions",
   "services.overview": "Overview",
   "services.idleShort": "Idle reclaim",
-  "services.agents": "Agents"
+  "services.agents": "Agents",
+  "services.form.previewFull": "Show the full file"
 }

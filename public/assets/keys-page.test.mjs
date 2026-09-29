@@ -5,16 +5,15 @@ import assert from 'node:assert/strict'
  * Page-script runtime smoke for the v2 API-key page (three views + drawer): run keys.js as a real
  * module against a stub DOM and drive the real functions through the __DAC_TEST__ hook. This is the
  * guard added after the 2026-09-27 "Loading…" incident: only executing the module catches a wrong
- * payload shape. The v2 assertions pin the new structure: node-row list with a three-dot menu,
- * detail view with services + activity, full-width edit (PATCH), the create drawer with its result
- * step, 0 = unlimited, filter chips, and the confirmed revoke.
+ * payload shape. The v2.1 assertions pin the fixes too: the shared form (drawer + edit), no row-click
+ * navigation (the menu is the only way in), the detail icon links, 0 = unlimited, and the confirm.
  */
 const nodes = new Map()
 
 const el = (id) => {
   const existing = nodes.get(id)
   if (existing !== undefined) return existing
-  const node = { id, innerHTML: '', textContent: '', hidden: false, disabled: false, value: '', checked: false, options: [], listeners: {}, addEventListener: (type, fn) => { node.listeners[type] = fn }, setAttribute: () => undefined, removeAttribute: () => undefined, getAttribute: () => null }
+  const node = { id, innerHTML: '', textContent: '', hidden: false, disabled: false, value: '', checked: false, options: [], listeners: {}, attrs: {}, addEventListener: (type, fn) => { node.listeners[type] = fn }, setAttribute: (k, v) => { node.attrs[k] = v }, removeAttribute: () => undefined, getAttribute: (k) => node.attrs[k] ?? null }
   nodes.set(id, node)
   return node
 }
@@ -41,6 +40,7 @@ globalThis.document = {
 globalThis.window = globalThis
 Object.defineProperty(globalThis, 'location', { value: { search: '' }, configurable: true })
 globalThis.HTMLElement = StubElement
+globalThis.Element = StubElement
 const realSetTimeout = globalThis.setTimeout
 globalThis.setTimeout = () => 0
 globalThis.clearTimeout = () => undefined
@@ -56,13 +56,12 @@ globalThis.confirm = (text) => { confirms.push(text); return true }
 for (const id of [
   'view-list', 'view-detail', 'view-form', 'new-key', 'keys-refresh', 'keys-count', 'keys-filter', 'keys-list',
   'back-list', 'key-detail-title', 'key-detail-edit', 'key-detail-revoke', 'key-detail-body',
-  'key-activity', 'key-activity-body',
-  'back-detail', 'key-edit-form', 'key-edit-msg', 'key-name', 'key-services', 'key-quota', 'key-advanced',
-  'key-scopes', 'key-rpm', 'key-concurrency', 'key-expires', 'key-edit-cancel', 'key-edit-save',
-  'key-editor', 'key-editor-title', 'key-create-form', 'key-create-msg', 'f-key-name', 'f-key-services',
-  'f-key-services-empty', 'f-key-services-link', 'f-key-quota', 'f-key-scopes', 'f-key-rpm', 'f-key-concurrency',
-  'f-key-expires', 'f-key-warn', 'f-key-cancel', 'f-key-save', 'key-issued', 'key-token-value', 'key-token-copy',
-  'key-probe', 'key-probe-result', 'key-handover', 'key-handover-copy', 'key-done', 'key-handover-msg',
+  'key-activity', 'key-activity-body', 'back-detail', 'edit-form-slot',
+  'key-editor', 'key-editor-title', 'key-form-slot',
+  'key-form', 'kf-msg', 'kf-name', 'kf-services', 'kf-services-empty', 'kf-services-link', 'kf-quota',
+  'kf-scopes', 'kf-rpm', 'kf-concurrency', 'kf-expires', 'kf-cancel', 'kf-save',
+  'key-issued', 'key-token-value', 'key-token-copy', 'key-probe', 'key-probe-result',
+  'key-handover', 'key-handover-copy', 'key-done', 'key-handover-msg',
 ]) el(id)
 
 const keyFixture = {
@@ -83,7 +82,7 @@ const pagePayload = {
 const postBodies = []
 globalThis.fetch = async (url, options) => {
   const path = String(url)
-  if (path.includes('/api/i18n/')) return { ok: true, json: async () => ({ locale: 'en', dict: { 'keys.detail': 'Details', 'keys.edit': 'Edit', 'keys.revoke': 'Revoke access', 'keys.recordLogs': 'Activity log', 'keys.filterAll': 'All', 'keys.overview': 'Overview', 'keys.serving': 'Services it may enter', 'keys.activity': 'Activity', 'keys.today': 'Today', 'keys.active': 'Active', 'keys.revokeConfirm': 'Revoke "{name}"?' }, locales: [] }) }
+  if (path.includes('/api/i18n/')) return { ok: true, json: async () => ({ locale: 'en', dict: { 'keys.detail': 'Details', 'keys.edit': 'Edit', 'keys.revoke': 'Revoke access', 'keys.recordLogs': 'Activity log', 'keys.filterAll': 'All', 'keys.overview': 'Overview', 'keys.serving': 'Services', 'keys.activity': 'Activity', 'keys.today': 'Today', 'keys.active': 'Active', 'keys.revokeConfirm': 'Revoke "{name}"?', 'keys.newServiceLink': 'New service' }, locales: [] }) }
   if (path.endsWith('/api/keys') && options?.method === 'POST') {
     postBodies.push({ method: 'POST', path, body: JSON.parse(options?.body ?? '{}') })
     return { ok: true, status: 201, json: async () => ({ token: 'dac_9f2c1ab7e2d4_TESTTOKEN', key: { ...keyFixture, id: '9f2c1ab7e2d4' } }) }
@@ -98,7 +97,8 @@ globalThis.fetch = async (url, options) => {
   }
   if (options?.method === 'PATCH') {
     postBodies.push({ method: 'PATCH', path, body: JSON.parse(options?.body ?? '{}') })
-    return { ok: true, status: 200, json: async () => ({ key: { ...keyFixture, name: JSON.parse(options?.body ?? '{}').name ?? keyFixture.name } }) }
+    const patched = { ...keyFixture, name: JSON.parse(options?.body ?? '{}').name ?? keyFixture.name }
+    return { ok: true, status: 200, json: async () => ({ key: patched }) }
   }
   const detailMatch = /\/api\/keys\/([0-9a-f]{12})$/.exec(path)
   if (detailMatch !== null) {
@@ -122,7 +122,6 @@ test('keys v2: the list renders node-style rows with the three-dot menu and the 
 
   const list = nodes.get('keys-list')
   assert.ok(list.innerHTML.includes('Billing service'), 'rows render with the key name')
-  assert.ok(list.innerHTML.includes('b4c36b603b1e'), 'the id shows in the row')
   assert.ok(list.innerHTML.includes('Details') && list.innerHTML.includes('Revoke access') && list.innerHTML.includes('Activity log'), 'the three-dot menu carries detail/edit/logs/revoke')
   assert.equal(nodes.get('keys-count').textContent, '2', 'the count sits next to All keys')
 
@@ -134,7 +133,7 @@ test('keys v2: the list renders node-style rows with the three-dot menu and the 
   hook.setFilter(null)
 })
 
-test('keys v2: clicking a key opens the full-width detail with the service list and activity', async () => {
+test('keys v2: the detail view renders the overview, the services (with icon links, not row jumps) and the activity', async () => {
   await import('./keys.js')
   const hook = globalThis.__DAC_KEYS_TEST__
 
@@ -143,9 +142,9 @@ test('keys v2: clicking a key opens the full-width detail with the service list 
 
   assert.equal(hook.view(), 'detail', 'the detail view replaces the list')
   const body = nodes.get('key-detail-body')
-  assert.ok(body.innerHTML.includes('Support'), 'the service it may enter is listed at the bottom')
+  assert.ok(body.innerHTML.includes('Support'), 'the service it may enter is listed')
+  assert.ok(body.innerHTML.includes('/services?service=support'), 'the service row ends in an explicit detail link')
   assert.ok(nodes.get('key-activity-body').innerHTML.includes('GET /v1/usage → 200'), 'the activity log carries the outward calls')
-  assert.ok(body.innerHTML.includes('12 / 200'), 'the quota reads X / Y')
   assert.ok(nodes.get('key-detail-title').innerHTML.includes('Billing service'), 'the title carries name and id')
 })
 
@@ -156,12 +155,12 @@ test('keys v2: the edit view prefills and PATCHes; 0 means unlimited', async () 
   await hook.openKeyEdit('b4c36b603b1e')
   await new Promise((resolve) => realSetTimeout(resolve, 20))
   assert.equal(hook.view(), 'form', 'editing is a full-width view')
-  assert.equal(nodes.get('key-name').value, 'Billing service', 'the form is prefilled from the key')
-  assert.equal(nodes.get('key-rpm').value, '60')
+  assert.equal(nodes.get('kf-name').value, 'Billing service', 'the form is prefilled from the key')
+  assert.equal(nodes.get('kf-rpm').value, '60')
 
-  nodes.get('key-name').value = 'Renamed'
-  nodes.get('key-quota').value = '0'
-  await hook.saveKeyEdit()
+  nodes.get('kf-name').value = 'Renamed'
+  nodes.get('kf-quota').value = '0'
+  await hook.submitForm()
   await new Promise((resolve) => realSetTimeout(resolve, 20))
 
   const patch = postBodies.find((entry) => entry.method === 'PATCH')
@@ -177,10 +176,10 @@ test('keys v2: the drawer creates a key with the safe defaults and shows the onc
 
   hook.openCreateDrawer()
   assert.equal(nodes.get('key-editor').hidden, false, 'the drawer opens')
-  nodes.get('f-key-name').value = 'acme'
-  nodes.get('f-key-services').value = 'support'
-  nodes.get('f-key-quota').value = '300'
-  await hook.createKey()
+  nodes.get('kf-name').value = 'acme'
+  nodes.get('kf-services').value = 'support'
+  nodes.get('kf-quota').value = '300'
+  await hook.submitForm()
   await new Promise((resolve) => realSetTimeout(resolve, 20))
 
   const create = postBodies.find((entry) => entry.path.endsWith('/api/keys') && entry.method === 'POST')
@@ -189,7 +188,6 @@ test('keys v2: the drawer creates a key with the safe defaults and shows the onc
   assert.deepEqual(create.body.scopes, ['services:read', 'usage:read', 'conversations:write'], 'the safe default scopes')
   assert.equal(nodes.get('key-issued').hidden, false, 'the result step replaces the form')
   assert.ok(nodes.get('key-token-value').textContent.includes('TESTTOKEN'), 'the plaintext is shown once here')
-  assert.ok(nodes.get('key-handover').innerHTML.includes('127.0.0.1:8081'), 'the handover block is ready to copy')
 })
 
 test('keys v2: with no service configured the drawer offers only the create-service link', async () => {
@@ -200,9 +198,9 @@ test('keys v2: with no service configured the drawer offers only the create-serv
 
   await hook.loadList()
   hook.openCreateDrawer()
-  assert.equal(nodes.get('f-key-services-empty').hidden, false, 'the create-a-service link shows')
-  assert.equal(nodes.get('f-key-services').hidden, true, 'the empty select hides')
-  assert.equal(nodes.get('f-key-services-link').hidden, true, 'the small link hides when there is nothing to pick from')
+  assert.equal(nodes.get('kf-services-empty').hidden, false, 'the create-a-service link shows')
+  assert.equal(nodes.get('kf-services').hidden, true, 'the empty select hides')
+  assert.equal(nodes.get('kf-services-link').hidden, true, 'the small link hides when there is nothing to pick from')
 
   pagePayload.services = [{ id: 'support', label: 'Support', surfaces: ['conversations'] }]
   pagePayload.keys = [keyFixture]

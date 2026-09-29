@@ -2,9 +2,11 @@
 //
 // Three views + one drawer (the v2 refactor, aligned with the nodes page):
 //   - list: rows in the node-row shape, three-dot overflow menu per row (detail / edit / activity /
-//     revoke), filter chips per service;
-//   - detail (full width): what the key may do, the services it serves, and its activity log;
-//   - edit (full width): the same fields as creation, saved with PATCH -- the secret is never touched;
+//     revoke), filter chips per service; the menu is the only way into a key (row clicks do not
+//     navigate -- navigating on a stray click is more surprising than helpful);
+//   - detail (full width): what the key may do, the services it serves (each row ends in an explicit
+//     detail link), and its activity log; the back link sits under the title, not beside it;
+//   - edit (full width): the same form as creation, saved with PATCH -- the secret is never touched;
 //   - drawer: creating a key. Three visible fields (name / service / runs per day, 0 = unlimited),
 //     the rest under "more settings"; the result step holds the secret (shown once), the read-only
 //     outward test and the copyable handover block.
@@ -61,28 +63,19 @@ const draftStore = {
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
-let pageData = null // the list payload (keys / services / access)
-let activeFilter = null // service id or null = all
-let openMenuKey = null // which row's three-dot menu is open
-let detailKey = null // the id whose detail view is open
-let editingKey = null // the id being edited in the full-width form
-let issuedToken = null // the fresh plaintext inside the drawer (until it closes)
-const detailCache = new Map()
+let pageData = null
+let activeFilter = null
+let openMenuKey = null
+let detailKey = null
+let formMode = 'create' // create | edit
+let issuedToken = null
+let lastRenderedList = ''
 
 const menuId = (id) => `key-menu-${id}`
+const matchesFilter = (key, serviceId) => key.scopeServices.includes('*') || key.scopeServices.includes(serviceId)
 
-const matchesFilter = (key, serviceId) =>
-  key.scopeServices.includes('*') || key.scopeServices.includes(serviceId)
-
-const show = (id) => {
-  const el = $(id)
-  if (el !== null) el.hidden = false
-}
-const hide = (id) => {
-  const el = $(id)
-  if (el !== null) el.hidden = true
-}
-
+const show = (id) => { const el = $(id); if (el !== null) el.hidden = false }
+const hide = (id) => { const el = $(id); if (el !== null) el.hidden = true }
 const showView = (view) => {
   hide('view-list'); hide('view-detail'); hide('view-form')
   show(`view-${view}`)
@@ -113,18 +106,14 @@ const quotaText = (key) => {
 
 const stamp = (ms) => (ms === null || ms === undefined ? '—' : new Date(ms).toLocaleString())
 
-const scopeChecklist = (id) => {
-  const el = $(id)
-  if (el === null) return
-  el.innerHTML = SCOPES.map((scope) => `<label class="checkbox-line">
+const scopeChecklist = () => SCOPES.map((scope) => `<label class="checkbox-line">
     <input type="checkbox" value="${esc(scope.id)}" ${scope.id === 'services:read' || scope.id === 'usage:read' || scope.id === 'conversations:write' ? 'checked' : ''} ${scope.available ? '' : 'disabled'} />
     <span>${esc(scope.label)}${scope.available ? '' : ` <span class="pill-mini muted">${esc(t('keys.scopeUnreleased'))}</span>`} <code class="muted small">${esc(scope.id)}</code></span>
     <span class="muted small">${esc(scope.note)}</span>
   </label>`).join('')
-}
 
-const checkedScopes = (rootId) =>
-  Array.from(document.querySelectorAll(`${rootId} input:checked`))
+const checkedScopes = () =>
+  Array.from(document.querySelectorAll('#kf-scopes input:checked'))
     .map((input) => input.value)
     .filter((value) => value !== '')
 
@@ -141,7 +130,7 @@ const renderFilter = (services) => {
 // ---------------------------------------------------------------------------
 // List view
 // ---------------------------------------------------------------------------
-const keyRow = (key) => `<div class="node-row" data-key-row="${esc(key.id)}">
+const keyRow = (key) => `<div class="node-row">
   <div class="node-main">
     <div class="node-title"><span class="dot ${stateDot(key)}"></span>${esc(key.name)} <code class="muted">${esc(key.id)}</code> ${statePill(key)}</div>
     <div class="node-sub">${key.serviceLabels.length === 0 ? '—' : esc(key.serviceLabels.join(', '))} · ${esc(t('keys.today'))} ${quotaText(key)} · ${key.maxConcurrency} ${esc(t('keys.concurrentShort'))}</div>
@@ -171,7 +160,11 @@ const closeMenu = () => {
 }
 
 const openMenu = (key, trigger) => {
-  if (openMenuKey !== null) closeMenu()
+  if (openMenuKey === key.id) {
+    closeMenu()
+    return
+  }
+  closeMenu()
   openMenuKey = key.id
   const panel = document.getElementById(menuId(key.id))
   if (panel === null || trigger === null) return
@@ -181,6 +174,7 @@ const openMenu = (key, trigger) => {
   panel.style.left = `${pos.left}px`
   panel.style.top = `${pos.top}px`
   trigger.setAttribute('aria-expanded', 'true')
+  panel.querySelector('.menu-item')?.focus()
 }
 
 const renderList = () => {
@@ -190,6 +184,12 @@ const renderList = () => {
   const count = $('keys-count')
   if (count !== null) count.textContent = String(pageData.keys.length)
   renderFilter(pageData.services)
+  // Re-rendering only on real change: the poll would otherwise rebuild the rows mid-interaction and
+  // wipe an open three-dot menu out from under the cursor (the "menu flashes and stops working" bug).
+  const next = JSON.stringify(keys.map((key) => ({ id: key.id, name: key.name, usedToday: key.usedToday, active: key.active, revokedAt: key.revokedAt, lastUsedAt: key.lastUsedAt, expiresAt: key.expiresAt })))
+  if (next === lastRenderedList) return
+  lastRenderedList = next
+  closeMenu()
   setHtml('keys-list', keys.length === 0
     ? `<p class="muted small">${esc(t('keys.empty'))}</p>`
     : keys.map(keyRow).join('') + keys.map(keyMenuHtml).join(''))
@@ -200,11 +200,14 @@ const renderList = () => {
 // ---------------------------------------------------------------------------
 // Detail view
 // ---------------------------------------------------------------------------
-const serviceRow = (service) => `<div class="node-row" data-service-row="${esc(service.id)}">
+const serviceRow = (service) => `<div class="node-row">
   <div class="node-main">
     <div class="node-title"><span class="dot ok"></span>${esc(service.label)} <code class="muted">${esc(service.id)}</code></div>
     <div class="node-sub">${(service.surfaces ?? []).map((s) => esc(t(`keys.surface.${s}`))).join(', ')}</div>
   </div>
+  <a class="icon-btn" href="/services?service=${encodeURIComponent(service.id)}" title="${esc(t('keys.detail'))}" aria-label="${esc(t('keys.detail'))}">
+    <svg width="16" height="16" aria-hidden="true"><use href="#i-chev" /></svg>
+  </a>
 </div>`
 
 const renderDetail = (key, detail) => {
@@ -258,8 +261,6 @@ const openKeyDetail = async (id) => {
     return
   }
   const data = response.data
-  // The detail endpoint carries the key face plus calls/runs; the service list comes from the page
-  // payload so the two agree on labels.
   const services = (pageData?.services ?? []).filter((service) =>
     data.key.scopeServices.includes('*') || data.key.scopeServices.includes(service.id))
   renderDetail(data.key, { services, recentCalls: data.recentCalls })
@@ -271,97 +272,124 @@ const scrollToActivity = async (id) => {
 }
 
 // ---------------------------------------------------------------------------
-// Edit view (full width)
+// The shared key form (create drawer and full-width edit; one instance at a time)
 // ---------------------------------------------------------------------------
-const fillEditForm = (key) => {
-  const name = $('key-name'); if (name !== null) name.value = key.name
-  const quota = $('key-quota'); if (quota !== null) quota.value = key.quotaRunsDay === null ? '0' : String(key.quotaRunsDay)
-  const rpm = $('key-rpm'); if (rpm !== null) rpm.value = String(key.rateLimitRpm)
-  const concurrency = $('key-concurrency'); if (concurrency !== null) concurrency.value = String(key.maxConcurrency)
-  const expires = $('key-expires'); if (expires !== null) expires.value = key.expiresAt === null ? '' : new Date(key.expiresAt).toISOString().slice(0, 10)
-  const services = $('key-services')
-  if (services !== null && pageData !== null) {
-    services.innerHTML = serviceOptions(pageData.services, key.scopeServices[0] ?? '')
-  }
-  // Scopes are shared checkboxes; tick only what this key holds.
-  document.querySelectorAll('#key-scopes input').forEach((input) => {
-    input.checked = key.scopes.includes(input.value) && !input.disabled
-  })
+const keyFormHtml = () => `<form id="key-form" class="card" novalidate>
+  <p id="kf-msg" class="muted" hidden></p>
+
+  <div class="field-row">
+    <label class="field">
+      <span class="field-label">${esc(t('keys.name'))}</span>
+      <input id="kf-name" class="text-input" maxlength="80" placeholder="${esc(t('keys.nameHint'))}" />
+    </label>
+    <label class="field">
+      <span class="field-label">${esc(t('keys.services'))}</span>
+      <select id="kf-services" class="text-input pill-select"></select>
+    </label>
+  </div>
+  <div id="kf-services-empty" hidden>
+    <a class="btn" href="/services?create=1&return=keys">${esc(t('keys.createService'))}</a>
+  </div>
+  <a id="kf-services-link" class="muted small" href="/services?create=1&return=keys">${esc(t('keys.newServiceLink'))}</a>
+
+  <div class="field-row">
+    <label class="field">
+      <span class="field-label">${esc(t('keys.runsPerDay'))}</span>
+      <input id="kf-quota" class="text-input" type="number" min="0" value="200" />
+      <span class="field-hint muted small">${esc(t('keys.runsUnlimited'))}</span>
+    </label>
+  </div>
+
+  <details class="node-advanced">
+    <summary>${esc(t('keys.moreSettings'))}</summary>
+    <div class="node-advanced-body">
+      <label class="field">
+        <span class="field-label">${esc(t('keys.scopes'))}</span>
+        <span id="kf-scopes" class="checks"></span>
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">${esc(t('keys.rpm'))}</span>
+          <input id="kf-rpm" class="text-input" type="number" min="1" max="6000" value="60" />
+        </label>
+        <label class="field">
+          <span class="field-label">${esc(t('keys.concurrency'))}</span>
+          <input id="kf-concurrency" class="text-input" type="number" min="1" max="64" value="4" />
+        </label>
+      </div>
+      <label class="field">
+        <span class="field-label">${esc(t('keys.expires'))}</span>
+        <input id="kf-expires" class="text-input" type="date" />
+      </label>
+    </div>
+  </details>
+
+  <div class="form-actions">
+    <button type="button" id="kf-cancel" class="btn-quiet btn-sm">${esc(t('common.cancel'))}</button>
+    <button type="submit" id="kf-save" class="btn btn-sm">${formMode === 'edit' ? esc(t('common.save')) : esc(t('common.create'))}</button>
+  </div>
+</form>`
+
+const readForm = () => ({
+  name: $('kf-name')?.value ?? '',
+  service: $('kf-services')?.value ?? '',
+  quota: $('kf-quota')?.value ?? '200',
+  rpm: $('kf-rpm')?.value ?? '60',
+  concurrency: $('kf-concurrency')?.value ?? '4',
+  expires: $('kf-expires')?.value ?? '',
+  scopes: checkedScopes(),
+})
+
+const fillForm = (values) => {
+  const name = $('kf-name'); if (name !== null) name.value = values.name ?? ''
+  const quota = $('kf-quota'); if (quota !== null) quota.value = values.quota ?? '200'
+  const rpm = $('kf-rpm'); if (rpm !== null) rpm.value = values.rpm ?? '60'
+  const concurrency = $('kf-concurrency'); if (concurrency !== null) concurrency.value = values.concurrency ?? '4'
+  const expires = $('kf-expires'); if (expires !== null) expires.value = values.expires ?? ''
 }
 
-const openKeyEdit = async (id) => {
-  const response = await apiJson(`/api/keys/${encodeURIComponent(id)}`)
-  if (!response.ok) return
-  editingKey = id
-  fillEditForm(response.data.key)
-  showView('form')
+const renderServicesField = () => {
+  const services = pageData?.services ?? []
+  const empty = $('kf-services-empty')
+  const select = $('kf-services')
+  const link = $('kf-services-link')
+  if (empty === null || select === null || link === null) return
+  empty.hidden = services.length > 0
+  select.hidden = services.length === 0
+  link.hidden = services.length === 0
+  if (services.length > 0) {
+    const wanted = formMode === 'create' ? searchParams().get('service') ?? '' : ''
+    select.innerHTML = serviceOptions(services, wanted)
+  }
 }
 
-const saveKeyEdit = async () => {
-  if (editingKey === null) return
-  const name = $('key-name')?.value ?? ''
-  if (name.trim() === '') {
-    const msg = $('key-edit-msg')
-    if (msg !== null) { msg.hidden = false; msg.textContent = t('keys.nameRequired') }
-    return
-  }
-  const quotaRaw = Number($('key-quota')?.value ?? '200')
-  const expiresRaw = $('key-expires')?.value ?? ''
-  const response = await apiJson(`/api/keys/${encodeURIComponent(editingKey)}`, {
-    method: 'PATCH',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      name: name.trim(),
-      services: [$('key-services')?.value ?? ''],
-      scopes: checkedScopes('#key-scopes'),
-      quotaRunsDay: quotaRaw <= 0 ? null : quotaRaw,
-      rateLimitRpm: Number($('key-rpm')?.value ?? '60'),
-      maxConcurrency: Number($('key-concurrency')?.value ?? '4'),
-      expiresAt: expiresRaw === '' ? null : new Date(`${expiresRaw}T23:59:59`).getTime(),
-    }),
-  })
-  const msg = $('key-edit-msg')
-  if (!response.ok && msg !== null) {
-    msg.hidden = false
-    msg.textContent = `${t('keys.editFailed')}: ${response.detail ?? response.status}`
-    return
-  }
-  editingKey = null
-  await openKeyDetail(detailKey ?? (response.data?.key?.id ?? ''))
+const setFormMsg = (text) => {
+  const msg = $('kf-msg')
+  if (msg === null) return
+  msg.hidden = text === ''
+  msg.textContent = text
 }
 
-// ---------------------------------------------------------------------------
-// Create drawer
-// ---------------------------------------------------------------------------
+const renderKeyFormInto = (slotId) => {
+  const slot = $(slotId)
+  if (slot === null) return
+  slot.innerHTML = keyFormHtml()
+  const scopes = $('kf-scopes')
+  if (scopes !== null) scopes.innerHTML = scopeChecklist()
+  renderServicesField()
+}
+
 const openCreateDrawer = () => {
+  formMode = 'create'
   issuedToken = null
   hide('key-issued')
-  show('key-create-form')
+  renderKeyFormInto('key-form-slot')
   const editor = $('key-editor')
   if (editor !== null) editor.hidden = false
-
-  const services = pageData?.services ?? []
-  const empty = $('f-key-services-empty')
-  const select = $('f-key-services')
-  const link = $('f-key-services-link')
-  if (empty !== null && select !== null && link !== null) {
-    empty.hidden = services.length > 0
-    select.hidden = services.length === 0
-    link.hidden = services.length === 0
-    if (services.length > 0) {
-      select.innerHTML = serviceOptions(services, searchParams().get('service') ?? '')
-    }
-  }
-  scopeChecklist('f-key-scopes')
-  // Draft from the "create a service" round trip.
+  const title = $('key-editor-title')
+  if (title !== null) title.textContent = t('keys.new')
   const draft = draftStore.load()
-  if (draft !== null) {
-    const name = $('f-key-name'); if (name !== null && typeof draft.name === 'string') name.value = draft.name
-    const quota = $('f-key-quota'); if (quota !== null && typeof draft.quota === 'string') quota.value = draft.quota
-    const rpm = $('f-key-rpm'); if (rpm !== null && typeof draft.rpm === 'string') rpm.value = draft.rpm
-    const concurrency = $('f-key-concurrency'); if (concurrency !== null && typeof draft.concurrency === 'string') concurrency.value = draft.concurrency
-    const expires = $('f-key-expires'); if (expires !== null && typeof draft.expires === 'string') expires.value = draft.expires
-  }
+  if (draft !== null) fillForm(draft)
 }
 
 const closeCreateDrawer = () => {
@@ -370,15 +398,91 @@ const closeCreateDrawer = () => {
   issuedToken = null
 }
 
-const readCreateForm = () => ({
-  name: $('f-key-name')?.value ?? '',
-  service: $('f-key-services')?.value ?? '',
-  quota: $('f-key-quota')?.value ?? '200',
-  rpm: $('f-key-rpm')?.value ?? '60',
-  concurrency: $('f-key-concurrency')?.value ?? '4',
-  expires: $('f-key-expires')?.value ?? '',
-  scopes: checkedScopes('#f-key-scopes'),
-})
+const openKeyEdit = async (id) => {
+  const response = await apiJson(`/api/keys/${encodeURIComponent(id)}`)
+  if (!response.ok) return
+  const key = response.data.key
+  formMode = 'edit'
+  renderKeyFormInto('edit-form-slot')
+  fillForm({
+    name: key.name,
+    quota: key.quotaRunsDay === null ? '0' : String(key.quotaRunsDay),
+    rpm: String(key.rateLimitRpm),
+    concurrency: String(key.maxConcurrency),
+    expires: key.expiresAt === null ? '' : new Date(key.expiresAt).toISOString().slice(0, 10),
+  })
+  const services = $('kf-services')
+  if (services !== null && pageData !== null) {
+    services.innerHTML = serviceOptions(pageData.services, key.scopeServices[0] ?? '')
+  }
+  document.querySelectorAll('#kf-scopes input').forEach((input) => {
+    input.checked = key.scopes.includes(input.value) && !input.disabled
+  })
+  detailKey = id
+  showView('form')
+}
+
+const submitForm = async () => {
+  const form = readForm()
+  if (form.name.trim() === '') {
+    setFormMsg(t('keys.nameRequired'))
+    return
+  }
+  if (form.service === '' && formMode === 'create' && (pageData?.services ?? []).length > 0) {
+    setFormMsg(t('keys.serviceRequired'))
+    return
+  }
+  const quotaRaw = Number(form.quota)
+  const expiresRaw = form.expires
+  const payload = {
+    name: form.name.trim(),
+    services: [form.service],
+    scopes: form.scopes,
+    quotaRunsDay: quotaRaw <= 0 ? null : quotaRaw,
+    rateLimitRpm: Number(form.rpm),
+    maxConcurrency: Number(form.concurrency),
+    expiresAt: expiresRaw === '' ? null : new Date(`${expiresRaw}T23:59:59`).getTime(),
+  }
+
+  if (formMode === 'edit') {
+    if (detailKey === null) return
+    const response = await apiJson(`/api/keys/${encodeURIComponent(detailKey)}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (!response.ok) {
+      setFormMsg(`${t('keys.editFailed')}: ${response.detail ?? response.status}`)
+      return
+    }
+    await openKeyDetail(detailKey)
+    await loadList()
+    return
+  }
+
+  const response = await apiJson('/api/keys', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) {
+    setFormMsg(`${t('keys.createFailed')}: ${response.detail ?? response.status}`)
+    return
+  }
+  const result = response.data ?? {}
+  issuedToken = result.token
+  const slot = $('key-form-slot')
+  if (slot !== null) slot.innerHTML = ''
+  show('key-issued')
+  const value = $('key-token-value')
+  if (value !== null) value.textContent = result.token
+  const handover = $('key-handover')
+  if (handover !== null && pageData !== null) handover.innerHTML = `<pre class="yaml-preview">${esc(handoverText(pageData, result.key ?? {}, result.token))}</pre>`
+  const probeResult = $('key-probe-result')
+  if (probeResult !== null) probeResult.innerHTML = ''
+  draftStore.clear()
+  await loadList()
+}
 
 const handoverText = (page, key, token) => {
   const exampleService = key.scopeServices[0] !== '*' ? key.scopeServices[0] ?? '' : (page.services[0]?.id ?? '')
@@ -392,55 +496,6 @@ const handoverText = (page, key, token) => {
     '',
     `${t('keys.handoverQuota')}: ${t('keys.accessQuota', { tz: page.access.quotaTimeZone })}`,
   ].join('\n')
-}
-
-const setCreateMsg = (text) => {
-  const msg = $('key-create-msg')
-  if (msg === null) return
-  msg.hidden = text === ''
-  msg.textContent = text
-}
-
-const createKey = async () => {
-  const form = readCreateForm()
-  if (form.name.trim() === '') {
-    setCreateMsg(t('keys.nameRequired'))
-    return
-  }
-  if (form.service === '' && (pageData?.services ?? []).length > 0) {
-    setCreateMsg(t('keys.serviceRequired'))
-    return
-  }
-  const quotaRaw = Number(form.quota)
-  const expiresRaw = form.expires
-  const response = await apiJson('/api/keys', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      name: form.name.trim(),
-      services: [form.service],
-      scopes: form.scopes,
-      quotaRunsDay: quotaRaw <= 0 ? null : quotaRaw,
-      rateLimitRpm: Number(form.rpm),
-      maxConcurrency: Number(form.concurrency),
-      expiresAt: expiresRaw === '' ? null : new Date(`${expiresRaw}T23:59:59`).getTime(),
-    }),
-  })
-  if (!response.ok) {
-    setCreateMsg(`${t('keys.createFailed')}: ${response.detail ?? response.status}`)
-    return
-  }
-  const payload = response.data ?? {}
-  issuedToken = payload.token
-  hide('key-create-form')
-  show('key-issued')
-  const value = $('key-token-value')
-  if (value !== null) value.textContent = payload.token
-  const handover = $('key-handover')
-  if (handover !== null && pageData !== null) handover.innerHTML = `<pre class="yaml-preview">${esc(handoverText(pageData, payload.key ?? {}, payload.token))}</pre>`
-  const probeResult = $('key-probe-result')
-  if (probeResult !== null) probeResult.innerHTML = ''
-  draftStore.clear()
 }
 
 const renderProbe = (result, target) => {
@@ -496,7 +551,6 @@ const loadList = async () => {
 
 const load = async () => {
   await loadList()
-  // Deep link: ?key=<id> opens the detail view.
   if (searchParams().get('key') !== null) {
     const id = searchParams().get('key')
     if (id !== null && id !== '' && detailKey !== id) await openKeyDetail(id)
@@ -505,27 +559,23 @@ const load = async () => {
 }
 
 document.addEventListener('click', (event) => {
+  // An SVG inside a button (the icon) is an Element, not an HTMLElement: guarding on HTMLElement
+  // made every click on the icon a no-op -- the "menu does not react" bug.
   const target = event.target
-  if (!(target instanceof HTMLElement)) return
+  if (!(target instanceof Element)) return
 
-  // Drawer close (backdrop + × + cancel).
   if (target.dataset.close !== undefined) {
     closeCreateDrawer()
     return
   }
 
-  // Three-dot menu: open/close per row.
   const trigger = target.closest('.menu-trigger')
   if (trigger !== null) {
     const rowId = trigger.id.replace('key-more-', '')
     const key = (pageData?.keys ?? []).find((k) => k.id === rowId)
-    if (key !== undefined) {
-      if (openMenuKey === key.id) closeMenu()
-      else openMenu(key, trigger)
-    }
+    if (key !== undefined) openMenu(key, trigger)
     return
   }
-  // A click inside a menu panel keeps it open; any other click closes it.
   if (!target.closest('.menu-panel')) closeMenu()
 
   if (target.dataset.keyDetail !== undefined) { closeMenu(); void openKeyDetail(target.dataset.keyDetail); return }
@@ -534,6 +584,7 @@ document.addEventListener('click', (event) => {
   if (target.dataset.keyRevoke !== undefined) { closeMenu(); void revokeKey(target.dataset.keyRevoke, target.dataset.keyRevokeName ?? target.dataset.keyRevoke); return }
   if (target.dataset.filter !== undefined) {
     activeFilter = target.dataset.filter === '' ? null : target.dataset.filter
+    lastRenderedList = ''
     void loadList()
     return
   }
@@ -546,7 +597,11 @@ document.addEventListener('click', (event) => {
     void revokeKey(detailKey, key?.name ?? detailKey)
     return
   }
-  if (target.id === 'key-edit-cancel') { showView('detail'); return }
+  if (target.id === 'kf-cancel') {
+    if (formMode === 'edit') showView('detail')
+    else closeCreateDrawer()
+    return
+  }
   if (target.id === 'key-token-copy') {
     void copyText($('key-token-value')?.textContent ?? '').then((ok) => {
       const msg = $('key-handover-msg')
@@ -563,39 +618,22 @@ document.addEventListener('click', (event) => {
     return
   }
   if (target.id === 'key-done') { closeCreateDrawer(); void loadList(); return }
-
-  // Row click -> detail (the trigger and menus are excluded above).
-  const row = target.closest('[data-key-row]')
-  if (row !== null) {
-    const id = row.dataset.keyRow ?? ''
-    void openKeyDetail(id)
-    return
-  }
-  const serviceLink = target.closest('[data-service-row]')
-  if (serviceLink !== null) {
-    window.location.href = `/services?service=${encodeURIComponent(serviceLink.dataset.serviceRow ?? '')}`
-  }
 })
 
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') closeMenu()
 })
 
-$('key-create-form')?.addEventListener('submit', (event) => {
-  event.preventDefault()
-  void createKey()
-})
-$('key-edit-form')?.addEventListener('submit', (event) => {
-  event.preventDefault()
-  void saveKeyEdit()
+document.addEventListener('submit', (event) => {
+  if (event.target instanceof Element && event.target.id === 'key-form') {
+    event.preventDefault()
+    void submitForm()
+  }
 })
 
 document.addEventListener('input', () => {
-  if ($('key-editor')?.hidden === false) draftStore.save(readCreateForm())
+  if ($('key-editor')?.hidden === false && formMode === 'create') draftStore.save(readForm())
 })
-
-// The checklist on the edit form is static too (the drawer's lives in #f-key-scopes).
-scopeChecklist('key-scopes')
 
 await load()
 poll(loadList, 15_000)
@@ -609,8 +647,7 @@ if (globalThis.__DAC_TEST__ === true) {
     openKeyEdit,
     openCreateDrawer,
     closeCreateDrawer,
-    createKey,
-    saveKeyEdit,
+    submitForm,
     revokeKey,
     setFilter: (id) => { activeFilter = id },
     pageData: () => pageData,

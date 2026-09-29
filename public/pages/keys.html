@@ -26,11 +26,11 @@
   <!-- ── Detail view (full width) ──────────────────────────────────────────── -->
   <section id="view-detail" hidden>
     <div class="page-head">
-      <button id="back-list" class="btn-quiet btn-sm" type="button">← {{t:keys.all}}</button>
       <h1 id="key-detail-title" class="grow"></h1>
       <button id="key-detail-edit" class="btn-quiet btn-sm" type="button">{{t:keys.edit}}</button>
       <button id="key-detail-revoke" class="btn-quiet btn-sm" type="button">{{t:keys.revoke}}</button>
     </div>
+    <button id="back-list" class="btn-quiet btn-sm back-link" type="button">← {{t:keys.all}}</button>
     <div id="key-detail-body"></div>
     <section id="key-activity" class="section" hidden>
       <div class="section-head"><h2>{{t:keys.activity}}</h2></div>
@@ -41,53 +41,10 @@
   <!-- ── Edit view (full width) ────────────────────────────────────────────── -->
   <section id="view-form" hidden>
     <div class="page-head">
-      <button id="back-detail" class="btn-quiet btn-sm" type="button">← {{t:keys.edit}}</button>
       <h1 class="grow">{{t:keys.editTitle}}</h1>
     </div>
-    <form id="key-edit-form" class="card narrow">
-      <p id="key-edit-msg" class="muted" hidden></p>
-
-      <label for="key-name">{{t:keys.name}}</label>
-      <input id="key-name" type="text" maxlength="80" placeholder="{{t:keys.nameHint}}" />
-
-      <label for="key-services">{{t:keys.services}}</label>
-      <select id="key-services"></select>
-
-      <div class="form-row">
-        <div>
-          <label for="key-quota">{{t:keys.runsPerDay}}</label>
-          <input id="key-quota" type="number" min="0" value="200" />
-        </div>
-        <p class="muted small align-end">{{t:keys.runsUnlimited}}</p>
-      </div>
-
-      <details id="key-advanced">
-        <summary>{{t:keys.moreSettings}}</summary>
-        <div class="advanced-body">
-          <label>{{t:keys.scopes}}</label>
-          <div id="key-scopes" class="checks"></div>
-
-          <div class="form-row">
-            <div>
-              <label for="key-rpm">{{t:keys.rpm}}</label>
-              <input id="key-rpm" type="number" min="1" max="6000" value="60" />
-            </div>
-            <div>
-              <label for="key-concurrency">{{t:keys.concurrency}}</label>
-              <input id="key-concurrency" type="number" min="1" max="64" value="4" />
-            </div>
-          </div>
-
-          <label for="key-expires">{{t:keys.expires}}</label>
-          <input id="key-expires" type="date" />
-        </div>
-      </details>
-
-      <div class="form-actions">
-        <button type="button" id="key-edit-cancel" class="btn-quiet btn-sm">{{t:common.cancel}}</button>
-        <button type="submit" id="key-edit-save" class="btn btn-sm">{{t:common.save}}</button>
-      </div>
-    </form>
+    <button id="back-detail" class="btn-quiet btn-sm back-link" type="button">← {{t:keys.edit}}</button>
+    <div id="edit-form-slot"></div>
   </section>
 </div>
 
@@ -102,58 +59,7 @@
       </button>
     </header>
     <div class="panel-content">
-      <form id="key-create-form" novalidate>
-        <p id="key-create-msg" class="muted" hidden></p>
-
-        <label for="f-key-name">{{t:keys.name}}</label>
-        <input id="f-key-name" class="text-input" maxlength="80" placeholder="{{t:keys.nameHint}}" />
-
-        <label for="f-key-services">{{t:keys.services}}</label>
-        <select id="f-key-services" class="text-input pill-select"></select>
-        <div id="f-key-services-empty" hidden>
-          <a class="btn" href="/services?create=1&return=keys">{{t:keys.createService}}</a>
-        </div>
-        <a id="f-key-services-link" class="muted small" href="/services?create=1&return=keys">{{t:keys.newServiceLink}}</a>
-
-        <div class="field-row">
-          <label class="field">
-            <span class="field-label">{{t:keys.runsPerDay}}</span>
-            <input id="f-key-quota" class="text-input" type="number" min="0" value="200" />
-            <span class="field-hint muted small">{{t:keys.runsUnlimited}}</span>
-          </label>
-        </div>
-
-        <details class="node-advanced">
-          <summary>{{t:keys.moreSettings}}</summary>
-          <div class="node-advanced-body">
-            <label class="field">
-              <span class="field-label">{{t:keys.scopes}}</span>
-              <span id="f-key-scopes" class="checks"></span>
-            </label>
-            <div class="field-row">
-              <label class="field">
-                <span class="field-label">{{t:keys.rpm}}</span>
-                <input id="f-key-rpm" class="text-input" type="number" min="1" max="6000" value="60" />
-              </label>
-              <label class="field">
-                <span class="field-label">{{t:keys.concurrency}}</span>
-                <input id="f-key-concurrency" class="text-input" type="number" min="1" max="64" value="4" />
-              </label>
-            </div>
-            <label class="field">
-              <span class="field-label">{{t:keys.expires}}</span>
-              <input id="f-key-expires" class="text-input" type="date" />
-            </label>
-          </div>
-        </details>
-
-        <div id="f-key-warn"></div>
-        <div class="form-actions">
-          <span class="muted small">{{t:keys.tokenOnceNoteShort}}</span>
-          <button type="button" id="f-key-cancel" class="btn-quiet btn-sm" data-close="1">{{t:common.cancel}}</button>
-          <button type="submit" id="f-key-save" class="btn btn-sm">{{t:common.create}}</button>
-        </div>
-      </form>
+      <div id="key-form-slot"></div>
 
       <!-- Result step inside the drawer: the secret exists once, here. -->
       <div id="key-issued" hidden>

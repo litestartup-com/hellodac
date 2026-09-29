@@ -394,7 +394,7 @@
   "keys.handoverToken": "钥匙（密钥）",
   "keys.handoverExample": "示例——发第一句话",
   "keys.handoverQuota": "配额",
-  "keys.serving": "可进入的服务",
+  "keys.serving": "服务",
   "keys.today": "今天",
   "keys.revokeConfirm": "确定收回「{name}」的权限？立即生效、不可恢复；它的历史和账目会保留。",
   "keys.moreSettings": "更多设置",
@@ -622,7 +622,6 @@
   "keys.surface.tasks": "任务",
   "keys.surface.conversations": "会话",
   "keys.newServiceLink": "新建一个服务",
-  "keys.tokenOnceNoteShort": "只显示一次",
   "keys.done": "完成",
   "audit.kind.api_key_edited": "编辑对外钥匙",
   "audit.kind.service_deleted": "删除服务声明",
@@ -635,5 +634,6 @@
   "services.sessionsShort": "会话",
   "services.overview": "概览",
   "services.idleShort": "空闲回收",
-  "services.agents": "Agent"
+  "services.agents": "Agent",
+  "services.form.previewFull": "查看完整文件"
 }

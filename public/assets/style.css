@@ -3310,3 +3310,14 @@ details > summary {
   height: 100%;
   background: var(--accent);
 }
+
+/* back link below the page title (v2 detail/edit views) */
+.back-link {
+  display: inline-block;
+  margin: 2px 0 18px;
+  text-decoration: none;
+}
+
+details.yaml-collapse summary {
+  margin-top: 8px;
+}
