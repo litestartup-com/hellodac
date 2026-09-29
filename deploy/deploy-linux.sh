@@ -9,6 +9,7 @@
 #   ./deploy/deploy-linux.sh --backup            # snapshot the DB volume before redeploying
 #   ./deploy/deploy-linux.sh --skip-push         # local-only build + redeploy (no Docker Hub)
 #   ./deploy/deploy-linux.sh --rollback          # redeploy the previous SHA image (last resort)
+#   ./deploy/deploy-linux.sh --deep-clean        # also drop all unused images + stopped containers
 #
 # Immutable tags: images are tagged ${VERSION}-${GIT_SHA}. The same tag is never
 # overwritten, so a rollback is just "point the compose env at the previous SHA".
@@ -26,7 +27,7 @@ SHA="$(git rev-parse --short HEAD)"
 PREV_SHA="${PREV_SHA:-}"
 
 # --- flags ---------------------------------------------------------------
-WITH_NODES=0; BACKUP=0; SKIP_PUSH=0; ROLLBACK=0; TEST_FIRST=0
+WITH_NODES=0; BACKUP=0; SKIP_PUSH=0; ROLLBACK=0; TEST_FIRST=0; DEEP_CLEAN=0
 for arg in "$@"; do
   case "$arg" in
     --with-nodes) WITH_NODES=1 ;;
@@ -34,9 +35,31 @@ for arg in "$@"; do
     --skip-push)  SKIP_PUSH=1 ;;
     --rollback)   ROLLBACK=1 ;;
     --test)       TEST_FIRST=1 ;;
+    --deep-clean) DEEP_CLEAN=1 ;;
     *) echo "unknown flag: $arg" >&2; exit 1 ;;
   esac
 done
+
+# --- 0. free docker disk space before every run ----------------------------
+# Only what is regenerable or already disposable is removed:
+#   - the build cache (the biggest growth on a build box; rebuilding just costs time)
+#   - dangling/untagged images
+# Deliberately NOT removed by default: tagged images (the previous SHA image is the
+# rollback path) and volumes (data). --deep-clean additionally drops every image no
+# container uses (rollback then re-pulls from the Hub) and stopped containers.
+# Volumes are never touched in either mode.
+echo "deploy: docker disk usage before cleanup:"
+docker system df
+if [ "$DEEP_CLEAN" -eq 1 ]; then
+  docker builder prune -a -f
+  docker image prune -a -f
+  docker container prune -f
+else
+  docker builder prune -f
+  docker image prune -f
+fi
+echo "deploy: docker disk usage after cleanup:"
+docker system df
 
 # --- 1. pull the pinned branch, refuse a dirty tree -----------------------
 if [ "$ROLLBACK" -eq 0 ]; then
