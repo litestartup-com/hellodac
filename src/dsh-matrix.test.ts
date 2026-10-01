@@ -6,11 +6,11 @@ import {
   _setMatrixForTest, _resetMatrixForTest,
 } from './dsh-matrix.js'
 
-test('Debt P3 regression: the default version is the matrix first row; 0.2.0-rc.2 leads as the corridor default and the 0.1.x rows stay verified', () => {
+test('Debt P3 regression: the default version is the matrix first row; 0.2.0-rc.2 leads as the verified corridor default', () => {
   assert.equal(COMPAT_DSH_VERSION, '0.2.0-rc.2')
   assert.equal(defaultDshVersion(), '0.2.0-rc.2')
   assert.deepEqual(SUPPORTED_DSH.map((p) => p.dsh), ['0.2.0-rc.2', '0.1.5-rc.2', '0.1.2-rc.1'])
-  assert.equal(SUPPORTED_DSH[0]?.status, 'pending', 'promoted to verified once the container path passes CI compose-e2e (the bare-metal chain is green)')
+  assert.equal(SUPPORTED_DSH[0]?.status, 'verified', 'promoted 2026-10-01: bare-metal full chain (smoke --model / cards / manager E2E) + CI compose-e2e on the 0.2.0 image')
   assert.equal(SUPPORTED_DSH[1]?.status, 'verified', 'promoted once the full P3 smoke chain passed')
   assert.equal(SUPPORTED_DSH[2]?.status, 'verified')
   assert.equal(SUPPORTED_DSH[0]?.needsLegacyPeerDeps, true, 'npm strict prerelease peer resolution rejects the 0.2.0 line (the gateway README pairs it with 0.1.5; dsh-facts §18.9)')
@@ -20,7 +20,7 @@ test('Debt P3 regression: the default version is the matrix first row; 0.2.0-rc.
 
 test('Debt P3 regression: resolvePair / pairStatus -- a known pairing returns its matrix row, an unknown one returns null', () => {
   assert.deepEqual(resolvePair('0.1.2-rc.1'), { dsh: '0.1.2-rc.1', gateway: GATEWAY_REF_LEGACY, status: 'verified' })
-  assert.deepEqual(resolvePair('0.2.0-rc.2'), { dsh: '0.2.0-rc.2', gateway: GATEWAY_REF, status: 'pending', needsLegacyPeerDeps: true })
+  assert.deepEqual(resolvePair('0.2.0-rc.2'), { dsh: '0.2.0-rc.2', gateway: GATEWAY_REF, status: 'verified', needsLegacyPeerDeps: true })
   assert.equal(pairStatus('0.1.5-rc.2'), 'verified')
   assert.equal(pairStatus('0.1.1-rc.2'), null)
   assert.equal(resolvePair('0.9.9'), null)

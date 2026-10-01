@@ -47,13 +47,17 @@ export const GATEWAY_REF_LEGACY = 'github:litestartup-com/dsh-api-gateway#b592b4
 
 export const SUPPORTED_DSH: DshPair[] = [
   // 0.2.0 corridor (2026-09-30/10-01, fact card dsh-facts §18): the default line (npm latest).
-  // Manager-side full-chain smoke on a real bare-metal 0.2.0-rc.2 node passed (real model turn,
-  // question/approval card chains, the typewriter chunk frames, the manager relay/usage ledger
-  // E2E); the container path rides the CI compose-e2e gate before this row promotes to verified.
+  // Manager-side promotion evidence (2026-10-01, Windows bare-metal + GitHub CI):
+  // - full-chain smoke on a real 0.2.0-rc.2 node: gateway smoke --model 7/7 (real turn),
+  //   smoke-proxy-b all steps (manager client, chunk frames through the mux), question +
+  //   approval card chains end to end (probe-cards, file landed on disk), GUI token line
+  //   byte-identical, manager E2E (smoke.mjs: relay turn_done + usage ledger + git audit);
+  // - container path: CI compose-e2e green on the 0.2.0 image (build + boot + claim +
+  //   dynamic provisioning + backup/restore protection), run #78.
   // Install needs --legacy-peer-deps plus the full peer-closure pin table (profile.ts
   // LEGACY_PEER_PINS); running needs node ≥22.19 (registry engines); the session log migrates
   // V3→V4 ONE-WAY (§18.7 -- back the volume up before switching an existing node).
-  { dsh: '0.2.0-rc.2', gateway: GATEWAY_REF, status: 'pending', needsLegacyPeerDeps: true },
+  { dsh: '0.2.0-rc.2', gateway: GATEWAY_REF, status: 'verified', needsLegacyPeerDeps: true },
   // P3 smoke (2026-09-20, the smoke15 node on the intranet pilot server): a 0.1.5-rc.2 host plus
   // facade b592b4f passed the full chain -- host.describe synthesised version / session.create /
   // a real session.prompt turn / the mux frame stream (user -> assistant -> turn/end). Fact card
