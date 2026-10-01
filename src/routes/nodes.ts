@@ -468,6 +468,19 @@ export const registerNodesRoutes = (
         return reply.code(202).send({ ok: true, switching: true, version: target, image })
       }
 
+      if (spawn.runner === 'agent') {
+        // 0.2.0 corridor: an agent node has no local profile directory to reseed -- the agent
+        // re-materializes the profile from the spawn payload (files + dshVersion/gatewayRef +
+        // install), so the paired pin plus one restart is the whole switch. The align chain
+        // (reseed -> reinstall -> restart) stays process-only; sending an agent node down that
+        // path used to dead-end in a 400 no_dsh_home after the pin was already written.
+        const next = { ...spawn, dshVersion: target, gatewayRef: pair.gateway }
+        ep.spawn = next
+        audit?.(actor, 'node_version_change', `node ${id} switched DSH → ${target} (agent payload, facade ${pair.gateway})`)
+        supervisor.restart(next)
+        return reply.code(202).send({ ok: true, switching: true, version: target })
+      }
+
       ep.spawn = { ...spawn, dshVersion: target, gatewayRef: pair.gateway }
       return alignProcessNode(id, actor, reply, ep, supervisor, {
         version: target,

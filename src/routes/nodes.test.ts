@@ -343,6 +343,39 @@ test('0.2.0 corridor: switching a process node to 0.2.0-rc.2 writes the PAIRED f
   assert.equal(calls.restart, 1, 'restart once alignment finishes')
 })
 
+test('0.2.0 corridor: POST /api/nodes/:id/version on the AGENT branch -- paired pins written, supervisor restarted (the align chain is process-only; an agent re-materializes its profile from the payload)', async () => {
+  const gw = await startFakeGateway({ frames: [] }, API_KEY)
+  gateways.push(gw)
+  const config = configFor(gw)
+  const dir = mkdtempSync(join(tmpdir(), 'nodes-vagent-'))
+  const configPath = join(dir, 'manager.config.yaml')
+  writeFileSync(configPath, 'endpoints:\n  A:\n    url: http://x\n', 'utf8')
+  config.configPath = configPath
+  const spawn = {
+    ...managedSpawn,
+    runner: 'agent' as const,
+    host: 'agent-1',
+    args: ['--profile', 'A', '--port', '3201'],
+    docker: null,
+    dshVersion: '0.1.5-rc.2',
+    gatewayRef: 'github:litestartup-com/dsh-api-gateway#b592b4f',
+  }
+  config.endpoints['A']!.spawn = spawn as never
+  const calls = { start: 0, stop: 0, restart: 0 }
+  const app = Fastify()
+  registerNodesRoutes(app, config, new Map([['A', stubSupervisor(calls)]]), new Map(), new Map(), async () => {})
+
+  const res = await app.inject({ method: 'POST', url: '/api/nodes/A/version', payload: { dsh_version: '0.2.0-rc.2' } })
+  assert.equal(res.statusCode, 202, JSON.stringify(res.body))
+  const body = res.json() as { switching: boolean; version: string }
+  assert.equal(body.switching, true)
+  assert.equal(body.version, '0.2.0-rc.2')
+  const yaml = readFileSync(configPath, 'utf8')
+  assert.match(yaml, /dsh_version: 0\.2\.0-rc\.2/, 'the pin lands in the truth source')
+  assert.match(yaml, /gateway_ref: github:litestartup-com\/dsh-api-gateway#398ea94/, 'paired with the matrix row facade ref')
+  assert.equal(calls.restart, 1, 'the restart rebuilds the spawn payload at the new pin -- the agent reinstalls the profile from it')
+})
+
 test('P1 regression: the profile directory resolves from --profile in spawn.args (the endpoint id is not the profile name, hit for real in production)', async () => {
   const gw = await startFakeGateway({ frames: [] }, API_KEY)
   gateways.push(gw)
