@@ -19,12 +19,17 @@
 set -euo pipefail
 
 ORG="${DOCKER_ORG:-hellodac}"
-VERSION="${DAC_VERSION:-1.0.0}"                    # single-version source of truth (release gate)
-DSH_VERSION="${DSH_VERSION:-0.2.0-rc.2}"           # node image DSH version to build with --with-nodes
+# Identity is derived AFTER the git pull below -- a stale checkout must never tag the fresh build.
+# Measured in production (2026-10-01): a deploy from a stale checkout captured SHA/defaults at the
+# top, pulled mid-script, then tagged the manager 1.0.0-<stale sha> while it actually contained the
+# post-pull v1.1.0 code, and the node line defaulted from the PRE-pull script text. Explicit env
+# always wins: DAC_VERSION / DSH_VERSION.
+VERSION="${DAC_VERSION:-}"
+DSH_VERSION="${DSH_VERSION:-}"
 BRANCH="${BRANCH:-main}"
 COMPOSE_DIR="${COMPOSE_DIR:-.}"
 
-SHA="$(git rev-parse --short HEAD)"
+SHA=""
 PREV_SHA="${PREV_SHA:-}"
 
 # --- help -------------------------------------------------------------------
@@ -60,9 +65,11 @@ Flags:
   -h, --help       print this text
 
 Environment overrides:
-  DOCKER_ORG=hellodac   DAC_VERSION=1.0.0   DSH_VERSION=0.2.0-rc.2
+  DOCKER_ORG=hellodac   DAC_VERSION=<default: package.json version>
+  DSH_VERSION=<default: the ARG in images/node/Dockerfile, matrix-guarded>
   BRANCH=main           COMPOSE_DIR=.       PREV_SHA=<git sha>
   HEALTH_URL=http://127.0.0.1:8081/v1/health   (probed inside the manager container)
+  (identity is derived AFTER the git pull, so a stale checkout can never tag the fresh build)
 
 Examples:
   ./deploy/deploy-linux.sh --test --with-nodes     # full release
@@ -134,7 +141,24 @@ if [ "$ROLLBACK" -eq 1 ]; then
   fi
   SHA="$PREV_SHA"
   SKIP_PUSH=1
+else
+  SHA="$(git rev-parse --short HEAD)"
 fi
+
+# --- 1b. derive the release identity from the REFRESHED tree ----------------
+# (rollback note: VERSION comes from the current checkout -- when rolling back
+# across a version boundary, pass the target build's DAC_VERSION explicitly.)
+VERSION="${VERSION:-$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' package.json | head -1)}"
+if [ -z "$VERSION" ]; then
+  echo "deploy: cannot derive VERSION from package.json -- set DAC_VERSION explicitly." >&2
+  exit 1
+fi
+DSH_VERSION="${DSH_VERSION:-$(sed -n 's/^ARG DSH_VERSION=\([^[:space:]]*\).*/\1/p' images/node/Dockerfile | head -1)}"
+if [ -z "$DSH_VERSION" ]; then
+  echo "deploy: cannot derive DSH_VERSION from images/node/Dockerfile -- set DSH_VERSION explicitly." >&2
+  exit 1
+fi
+echo "deploy: identity -- manager ${ORG}/dac-manager:${VERSION}-${SHA}, node line ${DSH_VERSION}"
 
 # --- 2. credentials -------------------------------------------------------
 if [ "$SKIP_PUSH" -eq 0 ]; then
