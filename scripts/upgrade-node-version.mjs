@@ -26,7 +26,7 @@
  */
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -203,6 +203,13 @@ for (const [id, ep] of Object.entries(cfg.endpoints ?? {})) {
     npm(profileDir, [], { legacy: pair.legacyPeerDeps })
   } else {
     log(`node ${id}: the profile is already ${TARGET}, skipping`)
+  }
+  // .seed-version marker (the same sha1(version|gatewayRef) algorithm as profileSeed in
+  // src/host-node/profile.ts): without it the nodes page reports drift after this script runs,
+  // and one click of "Align version" would reseed+reinstall -- harmless but noisy. Stamping it
+  // keeps the derived side consistent with the pin (hit during the 0.2.0 production migration).
+  if (!dryRun) {
+    writeFileSync(join(profileDir, '.seedversion'), createHash('sha1').update(`${TARGET}|${gatewayRef}`).digest('hex') + '\n', 'utf8')
   }
 
   // 2) the facade key -- the placement is VERSION-GATED (0.2.0 corridor, dsh-facts §18.5 / J1-04)
