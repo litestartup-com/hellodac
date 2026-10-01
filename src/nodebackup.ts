@@ -142,7 +142,10 @@ export const packNodeHome = async (
   try {
     if (entry.kind === 'dir') {
       if (!existsSync(entry.home)) throw new Error(`node home directory does not exist: ${entry.home}`)
-      execFileSync('tar', ['-czf', tarball, '--exclude=profiles/*/node_modules', '--exclude=*.pid', '-C', entry.home, '.'], { stdio: ['ignore', 'ignore', 'pipe'] })
+      // profiles/node_modules (the sibling-level npm-hoist leftover, hit in production with broken
+      // links inside) must be excluded too: tar stats it, dies on the broken entries, and the whole
+      // backup run fails -- reinstallable dependency trees have no business in the archive anyway.
+      execFileSync('tar', ['-czf', tarball, '--exclude=profiles/*/node_modules', '--exclude=profiles/node_modules', '--exclude=*.pid', '-C', entry.home, '.'], { stdio: ['ignore', 'ignore', 'pipe'] })
     } else {
       if (dockerRunner === undefined) throw new Error('backing up a docker volume needs docker.sock (is it mounted into the manager?)')
       // Debt R10: tar writes to stdout (-) and the manager receives it over the attach stream to write the tarball --

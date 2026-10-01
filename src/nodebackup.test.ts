@@ -36,6 +36,11 @@ test('Hive plan 2 P4: the full round trip for a node home -- pack -> disaster ->
     mkdirSync(join(home, 'profiles', 'web', 'node_modules'), { recursive: true })
     writeFileSync(join(home, 'sessions', 't.json'), '{"ok":1}', 'utf8')
     writeFileSync(join(home, 'profiles', 'web', 'node_modules', 'junk.js'), 'junk', 'utf8')
+    // The stray npm-hoist leftover at the profiles SIBLING level (hit in production: an old
+    // install left profiles/node_modules with broken links -- tar died on it and the whole
+    // backup run failed, so the exclusion must cover this level too, not just profiles/*/node_modules)
+    mkdirSync(join(home, 'profiles', 'node_modules', 'immer'), { recursive: true })
+    writeFileSync(join(home, 'profiles', 'node_modules', 'stray.js'), 'junk', 'utf8')
     writeFileSync(join(home, 'x.pid'), '1', 'utf8')
 
     const entry: NodeHomeEntry = { nodeId: 'personal', kind: 'dir', home }
@@ -48,6 +53,7 @@ test('Hive plan 2 P4: the full round trip for a node home -- pack -> disaster ->
 
     assert.equal(readFileSync(join(home, 'sessions', 't.json'), 'utf8'), '{"ok":1}')
     assert.equal(existsSync(join(home, 'profiles', 'web', 'node_modules', 'junk.js')), false, 'node_modules is excluded')
+    assert.equal(existsSync(join(home, 'profiles', 'node_modules', 'stray.js')), false, 'the stray profiles-level node_modules is excluded too')
     assert.equal(existsSync(join(home, 'x.pid')), false, 'the pidfile is excluded')
   } finally {
     rmSync(root, { recursive: true, force: true })
