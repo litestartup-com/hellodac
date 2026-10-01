@@ -466,8 +466,8 @@ test('Debt P1 regression: GET /api/nodes carries access + guiUrl (the token is c
   const node = payload.nodes[0]
   assert.deepEqual(node?.access, { sshUser: 'ubuntu', sshHost: '10.0.0.5', sshPort: 22, guiPort: 3080, localPort: 3088, sshKey: null })
   assert.equal(node?.guiUrl, 'http://127.0.0.1:3088/?token=tok-abc')
-  assert.deepEqual(payload.supportedDsh.map((p) => p.dsh), ['0.1.2-rc.1', '0.1.5-rc.2', '0.2.0-rc.2'], 'the wizard version dropdown reads the matrix')
-  assert.deepEqual(payload.supportedDsh.map((p) => p.status), ['verified', 'verified', 'pending'], 'the dropdown carries the row status (a pending row warns in yellow text at provision)')
+  assert.deepEqual(payload.supportedDsh.map((p) => p.dsh), ['0.2.0-rc.2', '0.1.5-rc.2', '0.1.2-rc.1'], 'the wizard version dropdown reads the matrix (the default line leads)')
+  assert.deepEqual(payload.supportedDsh.map((p) => p.status), ['pending', 'verified', 'verified'], 'the dropdown carries the row status (a pending row warns in yellow text at provision)')
 
   // Restart rotation: a new token line shows up in the log -> guiUrl follows automatically
   supervisor.logs = () => 'dsh web: http://127.0.0.1:3080/?token=tok-old\nrestarted\ndsh web: http://127.0.0.1:3080/?token=tok-new\n'

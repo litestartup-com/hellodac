@@ -1,6 +1,6 @@
 {
   "name": "dac",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "DAC (hellodac.com) -- dsh agents manager: personal / small-team AI middle platform on top of DeepSeek Harness and dsh-api-gateway",

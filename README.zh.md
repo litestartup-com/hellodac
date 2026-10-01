@@ -13,15 +13,15 @@ DAC 是 MIT 开源的多机 agent 控制面：跨服务器管理并暴露容器�
 **Linux 服务器（容器，推荐）：**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.0.0/install.sh -o install.sh && bash install.sh
-# 熟手一行：curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.0.0/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.1.0/install.sh -o install.sh && bash install.sh
+# 熟手一行：curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.1.0/install.sh | bash
 ```
 
 **Windows（本机直跑）：**
 
 ```powershell
-irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.0.0/install.ps1 -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File .\install.ps1
-# 熟手一行：irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.0.0/install.ps1 | iex
+irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.1.0/install.ps1 -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File .\install.ps1
+# 熟手一行：irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.1.0/install.ps1 | iex
 ```
 
 脚本幂等：已装组件自动跳过，重跑不覆盖配置与数据；唯一需要输入的是 DeepSeek API key
@@ -60,9 +60,11 @@ DeepSeek Harness 提供 agent 运行时（会话 / 工具 / 沙箱 / 文件系�
 - **服务化**：开机自启（Windows 任务计划 / Linux systemd）
 - **自更新**：备份 → 拉新 → 构建 → 探活，失败自动回滚
 - **原生 GUI 一键直开**：节点页「原生 GUI」卡——一条 SSH 隧道命令（密钥只在你本机）+
-  一键打开节点原生界面，0.1.5 的 token 由 manager 自动捕获拼接、重启轮换自动跟随
+  一键打开节点原生界面，节点 GUI token（0.1.5 起，含 0.2.x 线）由 manager 自动捕获
+  拼接、重启轮换自动跟随
   （DSH 原生 UI 只绑 loopback，反代不可行——见设计库事实卡 dsh-facts §11）
-- **节点级 DSH 版本**：(dsh ↔ facade) 版本矩阵为唯一真相源；建节点可钉版本，
+- **节点级 DSH 版本**：(dsh ↔ facade) 版本矩阵为唯一真相源（当前行：`0.2.0-rc.2`
+  ——默认线——以及 `0.1.5-rc.2`、`0.1.2-rc.1`）；建节点可钉版本，
   节点页显示配置版本 + 漂移状态，一键对齐（重建 profile → 重装依赖 → 重启）
 - **舰队（多服务器）**：机器目录 + 一条 join 命令把新服务器接入（node-agent
   常驻服务、出站拨号、零入站端口）；向导选「主机」即可把节点建到远端宿主机
@@ -87,10 +89,15 @@ manager 只生成「怎么连」的命令，**SSH 私钥永不进入 manager**�
 
 节点向导可填 `dsh_version`，按版本矩阵 `SUPPORTED_DSH`（`src/dsh-matrix.ts`——
 每行 = DSH 版本 ↔ facade ref 配对）校验：未知版本直接拒绝，未验证配对安装带
-黄字警告。每个节点的 profile 钉自己的版本；节点页显示配置版本 + 漂移状态，
-「对齐版本」= 重建 profile → 重装依赖 → 按钉版重启。容器节点用镜像
-`hellodac/dac-node:<version>`。节点行另有版本下拉——切版本是页面操作（容器 =
-换镜像重建；进程 = 重播种 + 重装 + 重启），不需要改配置文件。
+黄字警告。当前矩阵行：`0.2.0-rc.2`（默认线；节点宿主需 Node ≥ 22.19）+
+已验证的 `0.1.5-rc.2`、`0.1.2-rc.1`。每个节点的 profile 钉自己的版本；节点页
+显示配置版本 + 漂移状态，「对齐版本」= 重建 profile → 重装依赖 → 按钉版重启。
+容器节点用镜像 `hellodac/dac-node:<version>`。节点行另有版本下拉——切版本是
+页面操作（容器 = 换镜像重建；进程 = 重播种 + 重装 + 重启），不需要改配置文件。
+
+> **存量节点升 0.2.0**：DSH 会话日志格式在首启时 V3→V4 **单向迁移**——先备份
+> （`npm run backup` 管 manager 库；容器节点还要备 `/data` 卷）。升级本身走版本
+> 下拉（整机可用 `scripts/upgrade-node-version.mjs`）；节点网关密钥会自动 carry-over。
 
 ## 机器与舰队（多服务器）
 

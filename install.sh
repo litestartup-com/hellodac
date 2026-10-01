@@ -3,8 +3,8 @@
 # nginx + manager + the brain spine; the `personal` worker is created by the manager).
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.0.0/install.sh -o install.sh && bash install.sh
-#   # one-liner for the impatient: curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.0.0/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.1.0/install.sh -o install.sh && bash install.sh
+#   # one-liner for the impatient: curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.1.0/install.sh | bash
 #
 # Idempotent: Docker present → skipped; .env existing → never overwritten.
 # Non-interactive: DEEPSEEK_API_KEY / MANAGER_PASSWORD / MANAGER_PORT / APP_DOMAIN /
@@ -17,7 +17,7 @@ set -euo pipefail
 
 # Install dir = the directory this script runs in (install where you cd to; the APP_DIR environment variable can override it).
 APP_DIR="${APP_DIR:-.}"
-DAC_VERSION="${DAC_VERSION:-v1.0.0}"
+DAC_VERSION="${DAC_VERSION:-v1.1.0}"
 RELEASE_BASE="https://github.com/litestartup-com/hellodac/releases/download/${DAC_VERSION}"
 MANAGER_PORT="${MANAGER_PORT:-8080}"
 DRY_RUN="${DRY_RUN:-0}"

@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { NodeSupervisor, backoffDelayMs, decideAfterExit, LIVE_PROBE_THRESHOLD, type SpawnFn } from './supervisor.js'
 import type { DockerRunner } from './docker-runner.js'
 import type { ResolvedSpawnSpec } from '../config.js'
-import { GATEWAY_REF_020 } from '../dsh-matrix.js'
+import { GATEWAY_REF } from '../dsh-matrix.js'
 
 const spec = (over: Partial<ResolvedSpawnSpec> = {}): ResolvedSpawnSpec => ({
   managed: true,
@@ -460,7 +460,7 @@ test('0.2.0 corridor: an agent node pinned to 0.2.0 without an explicit ref take
     profile: { files: Record<string, string> }
   }
   assert.equal(payload.dshVersion, '0.2.0-rc.2')
-  assert.equal(payload.gatewayRef, GATEWAY_REF_020, 'the facade ref must resolve through the matrix row, not fall back to the legacy constant')
+  assert.equal(payload.gatewayRef, GATEWAY_REF, 'the facade ref must resolve through the matrix row, not fall back to a stale constant')
   assert.match(payload.profile.files['package.json'] ?? '', /#398ea94/, 'the profile pins the corridor facade (v0.2.5)')
   assert.match(payload.profile.files['package.json'] ?? '', /"@deepseek-ai\/cordis": "4.0.4"/, 'the 0.2.0 app-boot peer pins ship with the payload profile')
   assert.ok(!(payload.profile.files['package.json'] ?? '').includes('patchReload'), 'no patchReload on the new lines (J1-15)')

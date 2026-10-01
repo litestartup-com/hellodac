@@ -20,7 +20,7 @@ set -euo pipefail
 
 ORG="${DOCKER_ORG:-hellodac}"
 VERSION="${DAC_VERSION:-1.0.0}"                    # single-version source of truth (release gate)
-DSH_VERSION="${DSH_VERSION:-0.1.5-rc.2}"           # node image DSH version to build with --with-nodes
+DSH_VERSION="${DSH_VERSION:-0.2.0-rc.2}"           # node image DSH version to build with --with-nodes
 BRANCH="${BRANCH:-main}"
 COMPOSE_DIR="${COMPOSE_DIR:-.}"
 
@@ -60,7 +60,7 @@ Flags:
   -h, --help       print this text
 
 Environment overrides:
-  DOCKER_ORG=hellodac   DAC_VERSION=1.0.0   DSH_VERSION=0.1.5-rc.2
+  DOCKER_ORG=hellodac   DAC_VERSION=1.0.0   DSH_VERSION=0.2.0-rc.2
   BRANCH=main           COMPOSE_DIR=.       PREV_SHA=<git sha>
   HEALTH_URL=http://127.0.0.1:8081/v1/health   (probed inside the manager container)
 

@@ -189,10 +189,13 @@ test('Hive plan 2 P6 regression: on Windows the pnpm probe has to go through the
 test('0.1.2 main-path switch regression: node dependencies move to npm -- the pnpm9 prerelease range stopped matching and the pnpm11 allowlist stopped working (both walls proven in the container)', () => {
   const win = profileInstallCommand('win32')
   assert.equal(win.cmd, 'npm')
-  assert.deepEqual(win.args, ['install', '--no-audit', '--no-fund'])
+  // The default follows the matrix first row (0.2.0-rc.2), which is a needsLegacyPeerDeps pair
+  assert.deepEqual(win.args, ['install', '--no-audit', '--no-fund', '--legacy-peer-deps'])
   const posix = profileInstallCommand('linux')
   assert.equal(posix.cmd, 'npm')
-  assert.deepEqual(posix.args, ['install', '--no-audit', '--no-fund'])
+  assert.deepEqual(posix.args, ['install', '--no-audit', '--no-fund', '--legacy-peer-deps'])
+  // The pin-free legacy line stays flag-free (npm resolves its peers itself)
+  assert.deepEqual(profileInstallCommand('linux', '0.1.2-rc.1').args, ['install', '--no-audit', '--no-fund'])
 })
 
 test('Hive plan 2 P6 regression: setup has to pre-generate the first-boot password into .env (the manager starts in a hidden window, so a generated password would be lost)', () => {

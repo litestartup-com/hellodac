@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parse as parseYaml } from 'yaml'
 import { profileFiles, profileDependencies, dshBinInProfile, ensureNodeProfiles, profileSeed, currentProfileSeed, profileDrift, profileInstallCommand, resolveGatewayKey, writeGatewayKeyToPatch } from './profile.js'
-import { COMPAT_DSH_VERSION, GATEWAY_PACKAGE, GATEWAY_REF, GATEWAY_REF_020 } from '../dsh-version.js'
+import { COMPAT_DSH_VERSION, GATEWAY_PACKAGE, GATEWAY_REF, GATEWAY_REF_LEGACY } from '../dsh-version.js'
 
 test('Capability one regression: the profile dependencies include @deepseek-ai/dsh itself (after an isolated install it does not rely on a global dsh)', () => {
   const deps = profileDependencies()
@@ -59,7 +59,7 @@ test('Capability two regression: profileInstallCommand appends --legacy-peer-dep
   const clean = profileInstallCommand('win32', '0.1.2-rc.1')
   assert.ok(!clean.args.includes('--legacy-peer-deps'), 'the 0.1.2 pair does not need it')
   const dflt = profileInstallCommand('linux')
-  assert.ok(!dflt.args.includes('--legacy-peer-deps'), 'the default (first row of the matrix) does not carry it')
+  assert.ok(dflt.args.includes('--legacy-peer-deps'), 'the default follows the matrix first row (0.2.0-rc.2), which carries the flag')
   assert.equal(clean.cmd, 'npm')
 })
 
@@ -84,7 +84,7 @@ test('Capability two regression: the .seed-version marker and drift detection --
 })
 
 test('Fleet M1 pilot regression: the 0.1.5-rc.2 profile must add the peers legacy skips + carry a lock file + patchReload startup (proven on Windows: a fresh install drifts the whole tree to rc.3 with peers missing -> it crashes on boot)', () => {
-  const files = profileFiles({ name: 'pilot01', port: 3197 }, GATEWAY_REF, '0.1.5-rc.2')
+  const files = profileFiles({ name: 'pilot01', port: 3197 }, GATEWAY_REF_LEGACY, '0.1.5-rc.2')
   const pkg = JSON.parse(files['package.json'] ?? '{}')
   assert.equal(pkg.dependencies['@deepseek-ai/cordis-plugin-group'], '1.0.2', 'the peer dsh-app-boot imports statically (legacy skips it) must be added explicitly')
   assert.equal(pkg.dependencies['@deepseek-ai/dsh-sandbox'], '0.1.5-rc.3', 'the old family-name peer must be added explicitly (an rc.3 family version)')
@@ -109,7 +109,7 @@ const facadeRow = (rows: PatchRow[]): Record<string, unknown> | undefined =>
   rows.find((r) => r.id === GATEWAY_PACKAGE)?.config
 
 test('0.2.0 corridor: the 0.2.0-rc.2 profile pins the app-boot peers legacy mode skips (dsh-facts §18.9) and installs with --legacy-peer-deps', () => {
-  const files = profileFiles({ name: 'worker', port: 3083 }, GATEWAY_REF_020, '0.2.0-rc.2')
+  const files = profileFiles({ name: 'worker', port: 3083 }, GATEWAY_REF, '0.2.0-rc.2')
   const pkg = JSON.parse(files['package.json'] ?? '{}')
   // The 7-package seed table = dsh-app-boot@0.2.0-rc.2 peerDependencies (the gateway docker/gen-profile.mjs
   // derivation, boot-proven with zero ERR_MODULE_NOT_FOUND); most 0.1.5-era pins became real dsh-base deps.
@@ -122,7 +122,7 @@ test('0.2.0 corridor: the 0.2.0-rc.2 profile pins the app-boot peers legacy mode
   assert.equal(pkg.dependencies['@deepseek-ai/dsh-launch-environment'], '0.2.0-rc.2')
   assert.equal(pkg.dependencies['@deepseek-ai/dsh'], '0.2.0-rc.2')
   assert.equal(pkg.dependencies['@deepseek-ai/dsh-base'], '0.2.0-rc.2')
-  assert.equal(pkg.dependencies[GATEWAY_PACKAGE], GATEWAY_REF_020, 'the 0.2.0 pair installs the corridor facade (v0.2.5)')
+  assert.equal(pkg.dependencies[GATEWAY_PACKAGE], GATEWAY_REF, 'the 0.2.0 pair installs the corridor facade (v0.2.5)')
   assert.ok(pkg.dependencies['@deepseek-ai/cordis-plugin-hmr'] === undefined, 'the 0.1.5-era HMR pin must not leak into the 0.2.0 table')
   // The bare-metal peer closure (boot probe 2026-10-01): these exist only as peers of dsh-base's
   // plugin deps (dsh-jobs-local -> dsh-jobs ...) -- a profile-local-bin boot without them dies with
@@ -143,7 +143,7 @@ test('0.2.0 corridor: the 0.2.0-rc.2 profile pins the app-boot peers legacy mode
 })
 
 test('0.2.0 corridor: the manifest/patch shape is version-gated (J1-15 patchReload dropped; J1-22 privacy row baked)', () => {
-  const next = profileFiles({ name: 'worker', port: 3083 }, GATEWAY_REF_020, '0.2.0-rc.2')
+  const next = profileFiles({ name: 'worker', port: 3083 }, GATEWAY_REF, '0.2.0-rc.2')
   const nextPkg = JSON.parse(next['package.json'] ?? '{}')
   assert.ok(nextPkg.dsh.profile.patchReload === undefined, 'patchReload was dropped from the manifest contract in the 0.1.7 corridor (J1-15) -- the new lines must not carry it')
   assert.ok(Array.isArray(nextPkg.dsh.profile.bundles) && nextPkg.dsh.profile.bundles.includes(GATEWAY_PACKAGE), 'the bundles list survives the gate')
@@ -161,7 +161,7 @@ test('0.2.0 corridor: the manifest/patch shape is version-gated (J1-15 patchRelo
 test('0.2.0 corridor: writeGatewayKeyToPatch materializes the facade composition row -- idempotent, rotating, other rows preserved', () => {
   const dir = mkdtempSync(join(tmpdir(), 'host-node-patch-'))
   try {
-    const files = profileFiles({ name: 'worker', port: 3083 }, GATEWAY_REF_020, '0.2.0-rc.2')
+    const files = profileFiles({ name: 'worker', port: 3083 }, GATEWAY_REF, '0.2.0-rc.2')
     const patchPath = join(dir, 'cordis.patch.yml')
     writeFileSync(patchPath, files['cordis.patch.yml'] ?? '', 'utf8')
     writeGatewayKeyToPatch(dir, 'apigw-test-1')
@@ -194,7 +194,7 @@ test('0.2.0 corridor: resolveGatewayKey places the key by version -- patch row o
     // A fresh 0.2.x node: the key is minted into the PATCH (settings.yaml is a dead path -- one-shot import)
     const profileDir = join(home, 'profiles', 'worker')
     mkdirSync(profileDir, { recursive: true })
-    const files = profileFiles({ name: 'worker', port: 3083 }, GATEWAY_REF_020, '0.2.0-rc.2')
+    const files = profileFiles({ name: 'worker', port: 3083 }, GATEWAY_REF, '0.2.0-rc.2')
     writeFileSync(join(profileDir, 'cordis.patch.yml'), files['cordis.patch.yml'] ?? '', 'utf8')
     const key = resolveGatewayKey(home, null, { dshVersion: '0.2.0-rc.2', profileName: 'worker' })
     assert.match(key, /^apigw-/, 'a fresh node mints a key')

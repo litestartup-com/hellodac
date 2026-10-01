@@ -37,13 +37,15 @@ const { parse: parseYaml, stringify: stringifyYaml } = require('yaml')
 // Kept in sync with src/dsh-matrix.ts (asserted by check-docs.mjs at all times; missing this table after a matrix change = CI red).
 const COMPAT_DSH_PACKAGE = '@deepseek-ai/dsh'
 const GATEWAY_PACKAGE = 'ohdsh-api-facade'
-const GATEWAY_REF = 'github:litestartup-com/dsh-api-gateway#b592b4f'
+const GATEWAY_REF = 'github:litestartup-com/dsh-api-gateway#398ea94'
 // 0.2.0 corridor: the facade pin is PER TARGET -- a pre-corridor facade on a 0.2.0 host dies
 // silently (the 3-arg wireStream.open kills the answerer pump; question/approval cards hang
-// forever, dsh-facts §18.2), so the 0.2.0 line requires facade v0.2.5. Kept in sync with
-// GATEWAY_REF_020 / the matrix row in src/dsh-matrix.ts (a standing check-docs.mjs assertion).
+// forever, dsh-facts §18.2). Kept in sync with GATEWAY_REF / GATEWAY_REF_LEGACY and the matrix
+// rows in src/dsh-matrix.ts (a standing check-docs.mjs assertion).
 const GATEWAY_REF_BY_VERSION = {
   '0.2.0-rc.2': 'github:litestartup-com/dsh-api-gateway#398ea94',
+  '0.1.5-rc.2': 'github:litestartup-com/dsh-api-gateway#b592b4f',
+  '0.1.2-rc.1': 'github:litestartup-com/dsh-api-gateway#b592b4f',
 }
 const SUPPORTED = [
   { dsh: '0.1.2-rc.1', legacyPeerDeps: false },

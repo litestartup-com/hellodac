@@ -124,23 +124,27 @@ try {
   }
   // 0.2.0 corridor: the facade pin is PER VERSION -- a pre-corridor facade on a 0.2.0 host dies
   // silently (the answerer pump never iterates; question/approval cards hang forever, dsh-facts
-  // §18.2). Every script that resolves a per-version ref must agree with the matrix's 0.2.0 row,
-  // and the Dockerfile must NOT hard-default GATEWAY_REF (an empty ARG lets the per-version
-  // resolution win; a stale hard default would silently pair a 0.2.0 image with the legacy facade).
+  // §18.2). Every script that resolves a per-version ref must agree with the matrix rows, and the
+  // Dockerfile must NOT hard-default GATEWAY_REF (an empty ARG lets the per-version resolution
+  // win; a stale hard default would silently mispair a line with the wrong facade).
   if (!/ARG GATEWAY_REF=\s*$/m.test(readFileSync(join(root, 'images/node/Dockerfile'), 'utf8'))) {
     failures.push('images/node/Dockerfile: ARG GATEWAY_REF must default EMPTY (gen-node-profile.mjs resolves the paired ref per DSH_VERSION; a hard default mispairs the 0.2.0 line)')
   }
-  const gatewayRef020 = /GATEWAY_REF_020 = '([^']+)'/.exec(matrixSrc)?.[1] ?? ''
-  const row020 = /\{ dsh: '0\.2\.0-rc\.2', gateway: GATEWAY_REF_020/.test(matrixSrc)
-  if (gatewayRef020 === '' || !row020) {
-    failures.push('src/dsh-matrix.ts: missing the GATEWAY_REF_020 literal or the 0.2.0-rc.2 row that uses it (per-version facade pin guard)')
+  const gatewayRefLegacy = /GATEWAY_REF_LEGACY = '([^']+)'/.exec(matrixSrc)?.[1] ?? ''
+  const row020 = /\{ dsh: '0\.2\.0-rc\.2', gateway: GATEWAY_REF,/.test(matrixSrc)
+  const legacyRows = (matrixSrc.match(/gateway: GATEWAY_REF_LEGACY/g) ?? []).length
+  if (gatewayRef === '' || gatewayRefLegacy === '' || !row020 || legacyRows !== 2) {
+    failures.push('src/dsh-matrix.ts: expected GATEWAY_REF (the 0.2.0 default-row ref), GATEWAY_REF_LEGACY (both 0.1.x rows) and the row wiring to be intact (per-version facade pin guard)')
   } else {
+    const expectedByRow = { '0.2.0-rc.2': gatewayRef, '0.1.5-rc.2': gatewayRefLegacy, '0.1.2-rc.1': gatewayRefLegacy }
     for (const file of ['images/node/gen-node-profile.mjs', 'scripts/upgrade-node-version.mjs']) {
       const content = readFileSync(join(root, file), 'utf8')
       const mapBlock = /GATEWAY_REF_BY_VERSION = \{([\s\S]*?)\}/.exec(content)?.[1] ?? ''
-      const ref020 = /'0\.2\.0-rc\.2':\s*'([^']+)'/.exec(mapBlock)?.[1]
-      if (ref020 !== gatewayRef020) {
-        failures.push(`${file}: GATEWAY_REF_BY_VERSION['0.2.0-rc.2'] is ${ref020 ?? 'missing'} but the matrix pins ${gatewayRef020} (a pre-corridor facade on a 0.2.0 host = silently hanging cards, dsh-facts §18.2)`)
+      for (const [version, expected] of Object.entries(expectedByRow)) {
+        const found = new RegExp(`'${version.replace(/\./g, '\\.')}':\\s*'([^']+)'`).exec(mapBlock)?.[1]
+        if (found !== expected) {
+          failures.push(`${file}: GATEWAY_REF_BY_VERSION['${version}'] is ${found ?? 'missing'} but the matrix pins ${expected} (a wrong pairing silently hangs the card chain on 0.2.0, dsh-facts §18.2)`)
+        }
       }
     }
   }

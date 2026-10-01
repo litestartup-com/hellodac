@@ -7,15 +7,17 @@ import { execFileSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-const DSH_VERSION = process.env.DSH_VERSION ?? '0.1.2-rc.1'
+const DSH_VERSION = process.env.DSH_VERSION ?? '0.2.0-rc.2'
 // The facade ref is PER VERSION (0.2.0 corridor): a pre-corridor facade on a 0.2.0 host dies silently
 // (the 3-arg wireStream.open kills the answerer pump -- question/approval cards hang forever, dsh-facts
-// §18.2), so the 0.2.0 line pins facade v0.2.5. Kept in sync with src/dsh-matrix.ts (GATEWAY_REF /
-// GATEWAY_REF_020 and the per-row gateway field; a standing check-docs.mjs assertion).
+// §18.2). Kept in sync with src/dsh-matrix.ts (GATEWAY_REF / GATEWAY_REF_LEGACY and the per-row
+// gateway field; a standing check-docs.mjs assertion).
 const GATEWAY_REF_BY_VERSION = {
   '0.2.0-rc.2': 'github:litestartup-com/dsh-api-gateway#398ea94',
+  '0.1.5-rc.2': 'github:litestartup-com/dsh-api-gateway#b592b4f',
+  '0.1.2-rc.1': 'github:litestartup-com/dsh-api-gateway#b592b4f',
 }
-const GATEWAY_REF = process.env.GATEWAY_REF || GATEWAY_REF_BY_VERSION[DSH_VERSION] || 'github:litestartup-com/dsh-api-gateway#b592b4f'
+const GATEWAY_REF = process.env.GATEWAY_REF || GATEWAY_REF_BY_VERSION[DSH_VERSION] || 'github:litestartup-com/dsh-api-gateway#398ea94'
 const NPM_REGISTRY = process.env.NPM_REGISTRY ?? 'https://registry.npmjs.org'
 const out = process.env.PROFILE_DIR ?? '/opt/dac-profile'
 /** Lock directory: copied into the build context by the Dockerfile (LOCK_DIR); a repo-side refresh points it at profile-lock/. */

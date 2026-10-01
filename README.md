@@ -15,15 +15,15 @@ Default install = manager (HQ) + brain (chief controller) + personal workspace. 
 **Linux server (containers, recommended):**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.0.0/install.sh -o install.sh && bash install.sh
-# pros: curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.0.0/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.1.0/install.sh -o install.sh && bash install.sh
+# pros: curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.1.0/install.sh | bash
 ```
 
 **Windows (bare metal):**
 
 ```powershell
-irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.0.0/install.ps1 -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File .\install.ps1
-# pros: irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.0.0/install.ps1 | iex
+irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.1.0/install.ps1 -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File .\install.ps1
+# pros: irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.1.0/install.ps1 | iex
 ```
 
 The scripts are idempotent: already-installed components are skipped, and re-runs never overwrite config or data.
@@ -64,12 +64,14 @@ server ──► node (= one DSH agent process + its own DSH_HOME) ──► wor
 - **Self-update**: backup → pull → build → health probe, auto-rollback on failure
 - **Native GUI one-click open**: each node row carries a "Native GUI" card — one SSH
   tunnel command (the key stays on your machine) plus a one-click open of the node's
-  native UI. The 0.1.5 token is captured from node logs automatically and follows
-  restarts. (The DSH web UI binds loopback only; reverse-proxying is not possible —
-  see facts card dsh-facts §11.)
+  native UI. The node GUI token (0.1.5 and up, including the 0.2.x line) is captured
+  from node logs automatically and follows restarts. (The DSH web UI binds loopback
+  only; reverse-proxying is not possible — see facts card dsh-facts §11.)
 - **Per-node DSH version**: the (dsh, facade) version matrix is the single source of
-  truth; nodes can pin a version at creation, the nodes page shows the configured
-  version + drift state, and one click aligns it (reseed → reinstall → restart)
+  truth (current rows: `0.2.0-rc.2` — the default — plus `0.1.5-rc.2` and
+  `0.1.2-rc.1`); nodes can pin a version at creation, the nodes page shows the
+  configured version + drift state, and one click aligns it (reseed → reinstall →
+  restart)
 - **Fleet (multi-server)**: a machine directory plus one join command per server
   (node-agent resident service, outbound dialing, zero inbound ports); the wizard's
   "host" picker creates nodes as remote host processes; nodes keep running when the
@@ -98,12 +100,20 @@ tunnel ends bind loopback, and node GUI ports are published on the host's
 The node wizard accepts an optional `dsh_version`, validated against the version
 matrix `SUPPORTED_DSH` (`src/dsh-matrix.ts` — each row pairs a DSH version with a
 facade ref; unknown versions are rejected, and pairs not yet verified install with
-a warning). Each node's profile is pinned to its version; the nodes page shows the
+a warning). Current rows: `0.2.0-rc.2` (the default; needs Node ≥ 22.19 on the node
+host) plus the verified legacy rows `0.1.5-rc.2` and `0.1.2-rc.1`. Each node's
+profile is pinned to its version; the nodes page shows the
 configured version plus drift state, and "Align version" reseeds the profile,
 reinstalls dependencies, and restarts the node on its pinned version. Container
 nodes use image `hellodac/dac-node:<version>`. Every node row also carries a version
 dropdown — switching versions is a page action (container = image rebuild;
 process = reseed + reinstall + restart), no config edits.
+
+> **Upgrading an existing node to 0.2.0**: the DSH session-log format migrates V3→V4
+> **one-way** on first boot — back the node up first (`npm run backup` covers the
+> manager DB; container nodes also need their `/data` volume backed up). The upgrade
+> itself is the version dropdown (or `scripts/upgrade-node-version.mjs` for a whole
+> host); the node's gateway key is carried over automatically.
 
 ## Machines & fleet (multi-server)
 
@@ -247,7 +257,7 @@ contains the same dependency tree (without it, a registry change silently rewrit
 When you bump `SUPPORTED_DSH` in `src/dsh-matrix.ts`, refresh the lock for each version:
 
 ```bash
-DSH_VERSION=0.1.5-rc.2 npm run lock:profile   # writes images/node/profile-lock/<version>.package-lock.json
+DSH_VERSION=0.2.0-rc.2 npm run lock:profile   # writes images/node/profile-lock/<version>.package-lock.json
 npm test                                     # profile-lock.test.ts checks lock vs matrix
 ```
 

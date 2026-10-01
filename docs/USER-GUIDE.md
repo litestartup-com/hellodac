@@ -23,7 +23,7 @@ accounting, backup and restore. The default install is three things:
 
 ```bash
 mkdir -p /app && cd /app          # the current directory becomes the install directory
-curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.0.0/install.sh -o install.sh
+curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.1.0/install.sh -o install.sh
 bash install.sh                    # interactive: API key → password → domain → TLS mode
 ```
 
@@ -41,7 +41,7 @@ bash install.sh                    # interactive: API key → password → domai
 ### Windows (bare metal)
 
 ```powershell
-irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.0.0/install.ps1 -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File .\install.ps1
+irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.1.0/install.ps1 -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
 - Already-installed components (Docker / Node / git / DSH) are **skipped**; re-running never

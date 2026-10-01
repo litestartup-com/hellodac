@@ -6,7 +6,7 @@
  */
 export {
   COMPAT_DSH_PACKAGE, COMPAT_DSH_VERSION, DSH_INSTALL_COMMAND,
-  GATEWAY_PACKAGE, GATEWAY_REF, GATEWAY_REF_020, dshCompatible, isLegacyDshLine,
+  GATEWAY_PACKAGE, GATEWAY_REF, GATEWAY_REF_LEGACY, dshCompatible, isLegacyDshLine,
   SUPPORTED_DSH, defaultDshVersion, resolvePair, pairStatus, isSupportedDsh,
   type DshPair,
 } from './dsh-matrix.js'

@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ARG NPM_REGISTRY=https://registry.npmjs.org
 # The pinned version matches the first line of SUPPORTED_DSH in src/dsh-matrix.ts (a standing check-docs assertion; bump it together when upstream ships a new release)
-ARG DSH_VERSION=0.1.2-rc.1
+ARG DSH_VERSION=0.2.0-rc.2
 # Empty default = "resolve per version": gen-node-profile.mjs maps DSH_VERSION to the paired facade
 # ref (GATEWAY_REF_BY_VERSION, kept in sync with the matrix rows -- a pre-corridor facade on a 0.2.0
 # host dies silently, dsh-facts §18.2). An explicit --build-arg overrides (pinned legacy builds).

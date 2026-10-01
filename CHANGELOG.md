@@ -1,5 +1,59 @@
 # Changelog
 
+## v1.1.0 — the DSH 0.2.0 corridor (2026-10-01)
+
+**The default node line is now DSH `0.2.0-rc.2`**, paired with facade v0.2.5 (gateway
+commit `398ea94`). The 0.1.x rows stay supported and verified on their existing facade
+pin — a verified pairing is never re-pinned without a re-smoke.
+
+What ships in 1.1.0:
+
+- **Version matrix** — `0.2.0-rc.2` enters as the first row (the default for new nodes,
+  installers and container images); `0.1.5-rc.2` / `0.1.2-rc.1` remain for existing fleets.
+- **The corridor adaptations, version-gated on one legacy-line predicate** (kept
+  word-for-word identical in four places under a standing CI assertion):
+  - the durable gateway-key path moves from `settings.yaml` (a one-shot import on the new
+    hosts, with the facade's settings layer removed) to the profile's `cordis.patch.yml`
+    composition row — the manager, the node container entrypoint, the node agent and the
+    upgrade script all place the key by version, and an upgraded node **reuses** its
+    settings-era key so the `.env` truth never drifts;
+  - the DeepSeek session-log upload (which defaults **on** from the 0.1.7 corridor) is
+    explicitly opted out in every managed node profile;
+  - `patchReload` is dropped from new-line manifests (removed from the host contract);
+  - the peer-pin table grows to the full closure (36 pins) with regenerated frozen locks
+    on both the bare-metal and container paths — a profile-local-bin boot without the
+    closure dies with 33 failed plugin imports;
+  - join scripts gate Node ≥ 22.19 (the 0.2.x engines floor).
+- **Fixes found by the corridor work**:
+  - switching a node's DSH version wrote `dsh_version` but not the paired `gateway_ref` —
+    a stale ref survived the switch and outranked the matrix row (on a 0.2.0 host a
+    pre-corridor facade kills the question/approval card chain *silently*);
+  - the agent-spawn facade-ref fallback now resolves through the matrix row instead of a
+    constant that only ever matched the legacy lines;
+  - a gateway-key rotation on an agent node no longer triggers the minutes-long
+    dependency reinstall;
+  - `scripts/upgrade-node-version.mjs` now ships the explicit peer pins and the frozen
+    lock with the install (previously a legacy-line upgrade installed without them and
+    the node crashed on boot), and resolves the facade ref per target version.
+- **Deployment defaults flipped to the new line**: node image `hellodac/dac-node:0.2.0-rc.2`
+  (compose fallback, container example config, `deploy-linux.sh`, release bundle,
+  `install.ps1`). The image re-exports `DSH_VERSION` so the entrypoint can gate the key
+  path, and its `GATEWAY_REF` build arg defaults empty so the paired facade ref always
+  resolves per version.
+
+Verified on a real bare-metal `0.2.0-rc.2` node: the gateway full-chain smoke with a real
+model turn, question + approval card chains end to end, the typewriter streaming over the
+frozen wire (facade 0.2.5 re-emits `assistant/chunk`), the manager client smoke, and the
+manager E2E (chat relay, usage ledger, workspace git audit). The GUI-token startup line is
+byte-identical to the 0.1.5 shape, and the session-history event vocabulary matches what
+the 0.1.5 production nodes already emit — no chat translation changes were needed.
+
+> **Upgrading an existing node to 0.2.0**: the DSH session-log format migrates V3→V4
+> **one-way** on first boot. Back the node up first (`npm run backup`; container nodes
+> also need their `/data` volume). Then use the version dropdown on the nodes page, or
+> `scripts/upgrade-node-version.mjs 0.2.0-rc.2` for a whole host (stop the stack first —
+> the script refuses to run against busy ports).
+
 ## v1.0.0 — first public release (2026-10-01)
 
 **One Manager. A Fleet of Agents.** The first public release of DAC (Dispatched Agent

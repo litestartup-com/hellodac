@@ -29,7 +29,7 @@ services:
     build:
       context: .
       dockerfile: images/manager/Dockerfile
-    image: hellodac/dac-manager:${MANAGER_VERSION:-1.0.0}
+    image: hellodac/dac-manager:${MANAGER_VERSION:-1.1.0}
     container_name: dac-manager
     env_file: .env
     # Debt H1: the manager runs non-root (the same HOST_UID convention as node-brain);
@@ -58,7 +58,7 @@ services:
     build:
       context: images/node
       dockerfile: Dockerfile
-    image: ${DSH_NODE_IMAGE:-hellodac/dac-node:0.1.5-rc.2}
+    image: ${DSH_NODE_IMAGE:-hellodac/dac-node:0.2.0-rc.2}
     container_name: dac-node-brain
     # Capability three v1: the GUI port is published to the host loopback only (an SSH tunnel target; never on the public surface)
     ports:

@@ -26,35 +26,41 @@ export interface DshPair {
 }
 
 /**
- * The 0.1.2 line (switched onto the main road): the facade plugin's package name = ohdsh-api-facade (the dac-
- * prefix convention). The repository URL is still litestartup-com/dsh-api-gateway (the pinning chain stays put for
- * now), referencing the latest commit on the next-012 branch.
+ * The facade plugin's package name = ohdsh-api-facade (the dac- prefix convention). The repository
+ * URL is still litestartup-com/dsh-api-gateway (the pinning chain stays put for now).
  */
 export const GATEWAY_PACKAGE = 'ohdsh-api-facade'
-export const GATEWAY_REF = 'github:litestartup-com/dsh-api-gateway#b592b4f'
 /**
- * The 0.2.0 corridor facade pin (= tag v0.2.5). A pre-corridor facade on a 0.2.0 host dies SILENTLY:
- * the 3-arg wireStream.open call kills the answerer pump on first iteration (dsh-facts §18.2), so
- * question/approval cards hang forever -- 0.2.0 hosts require facade >= 0.2.4, and v0.2.5 is what
- * restores the assistant/chunk typewriter for frozen-wire clients (§18.13). The legacy rows above
- * stay on their verified b592b4f pin (a verified row is never re-pinned without a re-smoke).
+ * The facade ref paired with the DEFAULT matrix row (= tag v0.2.5, the 0.2.0 corridor release:
+ * dual-range peers, the wireStream arity adaptation and the assistant/chunk typewriter restoration
+ * for frozen-wire clients -- dsh-facts §18.13). Every code path that combines the default version
+ * with a ref uses this constant, so the default pair can never drift apart.
  */
-export const GATEWAY_REF_020 = 'github:litestartup-com/dsh-api-gateway#398ea94'
+export const GATEWAY_REF = 'github:litestartup-com/dsh-api-gateway#398ea94'
+/**
+ * The facade pin of the two verified LEGACY rows. A verified row is never re-pinned without a
+ * re-smoke, so they stay on the pre-corridor commit. WARNING: this facade dies SILENTLY on a 0.2.0
+ * host (the 3-arg wireStream.open kills the answerer pump on first iteration, so question/approval
+ * cards hang forever -- dsh-facts §18.2); it must never be paired with a new-line version.
+ */
+export const GATEWAY_REF_LEGACY = 'github:litestartup-com/dsh-api-gateway#b592b4f'
 
 export const SUPPORTED_DSH: DshPair[] = [
-  { dsh: '0.1.2-rc.1', gateway: GATEWAY_REF, status: 'verified' },
+  // 0.2.0 corridor (2026-09-30/10-01, fact card dsh-facts §18): the default line (npm latest).
+  // Manager-side full-chain smoke on a real bare-metal 0.2.0-rc.2 node passed (real model turn,
+  // question/approval card chains, the typewriter chunk frames, the manager relay/usage ledger
+  // E2E); the container path rides the CI compose-e2e gate before this row promotes to verified.
+  // Install needs --legacy-peer-deps plus the full peer-closure pin table (profile.ts
+  // LEGACY_PEER_PINS); running needs node ≥22.19 (registry engines); the session log migrates
+  // V3→V4 ONE-WAY (§18.7 -- back the volume up before switching an existing node).
+  { dsh: '0.2.0-rc.2', gateway: GATEWAY_REF, status: 'pending', needsLegacyPeerDeps: true },
   // P3 smoke (2026-09-20, the smoke15 node on the intranet pilot server): a 0.1.5-rc.2 host plus
   // facade b592b4f passed the full chain -- host.describe synthesised version / session.create /
   // a real session.prompt turn / the mux frame stream (user -> assistant -> turn/end). Fact card
   // dsh-facts.md §9/§10: installing needs --legacy-peer-deps (the facade peer range does not cover the
   // 0.1.5 line) and running needs node ≥22.19 (node 24 was used).
-  { dsh: '0.1.5-rc.2', gateway: GATEWAY_REF, status: 'verified', needsLegacyPeerDeps: true },
-  // 0.2.0 corridor (2026-09-30/10-01, fact card dsh-facts §18): verified on the GATEWAY side
-  // (full-chain smoke + card chains + V3→V4 migration on the standalone stack); the manager-side
-  // full-chain smoke is the gate that promotes this row to verified. Install needs
-  // --legacy-peer-deps plus the 7-package app-boot peer pins (§18.9); running needs node ≥22.19
-  // (registry engines); the session log migrates V3→V4 ONE-WAY (§18.7 -- back the volume up first).
-  { dsh: '0.2.0-rc.2', gateway: GATEWAY_REF_020, status: 'pending', needsLegacyPeerDeps: true },
+  { dsh: '0.1.5-rc.2', gateway: GATEWAY_REF_LEGACY, status: 'verified', needsLegacyPeerDeps: true },
+  { dsh: '0.1.2-rc.1', gateway: GATEWAY_REF_LEGACY, status: 'verified' },
 ]
 
 /** The default version = the first row of the matrix (the default for a new node). */

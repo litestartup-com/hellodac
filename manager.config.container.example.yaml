@@ -38,7 +38,7 @@ endpoints:
       runner: docker
       ready_timeout_ms: 30000
       docker:
-        image: hellodac/dac-node:0.1.5-rc.2
+        image: hellodac/dac-node:0.2.0-rc.2
         # consistent with the explicitly named network in compose (the manager joins it on the host dockerd side)
         network: dac-hive
         port: 3081
