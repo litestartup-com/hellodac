@@ -110,6 +110,12 @@ try {
     ['images/node/Dockerfile', /ARG DSH_VERSION=([^\s]+)/, defaultDsh],
     ['scripts/upgrade-node-version.mjs', /GATEWAY_REF = '([^']+)'/, gatewayRef],
     ['scripts/make-release.mjs', /nodeImage = process\.env\.DSH_NODE_IMAGE \?\? 'hellodac\/dac-node:([^']+)'/, defaultDsh],
+    // The node-image TAG triangle (CI hit this the day the default flipped): compose builds the image
+    // under the .env/fallback tag, provisioning asks docker for the matrix-default tag -- a mismatch
+    // sends the worker on a Hub pull that does not exist. All three must equal the matrix default.
+    ['docker-compose.yml', /DSH_NODE_IMAGE:-hellodac\/dac-node:([^}]+)\}/, defaultDsh],
+    ['scripts/gen-env.sh', /ensure DSH_NODE_IMAGE "hellodac\/dac-node:([^"]+)"/, defaultDsh],
+    ['manager.config.container.example.yaml', /image: hellodac\/dac-node:([^\s]+)/, defaultDsh],
   ]
   for (const [file, re, expected] of pinChecks) {
     const content = readFileSync(join(root, file), 'utf8')

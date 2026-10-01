@@ -53,6 +53,10 @@ const fileFor = (extra: Record<string, unknown> = {}): string => {
 
 const previous = process.env.GW_KEY_TEST
 process.env.GW_KEY_TEST = 'test-gateway-key'
+// loadConfig validates the environment: SESSION_SECRET is required. A dev machine silently passes
+// through the repo-root .env (dotenv reads the cwd), but a clean CI checkout has none -- set the
+// same test guard config.test.ts uses, or every loadConfig call in this file dies on a clean env.
+if (process.env.SESSION_SECRET === undefined) process.env.SESSION_SECRET = 'x'.repeat(32)
 process.on('exit', () => {
   if (previous === undefined) delete process.env.GW_KEY_TEST
   else process.env.GW_KEY_TEST = previous
