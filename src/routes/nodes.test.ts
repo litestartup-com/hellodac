@@ -291,6 +291,58 @@ test('P1 regression: POST /api/nodes/:id/version on the process branch -- pinnin
   assert.equal((bad.json() as { error: string }).error, 'unknown_dsh_version')
 })
 
+test('0.2.0 corridor: switching a process node to 0.2.0-rc.2 writes the PAIRED facade ref to the truth source and materializes the patch key row (settings.yaml is dead on the new lines)', async () => {
+  const gw = await startFakeGateway({ frames: [] }, API_KEY)
+  gateways.push(gw)
+  const config = configFor(gw)
+  const dir = mkdtempSync(join(tmpdir(), 'nodes-v020-'))
+  const configPath = join(dir, 'manager.config.yaml')
+  writeFileSync(configPath, 'endpoints:\n  A:\n    url: http://x\n', 'utf8')
+  config.configPath = configPath
+  const dshHome = mkdtempSync(join(tmpdir(), 'nodes-v020home-'))
+  const spawn = {
+    ...managedSpawn,
+    runner: 'process' as const,
+    env: { DSH_HOME: dshHome },
+    docker: null,
+    // A stale explicit ref from the legacy era: the switch must overwrite it with the paired row ref
+    // (a stale b592b4f on a 0.2.0 node = the answerer pump dies silently, dsh-facts §18.2)
+    dshVersion: '0.1.5-rc.2',
+    gatewayRef: 'github:litestartup-com/dsh-api-gateway#b592b4f',
+  }
+  config.endpoints['A']!.spawn = spawn as never
+  const profileDir = join(dshHome, 'profiles', 'A')
+  mkdirSync(profileDir, { recursive: true })
+  writeFileSync(join(profileDir, 'package.json'), '{"dependencies":{}}', 'utf8')
+  const calls = { start: 0, stop: 0, restart: 0 }
+  const app = Fastify()
+  registerNodesRoutes(
+    app, config, new Map([['A', stubSupervisor(calls)]]), new Map(), new Map(), async () => {},
+    undefined,
+    async () => undefined, // fake installer: no network
+  )
+
+  const res = await app.inject({ method: 'POST', url: '/api/nodes/A/version', payload: { dsh_version: '0.2.0-rc.2' } })
+  assert.equal(res.statusCode, 202, JSON.stringify(res.body))
+  await new Promise((resolve) => setTimeout(resolve, 20))
+
+  const yaml = readFileSync(configPath, 'utf8')
+  assert.match(yaml, /dsh_version: 0\.2\.0-rc\.2/, 'the version pin lands in the truth source')
+  assert.match(yaml, /gateway_ref: github:litestartup-com\/dsh-api-gateway#398ea94/, 'the paired facade ref lands WITH it (writing the version alone leaves the stale ref in charge)')
+  assert.equal((config.endpoints['A']?.spawn as unknown as { gatewayRef?: string | null } | null)?.gatewayRef, 'github:litestartup-com/dsh-api-gateway#398ea94', 'the in-memory spawn hot-loads the new ref too (a later align-version must not read the stale one)')
+
+  // The reseed produced the 0.2.0-gated profile shape and the key moved into the patch (J1-04):
+  // the endpoint key is the truth, settings.yaml is never consulted on this line.
+  const pkg = JSON.parse(readFileSync(join(profileDir, 'package.json'), 'utf8'))
+  assert.equal(pkg.dependencies['ohdsh-api-facade'], 'github:litestartup-com/dsh-api-gateway#398ea94')
+  assert.ok(pkg.dsh.profile.patchReload === undefined, 'no patchReload on the new lines (J1-15)')
+  const patch = readFileSync(join(profileDir, 'cordis.patch.yml'), 'utf8')
+  assert.match(patch, /session-log-deepseek/, 'the privacy row is baked (J1-22: the session-log upload defaults ON from the corridor)')
+  assert.match(patch, /ohdsh-api-facade/, 'the facade key row is materialized into the patch (J1-04)')
+  assert.match(patch, /test-key/, 'the endpoint key is what lands in the patch row')
+  assert.equal(calls.restart, 1, 'restart once alignment finishes')
+})
+
 test('P1 regression: the profile directory resolves from --profile in spawn.args (the endpoint id is not the profile name, hit for real in production)', async () => {
   const gw = await startFakeGateway({ frames: [] }, API_KEY)
   gateways.push(gw)
@@ -414,7 +466,8 @@ test('Debt P1 regression: GET /api/nodes carries access + guiUrl (the token is c
   const node = payload.nodes[0]
   assert.deepEqual(node?.access, { sshUser: 'ubuntu', sshHost: '10.0.0.5', sshPort: 22, guiPort: 3080, localPort: 3088, sshKey: null })
   assert.equal(node?.guiUrl, 'http://127.0.0.1:3088/?token=tok-abc')
-  assert.deepEqual(payload.supportedDsh.map((p) => p.dsh), ['0.1.2-rc.1', '0.1.5-rc.2'], 'the wizard version dropdown reads the matrix')
+  assert.deepEqual(payload.supportedDsh.map((p) => p.dsh), ['0.1.2-rc.1', '0.1.5-rc.2', '0.2.0-rc.2'], 'the wizard version dropdown reads the matrix')
+  assert.deepEqual(payload.supportedDsh.map((p) => p.status), ['verified', 'verified', 'pending'], 'the dropdown carries the row status (a pending row warns in yellow text at provision)')
 
   // Restart rotation: a new token line shows up in the log -> guiUrl follows automatically
   supervisor.logs = () => 'dsh web: http://127.0.0.1:3080/?token=tok-old\nrestarted\ndsh web: http://127.0.0.1:3080/?token=tok-new\n'

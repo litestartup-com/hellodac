@@ -10,8 +10,8 @@ import type { NodeSupervisor } from '../nodes/supervisor.js'
 import type { AuditKind } from '../audit.js'
 import { mutateYamlFile, withConfigLock } from '../config-store.js'
 import { captureGuiToken, guiDirectUrl, guiOpenUrl } from '../gui-token.js'
-import { dshBinInProfile, profileDrift, reseedProfile } from '../host-node/profile.js'
-import { COMPAT_DSH_VERSION, GATEWAY_REF, resolvePair, SUPPORTED_DSH } from '../dsh-matrix.js'
+import { dshBinInProfile, profileDrift, reseedProfile, writeGatewayKeyToPatch } from '../host-node/profile.js'
+import { COMPAT_DSH_VERSION, GATEWAY_REF, isLegacyDshLine, resolvePair, SUPPORTED_DSH } from '../dsh-matrix.js'
 import { installNodeDepsAsync } from './provision.js'
 import { probeEndpoint } from './status.js'
 
@@ -347,6 +347,14 @@ export const registerNodesRoutes = (
     const port = Number(new URL(ep.url).port || 3080)
     try {
       reseedProfile(profileDir, { name: id, port }, opts.gatewayRef, opts.version)
+      // 0.2.0 corridor (dsh-facts §18.5): the reseed rewrote cordis.patch.yml from the generated
+      // baseline, so on the new lines (where the patch row IS the durable key path) the facade key
+      // must be re-injected here -- an aligned node would otherwise boot with a keyless facade and
+      // every manager call would 401. Legacy lines keep their settings.yaml (untouched by the reseed).
+      if (!isLegacyDshLine(opts.version)) {
+        const key = ep.sandboxKey !== '' ? ep.sandboxKey : ep.key
+        if (key !== '') writeGatewayKeyToPatch(profileDir, key)
+      }
       audit?.(actor, opts.auditKind, opts.auditDetail)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -429,7 +437,13 @@ export const registerNodesRoutes = (
       const actor = request.currentUser?.username ?? 'unknown'
       // Source of truth on disk: only an explicit switch writes the dsh_version pin (a node following the matrix writes nothing)
       try {
-        await withConfigLock(() => mutateYamlFile(configPath, (doc) => doc.setIn(['endpoints', id, 'spawn', 'dsh_version'], target)))
+        await withConfigLock(() => mutateYamlFile(configPath, (doc) => {
+          doc.setIn(['endpoints', id, 'spawn', 'dsh_version'], target)
+          // 0.2.0 corridor: the paired facade ref is written ALONG the version -- writing the version
+          // alone leaves a stale gateway_ref (e.g. the pre-corridor pin) in charge through pinnedOf,
+          // and a 0.2.0 node would boot a facade whose answerer pump dies silently (dsh-facts §18.2).
+          doc.setIn(['endpoints', id, 'spawn', 'gateway_ref'], pair.gateway)
+        }))
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         return reply.code(500).send({ error: 'config_write_failed', detail: message })
@@ -446,7 +460,7 @@ export const registerNodesRoutes = (
           return reply.code(500).send({ error: 'config_write_failed', detail: message })
         }
         const oldImage = dockerSpec.image
-        const next = { ...spawn, dshVersion: target, docker: { ...dockerSpec, image } }
+        const next = { ...spawn, dshVersion: target, gatewayRef: pair.gateway, docker: { ...dockerSpec, image } }
         ep.spawn = next
         audit?.(actor, 'node_version_change', `node ${id} switched DSH → ${target} (container image ${oldImage} → ${image})`)
         // Rebuild at once: stop the old container -> ensureImage -> start the new image (no waiting for reconcile)
@@ -454,7 +468,7 @@ export const registerNodesRoutes = (
         return reply.code(202).send({ ok: true, switching: true, version: target, image })
       }
 
-      ep.spawn = { ...spawn, dshVersion: target }
+      ep.spawn = { ...spawn, dshVersion: target, gatewayRef: pair.gateway }
       return alignProcessNode(id, actor, reply, ep, supervisor, {
         version: target,
         gatewayRef: pair.gateway,

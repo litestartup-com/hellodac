@@ -17,7 +17,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ARG NPM_REGISTRY=https://registry.npmjs.org
 # The pinned version matches the first line of SUPPORTED_DSH in src/dsh-matrix.ts (a standing check-docs assertion; bump it together when upstream ships a new release)
 ARG DSH_VERSION=0.1.2-rc.1
-ARG GATEWAY_REF=github:litestartup-com/dsh-api-gateway#b592b4f
+# Empty default = "resolve per version": gen-node-profile.mjs maps DSH_VERSION to the paired facade
+# ref (GATEWAY_REF_BY_VERSION, kept in sync with the matrix rows -- a pre-corridor facade on a 0.2.0
+# host dies silently, dsh-facts §18.2). An explicit --build-arg overrides (pinned legacy builds).
+ARG GATEWAY_REF=
 # pnpm is pinned to a definite version (no floating range like pnpm@9: the same tag would install different build tools).
 # 9 and not 11: 9 runs dependency build scripts under the old semantics, consistent with the existing verification of
 # the bare-metal setup; pnpm ≥10's build-script allowlist key changed semantics again in 11 (measured: ERR_PNPM_IGNORED_BUILDS
@@ -46,11 +49,15 @@ RUN chmod +x /usr/local/bin/dsh-node-entrypoint \
 # HOME points at /data too: $HOME/.brain-auth (the brain token, 0600) and dsh's runtime writes such as ~/.config/~/.npm
 # all land in the same writable volume (otherwise HOME=/home/node is owned by 1000, and with HOST_UID≠1000 the entrypoint
 # gets the same EACCES writing .brain-auth).
+# DSH_VERSION is re-exported at runtime: the entrypoint gates the GW_KEY injection path on it (0.2.0 corridor,
+# upgrade card J1-04 -- legacy 0.1.2/0.1.5 lines -> settings.yaml; 0.1.7+/0.2.x -> the profile's cordis.patch.yml
+# composition row, because settings.yaml became a one-shot import and ctx.settings.register is gone host-side).
 # The node binds 0.0.0.0 (the container network is isolated, the port is not published to the host, and the manager reaches it over the hive network).
 ENV DSH_HOME=/data \
     HOME=/data \
     NODE_ENV=production \
-    TZ=Asia/Shanghai
+    TZ=Asia/Shanghai \
+    DSH_VERSION=${DSH_VERSION}
 WORKDIR /workspace
 EXPOSE 3080
 ENTRYPOINT ["dsh-node-entrypoint"]

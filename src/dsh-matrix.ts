@@ -32,6 +32,14 @@ export interface DshPair {
  */
 export const GATEWAY_PACKAGE = 'ohdsh-api-facade'
 export const GATEWAY_REF = 'github:litestartup-com/dsh-api-gateway#b592b4f'
+/**
+ * The 0.2.0 corridor facade pin (= tag v0.2.5). A pre-corridor facade on a 0.2.0 host dies SILENTLY:
+ * the 3-arg wireStream.open call kills the answerer pump on first iteration (dsh-facts §18.2), so
+ * question/approval cards hang forever -- 0.2.0 hosts require facade >= 0.2.4, and v0.2.5 is what
+ * restores the assistant/chunk typewriter for frozen-wire clients (§18.13). The legacy rows above
+ * stay on their verified b592b4f pin (a verified row is never re-pinned without a re-smoke).
+ */
+export const GATEWAY_REF_020 = 'github:litestartup-com/dsh-api-gateway#398ea94'
 
 export const SUPPORTED_DSH: DshPair[] = [
   { dsh: '0.1.2-rc.1', gateway: GATEWAY_REF, status: 'verified' },
@@ -41,6 +49,12 @@ export const SUPPORTED_DSH: DshPair[] = [
   // dsh-facts.md §9/§10: installing needs --legacy-peer-deps (the facade peer range does not cover the
   // 0.1.5 line) and running needs node ≥22.19 (node 24 was used).
   { dsh: '0.1.5-rc.2', gateway: GATEWAY_REF, status: 'verified', needsLegacyPeerDeps: true },
+  // 0.2.0 corridor (2026-09-30/10-01, fact card dsh-facts §18): verified on the GATEWAY side
+  // (full-chain smoke + card chains + V3→V4 migration on the standalone stack); the manager-side
+  // full-chain smoke is the gate that promotes this row to verified. Install needs
+  // --legacy-peer-deps plus the 7-package app-boot peer pins (§18.9); running needs node ≥22.19
+  // (registry engines); the session log migrates V3→V4 ONE-WAY (§18.7 -- back the volume up first).
+  { dsh: '0.2.0-rc.2', gateway: GATEWAY_REF_020, status: 'pending', needsLegacyPeerDeps: true },
 ]
 
 /** The default version = the first row of the matrix (the default for a new node). */
@@ -64,6 +78,23 @@ export const _resetMatrixForTest = (): void => {
 const activeMatrix = (): DshPair[] => matrixOverride ?? SUPPORTED_DSH
 
 export const defaultDshVersion = (): string => COMPAT_DSH_VERSION
+
+/**
+ * The 0.2.0 corridor gate (dsh-facts §18.5/§18.10, upgrade card J1-04/J1-15): the legacy 0.1.2/0.1.5
+ * lines configure the facade through $DSH_HOME/settings.yaml and carry patchReload in the profile
+ * manifest; from the 0.1.7 corridor on, settings.yaml is a ONE-SHOT import (renamed to
+ * settings.yaml.imported at first boot), ctx.settings.register is gone host-side, and patchReload was
+ * dropped from the manifest contract -- the durable facade config path is the profile's
+ * cordis.patch.yml composition row.
+ *
+ * NOTE the prerelease spelling: "0.1.5-rc.2" carries a DASH after the patch number, so a `0.1.5.*`
+ * style pattern silently misses it (§18.10 crash-loop: the miss dropped patchReload and the legacy
+ * node boot-crashed). The gate accepts the dash, the dot AND the end-of-string form (a bare "0.1.5"
+ * final release is still the legacy line -- one notch stricter than the gateway's entrypoint case).
+ * Kept in sync with the case patterns in images/node/entrypoint.sh and the regex in
+ * images/node/gen-node-profile.mjs (a standing check-docs.mjs assertion).
+ */
+export const isLegacyDshLine = (version: string): boolean => /^0\.1\.(2|5)($|-|\.)/.test(version.replace(/^v/, ''))
 
 /** A known pair returns its matrix row; an unknown version returns null (the caller treats it as "not in the matrix"). */
 export const resolvePair = (version: string): DshPair | null =>

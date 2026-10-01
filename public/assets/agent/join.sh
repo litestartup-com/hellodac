@@ -28,15 +28,17 @@ UNIT_PATH="/etc/systemd/system/$UNIT_NAME.service"
 NODE_BIN="$(command -v node || true)"
 
 if [ -z "$NODE_BIN" ]; then
-  echo "join.sh: Node >=22.18 is required (node is not on PATH) -- install node first, then re-run." >&2
+  echo "join.sh: Node >=22.19 is required (node is not on PATH) -- install node first, then re-run." >&2
   exit 1
 fi
-# Measured on M2: the DSH 0.1.5 launcher depends on import.meta.main (Node >=22.18); on 22.17 the
-# launcher exits 0 silently (the node dies the moment it is launched, the log stays empty) -- the version gate must really check.
+# Measured on M2: the DSH 0.1.5 launcher depends on import.meta.main (on Node 22.17 it exits 0
+# silently -- the node dies the moment it is launched, the log stays empty), so the version gate must
+# really check. 0.2.0 corridor: the 0.2.x dsh family declares engines node >=22.19.0 (registry
+# manifest, verified in the profile locks), so 22.19 is the honest floor for the supported matrix.
 NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
 NODE_MINOR="$(node -p 'process.versions.node.split(".")[1]' 2>/dev/null || echo 0)"
-if [ "$NODE_MAJOR" -lt 22 ] || { [ "$NODE_MAJOR" -eq 22 ] && [ "$NODE_MINOR" -lt 18 ]; }; then
-  echo "join.sh: Node >=22.18 is required (the DSH 0.1.5 launcher depends on import.meta.main) -- current $(node -v 2>/dev/null || echo none)" >&2
+if [ "$NODE_MAJOR" -lt 22 ] || { [ "$NODE_MAJOR" -eq 22 ] && [ "$NODE_MINOR" -lt 19 ]; }; then
+  echo "join.sh: Node >=22.19 is required (DSH launcher import.meta.main; the 0.2.x engines floor) -- current $(node -v 2>/dev/null || echo none)" >&2
   exit 1
 fi
 

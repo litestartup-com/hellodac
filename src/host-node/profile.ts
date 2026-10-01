@@ -13,7 +13,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
-import { COMPAT_DSH_VERSION, GATEWAY_PACKAGE, GATEWAY_REF, resolvePair } from '../dsh-version.js'
+import { COMPAT_DSH_VERSION, GATEWAY_PACKAGE, GATEWAY_REF, isLegacyDshLine, resolvePair } from '../dsh-version.js'
 import { PROFILE_LOCKS } from './profile-locks.js'
 
 export interface ProfileSpec {
@@ -69,6 +69,56 @@ export const LEGACY_PEER_PINS: Record<string, Record<string, string>> = {
     '@deepseek-ai/dsh-util-workspace-path': '0.1.5-rc.3',
     '@deepseek-ai/dsh-workflow': '0.1.5-rc.3',
   },
+  // 0.2.0 corridor (dsh-facts §18.9 + bare-metal boot probe 2026-10-01): two derivation sources --
+  // (1) the gateway's 7-package app-boot seed table (dsh-app-boot@0.2.0-rc.2 peerDependencies,
+  // boot-proven on the standalone stack), plus (2) the FULL peer closure of the profile tree under
+  // --legacy-peer-deps, derived iteratively from the lock metadata until zero missing peers: 29
+  // family packages that exist only as peers of dsh-base's plugin deps
+  // (dsh-jobs-local -> dsh-jobs and friends) -- a bare-metal node boots from its PROFILE-LOCAL bin
+  // (M1-6: the profile tree must be self-contained), and without these the host dies with 33
+  // "failed to import" plugins (measured: ERR_MODULE_NOT_FOUND @deepseek-ai/dsh-jobs etc.). The
+  // container image shares the table (its runtime host is the complete global tree, but one table
+  // keeps the check-docs verbatim guard and both trees self-contained). All family pins are the
+  // exact registry versions the peer ranges demand. Kept word-for-word in sync with
+  // gen-node-profile.mjs and with the gateway's docker/gen-profile.mjs seed table (subset).
+  '0.2.0-rc.2': {
+    '@deepseek-ai/cordis': '4.0.4',
+    '@deepseek-ai/cordis-plugin-group': '1.0.4',
+    '@deepseek-ai/cordis-plugin-loader': '1.0.5',
+    '@deepseek-ai/cordis-plugin-include': '1.0.9',
+    '@deepseek-ai/dsh-home-paths': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-system-prompt': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-launch-environment': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-anonymous-user-id': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-attachment': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-bash-local': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-client-store': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-client-ui-primitives': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-client-ui-slots': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-compaction': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-deepseek-account': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-fs': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-hook-protocol': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-http-proxy': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-invariants': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-jobs': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-llm-deepseek': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-output-retention': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-ptc-runtime': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-sandbox': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-scope': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-sdk-protocol': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-session-persistence': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-session-query': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-session-telemetry': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-session-title-llm': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-shell': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-spill': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-subagent-in-process-driver': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-util-time': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-util-workspace-path': '0.2.0-rc.2',
+    '@deepseek-ai/dsh-workflow': '0.2.0-rc.2',
+  },
 }
 
 export const profileDependencies = (
@@ -90,16 +140,19 @@ export const profileFiles = (
    * node uses 0.0.0.0 (the manager probes it remotely; safety comes from the Q5 firewall allowlist + the 0.1.5 token). */
   bindHost: string = '127.0.0.1',
 ): Record<string, string> => {
+  // 0.2.0 corridor (upgrade cards J1-15/J1-22, dsh-facts §18.6/§18.10): the manifest/patch shape is
+  // version-gated. patchReload was dropped from the manifest contract in the 0.1.7 corridor -- only the
+  // legacy 0.1.2/0.1.5 lines keep it (there it avoids a hard HMR dependency, M1-measured); and the
+  // DeepSeek session-log upload defaults ON from the same corridor, so a managed node on the new lines
+  // opts out explicitly through the composition patch (the row id matches the base bundle's row).
+  const legacy = isLegacyDshLine(dshVersion)
   const pkg = {
     name: `dsh-profile-${spec.name}`,
     private: true,
     dsh: {
       profile: {
         bundles: [...Object.keys(PROFILE_BUNDLES), GATEWAY_PACKAGE],
-        // Measured in the M1 pilot: the default live patch watcher hard-depends on the HMR service (under the
-        // legacy install cordis-plugin-hmr is a peer, and without adding it explicitly the node crashes) -- a
-        // manager-managed node has no need for hot watching, so pin startup (applying the patch at boot is enough).
-        patchReload: 'startup',
+        ...(legacy ? { patchReload: 'startup' } : {}),
       },
     },
     dependencies: profileDependencies(dshVersion, gatewayDep),
@@ -113,6 +166,7 @@ export const profileFiles = (
         port: spec.port,
       },
     },
+    ...(legacy ? [] : [{ id: 'session-log-deepseek', config: { enabled: false } }]),
   ]
   return {
     'package.json': JSON.stringify(pkg, null, 2) + '\n',
@@ -233,27 +287,103 @@ export const dshBinInProfile = (profileDir: string): string | null => {
 }
 
 /**
- * Resolves the gateway key: the facade namespace's provisionedKey in settings.yaml comes first; when it
- * is absent we generate one and append it to apiKeys (the gateway's static key array, live through settings).
- * The namespace = GATEWAY_PACKAGE (ohdsh-api-facade since 0.1.2 became the main path; a key under the old
- * dsh-api-gw section is not read by the new facade -- the same trap as the container path, do not step in it again).
+ * Reads the facade key back from a profile's cordis.patch.yml composition row (the durable key path
+ * on the 0.1.7+/0.2.x lines). Null when the patch or the row is absent.
  */
-export const resolveGatewayKey = (dshHome: string, settingsPath: string | null): string => {
-  const ns = GATEWAY_PACKAGE
-  const path = settingsPath ?? join(dshHome, 'settings.yaml')
-  if (existsSync(path)) {
-    const parsed = parseYaml(readFileSync(path, 'utf8')) as Record<string, { provisionedKey?: string; apiKeys?: string[] } | undefined>
-    const section = parsed[ns]
-    if (typeof section?.provisionedKey === 'string' && section.provisionedKey !== '') return section.provisionedKey
-    const keys = Array.isArray(section?.apiKeys) ? section.apiKeys.filter((k) => k !== '') : []
-    const first = keys[0]
-    if (first !== undefined) return first
+const readGatewayKeyFromPatch = (profileDir: string): string | null => {
+  try {
+    const parsed = parseYaml(readFileSync(join(profileDir, 'cordis.patch.yml'), 'utf8')) as
+      | Array<{ id?: string; config?: { apiKeys?: unknown } } | undefined> | null
+    const row = (parsed ?? []).find((r) => r?.id === GATEWAY_PACKAGE)
+    const keys = row?.config?.apiKeys
+    if (!Array.isArray(keys)) return null
+    const first = keys.find((k): k is string => typeof k === 'string' && k !== '')
+    return first ?? null
+  } catch {
+    return null
   }
+}
+
+export interface GatewayKeyPatchOptions {
+  /** Fleet M3 parity: the ops tier unlock (dangerous ops still card-gated; the facade logs a risk warning). */
+  allowFullAccess?: boolean
+}
+
+/**
+ * 0.2.0 corridor (dsh-facts §18.5, upgrade card J1-04): materializes the facade key as the profile's
+ * cordis.patch.yml composition row -- the durable key path on the new lines, where $DSH_HOME/settings.yaml
+ * is a one-shot import and ctx.settings.register is gone host-side. Idempotent: an existing facade row is
+ * replaced, never duplicated; every other row (webserver, privacy) is preserved. The same shape the
+ * container entrypoint and the node agent write (one derived delivery, three landing ends).
+ */
+export const writeGatewayKeyToPatch = (profileDir: string, key: string, opts: GatewayKeyPatchOptions = {}): void => {
+  const path = join(profileDir, 'cordis.patch.yml')
+  let rows: unknown[] = []
+  if (existsSync(path)) {
+    const parsed = parseYaml(readFileSync(path, 'utf8')) as unknown[] | null
+    if (Array.isArray(parsed)) rows = parsed
+  }
+  const kept = rows.filter((r) => (r as { id?: unknown } | null)?.id !== GATEWAY_PACKAGE)
+  kept.push({
+    id: GATEWAY_PACKAGE,
+    config: { apiKeys: [key], ...(opts.allowFullAccess === true ? { allowFullAccess: true } : {}) },
+  })
+  writeFileSync(path, stringifyYaml(kept), 'utf8')
+}
+
+/** Where a resolveGatewayKey call should materialize the key on the new (non-legacy) lines. */
+export interface GatewayKeyPlacement {
+  dshVersion: string
+  profileName: string
+}
+
+/** Discovery of an already-provisioned key in the settings namespace: provisionedKey first, else apiKeys. */
+const readKeyFromSettings = (path: string): string | undefined => {
+  if (!existsSync(path)) return undefined
+  const parsed = parseYaml(readFileSync(path, 'utf8')) as Record<string, { provisionedKey?: string; apiKeys?: string[] } | undefined> | null
+  const section = parsed?.[GATEWAY_PACKAGE]
+  if (typeof section?.provisionedKey === 'string' && section.provisionedKey !== '') return section.provisionedKey
+  const keys = Array.isArray(section?.apiKeys) ? section.apiKeys.filter((k) => k !== '') : []
+  return keys[0]
+}
+
+/**
+ * Resolves the gateway key: reuse what is already provisioned, else mint one.
+ *
+ * The PLACEMENT is version-gated (0.2.0 corridor, dsh-facts §18.5 / upgrade card J1-04):
+ * - legacy lines (0.1.2/0.1.5, or no placement given): the facade namespace in $DSH_HOME/settings.yaml
+ *   (provisionedKey first, then the apiKeys array; the old dsh-api-gw section is NOT read -- the same
+ *   trap as the container path, do not step in it again);
+ * - new lines (0.1.7+/0.2.x, placement given): the profile's cordis.patch.yml composition row. The
+ *   discovery order is patch row -> settings.yaml -> mint: an UPGRADED node keeps its settings-era key
+ *   (so the .env GW_KEY_* truth and the endpoint wiring never drift) and gets it moved into the patch;
+ *   settings.yaml itself is a dead path there (one-shot import at first boot), so nothing is written to it.
+ */
+export const resolveGatewayKey = (dshHome: string, settingsPath: string | null, placement?: GatewayKeyPlacement): string => {
+  const path = settingsPath ?? join(dshHome, 'settings.yaml')
+  const patchPlacement = placement !== undefined && !isLegacyDshLine(placement.dshVersion)
+    ? { profileDir: join(dshHome, 'profiles', placement.profileName) }
+    : null
+
+  if (patchPlacement !== null) {
+    const fromPatch = readGatewayKeyFromPatch(patchPlacement.profileDir)
+    if (fromPatch !== null) return fromPatch
+  }
+  const fromSettings = readKeyFromSettings(path)
+  if (fromSettings !== undefined) {
+    // The upgrade case: carry the legacy-era key over into the patch (idempotent rewrite).
+    if (patchPlacement !== null) writeGatewayKeyToPatch(patchPlacement.profileDir, fromSettings)
+    return fromSettings
+  }
+
   const minted = 'apigw-' + randomBytes(24).toString('hex')
+  if (patchPlacement !== null) {
+    writeGatewayKeyToPatch(patchPlacement.profileDir, minted)
+    return minted
+  }
   const parsed = existsSync(path) ? (parseYaml(readFileSync(path, 'utf8')) as Record<string, unknown>) : {}
-  const section = (parsed[ns] ?? {}) as Record<string, unknown>
+  const section = (parsed?.[GATEWAY_PACKAGE] ?? {}) as Record<string, unknown>
   const apiKeys = Array.isArray(section.apiKeys) ? [...section.apiKeys, minted] : [minted]
-  parsed[ns] = { ...section, apiKeys }
-  writeFileSync(path, stringifyYaml(parsed), 'utf8')
+  writeFileSync(path, stringifyYaml({ ...parsed, [GATEWAY_PACKAGE]: { ...section, apiKeys } }), 'utf8')
   return minted
 }

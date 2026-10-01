@@ -8,14 +8,15 @@ $joinToken  = $env:AGENT_JOIN_TOKEN
 if (-not $managerUrl -or -not $joinToken) { Write-Error 'MANAGER_URL and AGENT_JOIN_TOKEN environment variables are required'; exit 1 }
 $agentDir = if ($env:AGENT_DIR) { $env:AGENT_DIR } else { Join-Path $env:LOCALAPPDATA 'DacAgent' }
 $nodeBin = (Get-Command node -ErrorAction SilentlyContinue).Source
-if (-not $nodeBin) { Write-Error 'Node ≥22.18 required (node is not on PATH)'; exit 1 }
-# Measured in M2: the DSH 0.1.5 launcher depends on import.meta.main (Node ≥22.18); on 22.17
-# the launcher exits 0 silently (the node dies the moment it is started, the log stays empty) --
-# the version gate has to really check it.
+if (-not $nodeBin) { Write-Error 'Node ≥22.19 required (node is not on PATH)'; exit 1 }
+# Measured in M2: the DSH 0.1.5 launcher depends on import.meta.main (on Node 22.17 it exits 0
+# silently -- the node dies the moment it is started, the log stays empty), so the version gate has
+# to really check it. 0.2.0 corridor: the 0.2.x dsh family declares engines node >=22.19.0
+# (registry manifest, verified in the profile locks) -- 22.19 is the honest floor for the matrix.
 $nodeVer = ((& node --version 2>$null) -replace '^v', '').Trim()
 $verParts = $nodeVer -split '\.'
-$nodeOk = $verParts.Length -ge 2 -and ([int]$verParts[0] -gt 22 -or ([int]$verParts[0] -eq 22 -and [int]$verParts[1] -ge 18))
-if (-not $nodeOk) { Write-Error "Node ≥22.18 required (the DSH 0.1.5 launcher depends on import.meta.main) -- currently $nodeVer"; exit 1 }
+$nodeOk = $verParts.Length -ge 2 -and ([int]$verParts[0] -gt 22 -or ([int]$verParts[0] -eq 22 -and [int]$verParts[1] -ge 19))
+if (-not $nodeOk) { Write-Error "Node ≥22.19 required (DSH launcher import.meta.main; the 0.2.x engines floor) -- currently $nodeVer"; exit 1 }
 
 New-Item -ItemType Directory -Force -Path $agentDir | Out-Null
 Invoke-WebRequest -Uri "$managerUrl/assets/agent/runtime.mjs" -OutFile (Join-Path $agentDir 'runtime.mjs') -UseBasicParsing

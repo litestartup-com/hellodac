@@ -548,8 +548,10 @@ const writeSecrets = async (
     console.error('internal error: node homes were not registered — ensureNodeProfiles did not run as expected.')
     process.exit(2)
   }
-  const personalKey = resolveGatewayKey(personalHome, null)
-  const brainKey = resolveGatewayKey(brainHome, null)
+  // 0.2.0 corridor: the placement is version-gated (patch row on the new lines, settings.yaml on
+  // legacy) -- setup builds the nodes at the matrix default, so the default version decides.
+  const personalKey = resolveGatewayKey(personalHome, null, { dshVersion: COMPAT_DSH_VERSION, profileName: 'dac-personal' })
+  const brainKey = resolveGatewayKey(brainHome, null, { dshVersion: COMPAT_DSH_VERSION, profileName: 'dac-brain' })
   const envValues = await withConfigLock(() => mergeEnv('.env', setupEnvValues(personalKey, brainKey), ['GW_KEY_A', 'GW_KEY_B']))
   return { envValues, personalHome, brainHome }
 }

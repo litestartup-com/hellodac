@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { NodeSupervisor, backoffDelayMs, decideAfterExit, LIVE_PROBE_THRESHOLD, type SpawnFn } from './supervisor.js'
 import type { DockerRunner } from './docker-runner.js'
 import type { ResolvedSpawnSpec } from '../config.js'
+import { GATEWAY_REF_020 } from '../dsh-matrix.js'
 
 const spec = (over: Partial<ResolvedSpawnSpec> = {}): ResolvedSpawnSpec => ({
   managed: true,
@@ -446,6 +447,24 @@ test('Capability four M1-4: agent start -- enqueues node.spawn (payload carries 
   assert.equal((payload.profile.files['.seed-version'] ?? '').trim().length, 40, 'the seed marker ships with the payload')
   deps.resultCallbacks.get(1)?.(true)
   await waitFor(() => s.current.state === 'live', 3_000, 'agent node live')
+})
+
+test('0.2.0 corridor: an agent node pinned to 0.2.0 without an explicit ref takes the matrix row ref (a pre-corridor facade silently hangs the card chain, dsh-facts §18.2)', async () => {
+  const deps = agentDeps()
+  const s = supervisorWith(deps, okProbe)
+  s.start(spec({ ...agentSpec(), dshVersion: '0.2.0-rc.2', gatewayRef: null }))
+  assert.equal(deps.enqueued.length, 1)
+  const payload = deps.enqueued[0]?.payload as {
+    dshVersion: string
+    gatewayRef?: string
+    profile: { files: Record<string, string> }
+  }
+  assert.equal(payload.dshVersion, '0.2.0-rc.2')
+  assert.equal(payload.gatewayRef, GATEWAY_REF_020, 'the facade ref must resolve through the matrix row, not fall back to the legacy constant')
+  assert.match(payload.profile.files['package.json'] ?? '', /#398ea94/, 'the profile pins the corridor facade (v0.2.5)')
+  assert.match(payload.profile.files['package.json'] ?? '', /"@deepseek-ai\/cordis": "4.0.4"/, 'the 0.2.0 app-boot peer pins ship with the payload profile')
+  assert.ok(!(payload.profile.files['package.json'] ?? '').includes('patchReload'), 'no patchReload on the new lines (J1-15)')
+  assert.match(payload.profile.files['cordis.patch.yml'] ?? '', /session-log-deepseek/, 'the privacy row ships with the payload patch (J1-22)')
 })
 
 test('Capability four M2 regression: the agent readiness probe must come after the spawn result (never kill it during a cold remote install)', async () => {

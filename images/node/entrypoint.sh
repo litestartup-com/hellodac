@@ -22,27 +22,62 @@ if [ ! -d "$DSH_HOME/profiles/dac-node" ] || [ "$SEED_CUR" != "$SEED_NEW" ]; the
 fi
 
 # 2) Gateway static key: the environment variable is the truth (checklist A: derived files are never edited by hand).
-#    The file is rewritten whenever it is missing, sits outside this plugin's namespace, or does not contain the
-#    current GW_KEY -- a volume can hold the previous release's old key or old namespace (measured on the 0.1.1->0.1.2
-#    upgrade: the dsh-api-gw section of the old settings.yaml held the same key string, so grepping for the key alone
-#    wrongly concluded "already written" and skipped the rewrite -> the new facade namespace stayed empty, apiKeySet:false).
-if [[ -n "${GW_KEY:-}" ]]; then
-  NEED_WRITE=1
-  if [ -f "$DSH_HOME/settings.yaml" ]; then
-    if grep -q '^ohdsh-api-facade:' "$DSH_HOME/settings.yaml" 2>/dev/null \
-       && grep -q "$GW_KEY" "$DSH_HOME/settings.yaml" 2>/dev/null; then NEED_WRITE=0; fi
-  fi
-  if [ "$NEED_WRITE" = "1" ]; then
-    cat > "$DSH_HOME/settings.yaml" <<EOF
+#    The injection path is VERSION-GATED (0.2.0 corridor, upgrade card J1-04, fact card dsh-facts §18.5):
+#    in the 0.1.7 corridor $DSH_HOME/settings.yaml became a one-shot import (renamed to
+#    settings.yaml.imported at first boot) and ctx.settings.register was removed host-side -- plugin
+#    configuration lives in the profile composition. So:
+#      - legacy lines (0.1.2/0.1.5): the settings.yaml namespace mechanism (prod-verified). The file is
+#        rewritten whenever it is missing, sits outside this plugin's namespace, or does not contain the
+#        current GW_KEY -- a volume can hold the previous release's old key or old namespace (measured on
+#        the 0.1.1->0.1.2 upgrade: the dsh-api-gw section of the old settings.yaml held the same key
+#        string, so grepping for the key alone wrongly concluded "already written" and skipped the
+#        rewrite -> the new facade namespace stayed empty, apiKeySet:false).
+#      - 0.1.7+/0.2.x: regenerate the SEEDED profile's cordis.patch.yml at every boot = the image
+#        baseline (/opt/dac-profile copy: webserver + privacy rows) + the facade config row built from
+#        GW_KEY. The seeded patch is a derived file (the pristine baseline stays in the image layer), so
+#        unconditional regeneration IS the red-line posture here -- no grep dance, env changes apply on
+#        restart. Consequence on new lines: POST {prefix}/key bootstrap keys are memory-only -- the
+#        durable key path is GW_KEY (the manager's .env is the truth either way).
+#    NOTE the prerelease spelling: "0.1.5-rc.2" carries a DASH after the patch number -- a `0.1.5.*`
+#    pattern silently misses it and routes the legacy line down the new path (measured crash-loop,
+#    dsh-facts §18.10). Kept in sync with isLegacyDshLine in src/dsh-matrix.ts and the gate in
+#    gen-node-profile.mjs (a standing check-docs.mjs assertion).
+case "${DSH_VERSION:-}" in
+0.1.2 | 0.1.2-* | 0.1.2.* | 0.1.5 | 0.1.5-* | 0.1.5.*)
+  if [[ -n "${GW_KEY:-}" ]]; then
+    NEED_WRITE=1
+    if [ -f "$DSH_HOME/settings.yaml" ]; then
+      if grep -q '^ohdsh-api-facade:' "$DSH_HOME/settings.yaml" 2>/dev/null \
+         && grep -q "$GW_KEY" "$DSH_HOME/settings.yaml" 2>/dev/null; then NEED_WRITE=0; fi
+    fi
+    if [ "$NEED_WRITE" = "1" ]; then
+      cat > "$DSH_HOME/settings.yaml" <<EOF
 ohdsh-api-facade:
   apiKeys: ['$GW_KEY']
 EOF
-    chmod 600 "$DSH_HOME/settings.yaml"
-    echo "[entrypoint] wrote $DSH_HOME/settings.yaml (GW_KEY refreshed)"
+      chmod 600 "$DSH_HOME/settings.yaml"
+      echo "[entrypoint] wrote $DSH_HOME/settings.yaml (GW_KEY refreshed)"
+    fi
+  else
+    echo "[entrypoint] ⚠ GW_KEY not injected -- gateway sandbox routing will 401 (GW_KEY_* in the manager's .env must be non-empty)"
   fi
-else
-  echo "[entrypoint] ⚠ GW_KEY not injected -- gateway sandbox routing will 401 (GW_KEY_* in the manager's .env must be non-empty)"
-fi
+  ;;
+*)
+  PATCH_FILE="$DSH_HOME/profiles/dac-node/cordis.patch.yml"
+  if [[ -n "${GW_KEY:-}" ]]; then
+    {
+      cat /opt/dac-profile/cordis.patch.yml
+      echo '- id: ohdsh-api-facade'
+      echo '  config:'
+      echo "    apiKeys: ['$GW_KEY']"
+    } > "$PATCH_FILE"
+    chmod 600 "$PATCH_FILE"
+    echo "[entrypoint] regenerated $PATCH_FILE (baseline + facade key from GW_KEY)"
+  else
+    echo "[entrypoint] ⚠ GW_KEY not injected -- gateway sandbox routing will 401 (GW_KEY_* in the manager's .env must be non-empty)"
+  fi
+  ;;
+esac
 
 # 3) The brain token file ($HOME/.brain-auth, 0600): the DSH tool sandbox strips environment variables
 #    containing TOKEN (DSH-FACTS §2), so the skill manual authenticates by reading the file. Idempotent: rewritten only when the content changed.

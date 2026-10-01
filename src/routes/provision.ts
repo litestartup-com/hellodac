@@ -608,7 +608,9 @@ export const registerProvisionRoutes = (
       ensureNodeProfiles(nodesHome(), [{ name: body.name, port }], gatewayRef, dshVersion)
       createdHome = nodeHomePath
       ensureNodeCredentials(join(userHome(), '.dsh'), nodeHomePath)
-      const key = resolveGatewayKey(nodeHomePath, null)
+      // 0.2.0 corridor (dsh-facts §18.5): the placement is version-gated -- the new lines materialize
+      // the key in the profile's cordis.patch.yml (settings.yaml is a one-shot import there).
+      const key = resolveGatewayKey(nodeHomePath, null, { dshVersion, profileName: body.name })
 
       // 2. Dependency install (Debt B1: backgrounded -- the tens-of-seconds synchronous pnpm no longer
       // freezes the whole site). The 201 returns first and the node is started only once install finishes;

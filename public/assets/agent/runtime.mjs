@@ -19,7 +19,17 @@ import { hostname, totalmem, freemem, cpus, uptime } from 'node:os'
 import { currentAgentVersion } from './update.mjs'
 
 /** Kept in sync with needsLegacyPeerDeps in src/dsh-matrix.ts (a standing assertion in check-docs.mjs). */
-export const LEGACY_PEER_DEPS_VERSIONS = ['0.1.5-rc.2']
+export const LEGACY_PEER_DEPS_VERSIONS = ['0.1.5-rc.2', '0.2.0-rc.2']
+
+/**
+ * The 0.2.0 corridor version gate (dsh-facts §18.5/§18.10, upgrade card J1-04): legacy 0.1.2/0.1.5
+ * lines take the facade key through $DSH_HOME/settings.yaml; from the 0.1.7 corridor on, settings.yaml
+ * is a one-shot import and ctx.settings.register is gone host-side -- the durable key path is the
+ * profile's cordis.patch.yml composition row. NOTE the prerelease dash: "0.1.5-rc.2" never matches a
+ * `0.1.5.*` pattern (§18.10 crash-loop); the ($|-|\.) triple form is required. Kept in sync with
+ * isLegacyDshLine in src/dsh-matrix.ts (a standing assertion in check-docs.mjs).
+ */
+export const LEGACY_DSH_LINE_RE = /^0\.1\.(2|5)($|-|\.)/
 
 const RING_BYTES = 64 * 1024
 const DSH_PACKAGE = '@deepseek-ai/dsh'
@@ -396,16 +406,24 @@ export class AgentRuntime {
       this.log(`node ${nodeId} is already running (pid ${runningPid}) -- skipping a duplicate spawn`)
       return { ok: true, result: { pid: runningPid, alreadyRunning: true } }
     }
-    // The key: GW_KEY in the spawn payload's env -> DSH_HOME/settings.yaml (the facade only reads
-    // settings; the container entrypoint derives it the same way, delivered one way only).
+    // The key: GW_KEY in the spawn payload's env, materialized VERSION-GATED (0.2.0 corridor,
+    // dsh-facts §18.5 / upgrade card J1-04; the container entrypoint gates the same way -- one
+    // derived delivery, three landing ends):
+    //   - legacy lines (0.1.2/0.1.5): DSH_HOME/settings.yaml (the facade settings namespace);
+    //   - 0.1.7+/0.2.x: settings.yaml is a one-shot import and ctx.settings.register is gone
+    //     host-side -- the key rides the profile's cordis.patch.yml composition row instead
+    //     (appended to the delivered profile files below, never baked by the manager).
     // Fleet M3: ALLOW_FULL_ACCESS=true (an ops node) -> the facade's allowFullAccess is unlocked
     // (dangerous operations still need an approval card, and the facade logs a risk warning).
-    if (typeof payload.env?.GW_KEY === 'string' && payload.env.GW_KEY !== '') {
-      const fullAccess = payload.env.ALLOW_FULL_ACCESS === 'true' ? '\n  allowFullAccess: true' : ''
-      this.fs.writeFile(`${dshHome}/settings.yaml`, `ohdsh-api-facade:\n  apiKeys: ['${payload.env.GW_KEY}']${fullAccess}\n`)
+    const version = typeof payload.dshVersion === 'string' && payload.dshVersion !== '' ? payload.dshVersion : '0.1.2-rc.1'
+    const legacyLine = LEGACY_DSH_LINE_RE.test(version)
+    const gwKey = typeof payload.env?.GW_KEY === 'string' && payload.env.GW_KEY !== '' ? payload.env.GW_KEY : null
+    const gwFullAccess = payload.env?.ALLOW_FULL_ACCESS === 'true'
+    if (gwKey !== null && legacyLine) {
+      const fullAccess = gwFullAccess ? '\n  allowFullAccess: true' : ''
+      this.fs.writeFile(`${dshHome}/settings.yaml`, `ohdsh-api-facade:\n  apiKeys: ['${gwKey}']${fullAccess}\n`)
     }
     try {
-      const version = typeof payload.dshVersion === 'string' && payload.dshVersion !== '' ? payload.dshVersion : '0.1.2-rc.1'
       const legacy = LEGACY_PEER_DEPS_VERSIONS.includes(version)
       // Derived delivery (M1-6): write the profile files (idempotent, rewritten only when the content changed) + install the dependencies.
       // M2 regression: a warm npm install still takes minutes on a slow disk -- unchanged files + the completion
@@ -415,12 +433,21 @@ export class AgentRuntime {
       if (payload.profile !== null && payload.profile !== undefined) {
         profileDir = `${dshHome}/${payload.profile.dir}`
         this.fs.mkdir(profileDir)
-        const files = payload.profile.files ?? {}
+        const files = { ...(payload.profile.files ?? {}) }
+        // 0.2.0 corridor: append the facade key row to the delivered patch baseline on the new lines.
+        // The manager never bakes keys into payload files, so the baseline carries no facade row --
+        // appending to the freshly built content keeps exactly one row per spawn (idempotent by
+        // construction: the file is rewritten from the payload baseline first).
+        if (gwKey !== null && !legacyLine && typeof files['cordis.patch.yml'] === 'string') {
+          files['cordis.patch.yml'] += `- id: ohdsh-api-facade\n  config:\n    apiKeys: ['${gwKey}']\n${gwFullAccess ? '    allowFullAccess: true\n' : ''}`
+        }
         let changed = false
         for (const [name, content] of Object.entries(files)) {
           if (this.fs.readFile(`${profileDir}/${name}`) !== String(content)) {
             this.fs.writeFile(`${profileDir}/${name}`, String(content))
-            changed = true
+            // The patch file carries no dependencies: a key rotation (or a bind tweak) must not
+            // trigger the minutes-long reinstall (the patch applies at boot on every line).
+            if (name !== 'cordis.patch.yml') changed = true
           }
         }
         const installedMarker = `${profileDir}/.installed-ok`

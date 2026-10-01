@@ -28,7 +28,7 @@ import { openSync, rmSync, writeFileSync } from 'node:fs'
 import type { ResolvedSpawnSpec } from '../config.js'
 import type { DockerRunner } from './docker-runner.js'
 import { profileFiles, profileSeed } from '../host-node/profile.js'
-import { GATEWAY_REF, defaultDshVersion } from '../dsh-matrix.js'
+import { GATEWAY_REF, defaultDshVersion, resolvePair } from '../dsh-matrix.js'
 
 export type NodeState = 'cold' | 'starting' | 'live' | 'restarting' | 'offline'
 
@@ -509,7 +509,10 @@ export class NodeSupervisor {
     const profileName = argAfter('--profile') ?? this.id
     const port = Number(argAfter('--port') ?? 3080)
     const dshVersion = spec.dshVersion ?? defaultDshVersion()
-    const gatewayRef = spec.gatewayRef ?? GATEWAY_REF
+    // 0.2.0 corridor: an explicit pin wins; otherwise the ref resolves through the MATRIX ROW of the
+    // effective version -- falling straight back to the GATEWAY_REF constant would hand a 0.2.0 node
+    // the pre-corridor facade, whose answerer pump dies silently (dsh-facts §18.2).
+    const gatewayRef = spec.gatewayRef ?? resolvePair(dshVersion)?.gateway ?? GATEWAY_REF
     // An agent node on a remote server: the webserver binds 0.0.0.0 so the manager can probe it across machines
     // (the security surface = the Q5 firewall allowlist + the 0.1.5 token; the GUI still goes through the user-side tunnel).
     const profileFilesPayload = profileFiles({ name: profileName, port }, gatewayRef, dshVersion, '0.0.0.0')

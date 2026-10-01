@@ -253,6 +253,48 @@ test('Fleet M3 regression: with ALLOW_FULL_ACCESS=true settings.yaml carries the
   assert.ok(!plain.includes('allowFullAccess'), 'an ordinary node is not unlocked')
 })
 
+test('0.2.0 corridor: a 0.2.x spawn materializes GW_KEY into the patch config row -- settings.yaml is never written, a rotation does not reinstall', async () => {
+  const a = makeRuntime()
+  await a.runtime.registerOnce()
+  // The manager-side baseline for a new-line profile (webserver + the J1-22 privacy row, no facade row)
+  const baseline = '- id: webserver\n  config:\n    host: 0.0.0.0\n    port: 3081\n- id: session-log-deepseek\n  config:\n    enabled: false\n'
+  const spawnCmd = (id, key, extraEnv = {}) => ({
+    id,
+    type: 'node.spawn',
+    payload: {
+      nodeId: 'ops02',
+      args: ['--profile', 'ops02'],
+      env: { DSH_HOME: '/agent/nodes/ops02', GW_KEY: key, ...extraEnv },
+      dshVersion: '0.2.0-rc.2',
+      profile: { dir: 'profiles/ops02', files: { 'package.json': '{"dsh":1}', 'cordis.patch.yml': baseline } },
+    },
+  })
+  a.transport.commandBatches.push([spawnCmd(70, 'apigw-020')])
+  await a.runtime.loopOnce()
+  const profileDir = '/agent/nodes/ops02/profiles/ops02'
+  assert.equal(a.fs.store.get('/agent/nodes/ops02/settings.yaml'), undefined, 'the new line never writes settings.yaml (one-shot import + dead facade settings layer, dsh-facts §18.5)')
+  const patch = a.fs.store.get(`${profileDir}/cordis.patch.yml`) ?? ''
+  assert.ok(patch.startsWith(baseline), 'the delivered baseline is preserved verbatim')
+  assert.match(patch, /- id: ohdsh-api-facade\n {2}config:\n {4}apiKeys: \['apigw-020'\]/, 'the facade key row is appended to the patch')
+  assert.deepEqual(a.proc.profileInstalls[0], { dir: profileDir, legacy: true }, 'the 0.2.0 profile install carries --legacy-peer-deps')
+
+  // A key rotation rewrites the patch but must NOT trigger the dependency reinstall (the patch
+  // carries no dependencies; a reinstall would cost minutes on a slow disk per rotation)
+  a.proc.alivePids.clear()
+  a.transport.commandBatches.push([spawnCmd(71, 'apigw-rotated')])
+  await a.runtime.loopOnce()
+  assert.equal(a.proc.profileInstalls.length, 1, 'a rotation triggers no reinstall')
+  const rotated = a.fs.store.get(`${profileDir}/cordis.patch.yml`) ?? ''
+  assert.match(rotated, /apigw-rotated/, 'the rotated key lands in the patch')
+  assert.equal((rotated.match(/ohdsh-api-facade/g) ?? []).length, 1, 'exactly one facade row -- the rewrite from the delivered baseline prevents duplicates')
+
+  // ALLOW_FULL_ACCESS rides into the patch config on the new line (the Fleet M3 parity)
+  a.proc.alivePids.clear()
+  a.transport.commandBatches.push([spawnCmd(72, 'apigw-rotated', { ALLOW_FULL_ACCESS: 'true' })])
+  await a.runtime.loopOnce()
+  assert.match(a.fs.store.get(`${profileDir}/cordis.patch.yml`) ?? '', /allowFullAccess: true/, 'the ops-tier unlock lands in the patch config')
+})
+
 test('Capability four M4-4: heartbeat metrics -- the first round carries host metrics and does not repeat within the 60s window', async () => {
   const a = makeRuntime()
   await a.runtime.registerOnce()

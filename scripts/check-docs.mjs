@@ -106,9 +106,8 @@ try {
   const pinChecks = [
     ['install.ps1', /\$DSH_VERSION = '([^']+)'/, defaultDsh],
     ['images/node/gen-node-profile.mjs', /DSH_VERSION = process\.env\.DSH_VERSION \?\? '([^']+)'/, defaultDsh],
-    ['images/node/gen-node-profile.mjs', /GATEWAY_REF = process\.env\.GATEWAY_REF \?\? '([^']+)'/, gatewayRef],
+    ['images/node/gen-node-profile.mjs', /GATEWAY_REF = process\.env\.GATEWAY_REF \|\| GATEWAY_REF_BY_VERSION\[DSH_VERSION\] \|\| '([^']+)'/, gatewayRef],
     ['images/node/Dockerfile', /ARG DSH_VERSION=([^\s]+)/, defaultDsh],
-    ['images/node/Dockerfile', /ARG GATEWAY_REF=([^\s]+)/, gatewayRef],
     ['scripts/upgrade-node-version.mjs', /GATEWAY_REF = '([^']+)'/, gatewayRef],
     ['scripts/make-release.mjs', /nodeImage = process\.env\.DSH_NODE_IMAGE \?\? 'hellodac\/dac-node:([^']+)'/, defaultDsh],
   ]
@@ -122,6 +121,52 @@ try {
     if (match[1] !== expected) {
       failures.push(`${file}: pin ${match[1]} disagrees with the version matrix (expected ${expected}) -- change it in src/dsh-matrix.ts only, never hand-edit several places`)
     }
+  }
+  // 0.2.0 corridor: the facade pin is PER VERSION -- a pre-corridor facade on a 0.2.0 host dies
+  // silently (the answerer pump never iterates; question/approval cards hang forever, dsh-facts
+  // §18.2). Every script that resolves a per-version ref must agree with the matrix's 0.2.0 row,
+  // and the Dockerfile must NOT hard-default GATEWAY_REF (an empty ARG lets the per-version
+  // resolution win; a stale hard default would silently pair a 0.2.0 image with the legacy facade).
+  if (!/ARG GATEWAY_REF=\s*$/m.test(readFileSync(join(root, 'images/node/Dockerfile'), 'utf8'))) {
+    failures.push('images/node/Dockerfile: ARG GATEWAY_REF must default EMPTY (gen-node-profile.mjs resolves the paired ref per DSH_VERSION; a hard default mispairs the 0.2.0 line)')
+  }
+  const gatewayRef020 = /GATEWAY_REF_020 = '([^']+)'/.exec(matrixSrc)?.[1] ?? ''
+  const row020 = /\{ dsh: '0\.2\.0-rc\.2', gateway: GATEWAY_REF_020/.test(matrixSrc)
+  if (gatewayRef020 === '' || !row020) {
+    failures.push('src/dsh-matrix.ts: missing the GATEWAY_REF_020 literal or the 0.2.0-rc.2 row that uses it (per-version facade pin guard)')
+  } else {
+    for (const file of ['images/node/gen-node-profile.mjs', 'scripts/upgrade-node-version.mjs']) {
+      const content = readFileSync(join(root, file), 'utf8')
+      const mapBlock = /GATEWAY_REF_BY_VERSION = \{([\s\S]*?)\}/.exec(content)?.[1] ?? ''
+      const ref020 = /'0\.2\.0-rc\.2':\s*'([^']+)'/.exec(mapBlock)?.[1]
+      if (ref020 !== gatewayRef020) {
+        failures.push(`${file}: GATEWAY_REF_BY_VERSION['0.2.0-rc.2'] is ${ref020 ?? 'missing'} but the matrix pins ${gatewayRef020} (a pre-corridor facade on a 0.2.0 host = silently hanging cards, dsh-facts §18.2)`)
+      }
+    }
+  }
+  // 0.2.0 corridor: the legacy-line gate decides the settings.yaml-vs-patch key path, patchReload and
+  // the privacy row -- a WRONG gate crash-loops 0.1.5 (§18.10: the prerelease dash never matches a
+  // `0.1.5.*` pattern) or leaks session logs on 0.2.x (J1-22). The regex literal must be word-for-word
+  // identical everywhere, and the bash entrypoint must cover the same spellings with its case arms.
+  const gateLiteral = String.raw`/^0\.1\.(2|5)($|-|\.)/`
+  for (const [file, needle] of [
+    ['src/dsh-matrix.ts', gateLiteral],
+    ['images/node/gen-node-profile.mjs', gateLiteral],
+    ['public/assets/agent/runtime.mjs', gateLiteral],
+    ['scripts/upgrade-node-version.mjs', gateLiteral],
+  ]) {
+    if (!readFileSync(join(root, file), 'utf8').includes(needle)) {
+      failures.push(`${file}: missing the legacy-line gate ${needle} (the §18.10 prerelease-dash guard; keep it word-for-word in sync with isLegacyDshLine in src/dsh-matrix.ts)`)
+    }
+  }
+  const entrypoint = readFileSync(join(root, 'images/node/entrypoint.sh'), 'utf8')
+  for (const arm of ['0.1.2 | 0.1.2-*', '0.1.5 | 0.1.5-* | 0.1.5.*']) {
+    if (!entrypoint.includes(arm)) {
+      failures.push(`images/node/entrypoint.sh: the version case is missing the "${arm}" arms (the legacy lines must never take the patch-config key path, §18.10)`)
+    }
+  }
+  if (!entrypoint.includes('cordis.patch.yml')) {
+    failures.push('images/node/entrypoint.sh: missing the patch-config key injection for the new lines (J1-04: settings.yaml is a one-shot import on 0.1.7+/0.2.x)')
   }
   // The upgrade script's SUPPORTED table = the set of matrix rows (the dsh list + needsLegacyPeerDeps alignment) --
   // adding a matrix row/changing a flag while the script table lags = CI red.
@@ -201,10 +246,11 @@ try {
   const joinSh = readFileSync(join(root, 'public/assets/agent/join.sh'), 'utf8')
   if (!joinPs1.includes('update.mjs')) failures.push('scripts/join.ps1: does not download update.mjs (an agent entry-point dependency; missing = a crash right after install)')
   if (!joinSh.includes('update.mjs')) failures.push('public/assets/agent/join.sh: does not download update.mjs (an agent entry-point dependency; missing = a crash right after install)')
-  // Measured in M2: the DSH 0.1.5 launcher depends on import.meta.main (Node ≥22.18) and exits 0 silently
-  // on 22.17 -- the join scripts need a real version gate (not just a check that node exists).
-  if (!joinSh.includes('22.18')) failures.push('public/assets/agent/join.sh: missing the Node ≥22.18 version gate (proven by the silent import.meta.main exit)')
-  if (!joinPs1.includes('22.18')) failures.push('scripts/join.ps1: missing the Node ≥22.18 version gate (proven by the silent import.meta.main exit)')
+  // Measured in M2: the DSH 0.1.5 launcher depends on import.meta.main and exits 0 silently below
+  // the floor -- the join scripts need a real version gate (not just a check that node exists).
+  // 0.2.0 corridor: the floor is 22.19 (the 0.2.x dsh family declares engines node >=22.19.0).
+  if (!joinSh.includes('22.19')) failures.push('public/assets/agent/join.sh: missing the Node ≥22.19 version gate (import.meta.main silent exit + the 0.2.x engines floor)')
+  if (!joinPs1.includes('22.19')) failures.push('scripts/join.ps1: missing the Node ≥22.19 version gate (import.meta.main silent exit + the 0.2.x engines floor)')
   // The precondition for dropping privileges on a public agent (2026-09-27, CONCEPTS-ALIGNED.md §4.5): the agent
   // starts nodes under **its own OS user**, so "a public agent is not root" can only be achieved by dropping the
   // agent's own privileges. No AGENT_USER support = a public agent can only run as root = it can read the
