@@ -156,9 +156,14 @@ const backup = (path) => {
   }
 }
 
-const npm = (cwd, installArgs) => {
+const npm = (cwd, installArgs, opts = {}) => {
   const full = ['install', ...installArgs, '--no-audit', '--no-fund']
-  if (pair.legacyPeerDeps) full.push('--legacy-peer-deps')
+  // The legacy flag belongs to the PROFILE install only (the facade peer-range ERESOLVE, dsh-facts
+  // §12). The global prefix carries @deepseek-ai/dsh ALONE -- no facade, no conflict -- and must
+  // install in the NORMAL mode: --legacy-peer-deps skips every peer, and a prefix tree missing the
+  // plugin peers boots with 33 dead plugin imports (measured on the 0.2.0 corridor; the gateway
+  // node image installs its global dsh the same way, flag-free).
+  if (opts.legacy === true) full.push('--legacy-peer-deps')
   log(`npm ${full.join(' ')} (cwd ${cwd})`)
   if (dryRun) return
   execFileSync('npm', full, { cwd, stdio: 'inherit', shell: process.platform === 'win32' })
@@ -195,7 +200,7 @@ for (const [id, ep] of Object.entries(cfg.endpoints ?? {})) {
     if (!dryRun) rmSync(join(profileDir, 'node_modules'), { recursive: true, force: true })
     // The frozen tree ships along: npm install then resolves from the lock, not from the day's registry
     if (bareMetalLock !== null && !dryRun) writeFileSync(join(profileDir, 'package-lock.json'), bareMetalLock, 'utf8')
-    npm(profileDir, [])
+    npm(profileDir, [], { legacy: pair.legacyPeerDeps })
   } else {
     log(`node ${id}: the profile is already ${TARGET}, skipping`)
   }
