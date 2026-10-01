@@ -12,7 +12,7 @@ import { COMPAT_DSH_VERSION, DSH_INSTALL_COMMAND, GATEWAY_REF, dshCompatible } f
 // Capability one (2026-09-20): profile create/install/key/dependency commands moved into the
 // shared host-node module (used by both setup and provision); this file imports the ones it
 // needs and re-exports them to keep the existing import surface.
-import { ensureNodeCredentials, ensureNodeProfiles, profileInstallCommand, resolveGatewayKey, type ProfileSpec } from '../host-node/profile.js'
+import { dshBinInProfile, ensureNodeCredentials, ensureNodeProfiles, profileInstallCommand, resolveGatewayKey, type ProfileSpec } from '../host-node/profile.js'
 export {
   ensureNodeProfiles, ensureNodeCredentials, profileFiles, profileInstallCommand,
   resolveGatewayKey, dshBinInProfile, PROFILE_BUNDLES, profileDependencies,
@@ -244,7 +244,13 @@ export const buildManagerConfig = (options: {
       managed: true,
       command: 'node',
       // --no-open: a node is a background service and must not pop a browser on every start (the web app's own flag).
-      args: [options.dshBin, '--profile', profile, '--no-open'],
+      // 0.2.0 corridor (dsh-facts §19.9): boot from the profile-local bin once installed. A launcher
+      // from a DIFFERENT tree than the profile bundles double-instances dsh-app-boot -- the root
+      // Include registry of the booting instance is invisible to the profile-side config-editor
+      // reconcile, so every live settings write from the native GUI (the welcome acknowledgement,
+      // the settings pages) is rejected with "profile reload requires the root Include entry".
+      // The global bin is only the fallback while the profile install has not landed yet.
+      args: [dshBinInProfile(join(home, 'profiles', profile)) ?? options.dshBin, '--profile', profile, '--no-open'],
       ready_timeout_ms: 30_000,
       // Debt E7: explicitly aligned with spawnSchema's required defaults (drift the types surfaced)
       detached: false,

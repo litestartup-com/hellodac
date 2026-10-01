@@ -43,6 +43,34 @@ test('buildManagerConfig wires two managed nodes, agents, sandbox and presets', 
   assert.equal(brain['daily_budget_usd'], 1.0)
 })
 
+test('0.2.0 corridor: buildManagerConfig prefers the profile-local bin once installed -- a launcher from a DIFFERENT tree than the profile bundles double-instances dsh-app-boot, and every live settings write from the native GUI is rejected with "profile reload requires the root Include entry" (dsh-facts §19.9)', () => {
+  const home = mkdtempSync(join(tmpdir(), 'setup-bin-'))
+  try {
+    const brainHome = join(home, 'dac-brain')
+    const personalBin = join(home, 'dac-personal', 'profiles', 'dac-personal', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
+    mkdirSync(join(personalBin, '..'), { recursive: true })
+    writeFileSync(personalBin, '', 'utf8')
+    mkdirSync(brainHome, { recursive: true }) // brain: NOT installed -> the global bin fallback stays
+    const config = buildManagerConfig({
+      personalWorkspace: join(home, 'ws-personal'),
+      brainWorkspace: join(home, 'ws-brain'),
+      personalPort: 3081,
+      brainPort: 3082,
+      dshBin: 'C:/global/dsh/lib/bin.js',
+      personalProfile: 'dac-personal',
+      brainProfile: 'dac-brain',
+      personalHome: join(home, 'dac-personal'),
+      brainHome,
+      brainToken: 'brain-token-1',
+    })
+    const ep = config.endpoints as Record<string, { spawn?: { args?: string[] } }>
+    assert.equal(ep['personal']?.spawn?.args?.[0], personalBin, 'the installed profile boots from its OWN tree (single-tree launch)')
+    assert.equal(ep['brain']?.spawn?.args?.[0], 'C:/global/dsh/lib/bin.js', 'an uninstalled profile keeps the global-bin fallback')
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
 test('ensureNodeProfiles writes one isolated DSH_HOME per node, idempotently', () => {
   const nodesHome = mkdtempSync(join(tmpdir(), 'setup-nodes-home-'))
   try {

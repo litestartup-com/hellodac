@@ -178,6 +178,9 @@ try {
   if (!entrypoint.includes('cordis.patch.yml')) {
     failures.push('images/node/entrypoint.sh: missing the patch-config key injection for the new lines (J1-04: settings.yaml is a one-shot import on 0.1.7+/0.2.x)')
   }
+  if (!entrypoint.includes('node_modules/@deepseek-ai/dsh/lib/bin.js')) {
+    failures.push('images/node/entrypoint.sh: missing the profile-local-bin boot preference (a mixed-tree boot double-instances dsh-app-boot and breaks live settings writes on the new lines, dsh-facts §19.9)')
+  }
   // The upgrade script's SUPPORTED table = the set of matrix rows (the dsh list + needsLegacyPeerDeps alignment) --
   // adding a matrix row/changing a flag while the script table lags = CI red.
   const upgradeSrc = readFileSync(join(root, 'scripts/upgrade-node-version.mjs'), 'utf8')

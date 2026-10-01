@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
-import { GATEWAY_PACKAGE, SUPPORTED_DSH } from '../dsh-matrix.js'
+import { GATEWAY_PACKAGE, isLegacyDshLine, SUPPORTED_DSH } from '../dsh-matrix.js'
 import { LEGACY_PEER_PINS } from '../host-node/profile.js'
 
 /**
@@ -35,9 +35,14 @@ test('DAC v1.0.0: every supported DSH version has a container profile lock, and 
     const rootPkg = lock.packages['']
     assert.ok(rootPkg !== undefined, `${pair.dsh} lock has no root package`)
     assert.equal(rootPkg.name, 'dsh-profile-dac-node', 'the root package name must match what gen-node-profile writes')
-    // Same source as profileDependencies in src/host-node/profile.ts (the container profile lacks one
-    // bare @deepseek-ai/dsh direct dependency, the entry package of the bare-metal path).
+    // Same source as profileDependencies in src/host-node/profile.ts. The container profile of the
+    // NEW lines also carries the bare @deepseek-ai/dsh entry package: the entrypoint boots the
+    // profile-local bin so the launcher and the bundles come from ONE tree -- a mixed-tree boot
+    // double-instances dsh-app-boot and every live settings write from the native GUI is rejected
+    // ("profile reload requires the root Include entry", dsh-facts §19.9). The verified legacy
+    // locks keep their historical shape (global-bin launch, prod-proven) and are never regenerated.
     const expected: Record<string, string> = {
+      ...(isLegacyDshLine(pair.dsh) ? {} : { '@deepseek-ai/dsh': pair.dsh }),
       '@deepseek-ai/dsh-base': pair.dsh,
       '@deepseek-ai/dsh-web-app': pair.dsh,
       [GATEWAY_PACKAGE]: pair.gateway,

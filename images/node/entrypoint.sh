@@ -93,4 +93,14 @@ fi
 # 4) Model credentials: the DEEPSEEK_API_KEY environment variable ranks highest in the DSH credential layering, so no file is needed
 
 # 5) Start: port and other arguments pass through to the web app (the manager's docker run command carries --port N)
+#    0.2.0 corridor (dsh-facts §19.9): boot the PROFILE-LOCAL bin when the profile carries the dsh
+#    entry package (the new lines do) -- launcher and bundles then come from ONE tree. A mixed-tree
+#    boot (global bin + profile bundles) double-instances dsh-app-boot: the root Include registry of
+#    the booting instance is invisible to the profile-side config-editor reconcile, so every live
+#    settings write from the native GUI is rejected ("profile reload requires the root Include
+#    entry"). Legacy-line profiles have no local bin and keep the prod-proven global launch.
+PROFILE_BIN="$DSH_HOME/profiles/dac-node/node_modules/@deepseek-ai/dsh/lib/bin.js"
+if [ -f "$PROFILE_BIN" ]; then
+  exec node "$PROFILE_BIN" --profile dac-node --no-open "$@"
+fi
 exec dsh --profile dac-node --no-open "$@"

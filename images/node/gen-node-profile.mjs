@@ -123,7 +123,7 @@ const isLegacyLine = /^0\.1\.(2|5)($|-|\.)/.test(DSH_VERSION)
 
 mkdirSync(out, { recursive: true })
 
-writeFileSync(`${out}/package.json`, JSON.stringify(
+const manifest = JSON.stringify(
   {
     name: 'dsh-profile-dac-node',
     private: true,
@@ -134,6 +134,12 @@ writeFileSync(`${out}/package.json`, JSON.stringify(
       },
     },
     dependencies: {
+      // New lines carry the bare dsh entry package IN the profile: the entrypoint boots the
+      // profile-local bin, so launcher and bundles run from ONE tree (dsh-facts §19.9 -- a
+      // mixed-tree boot double-instances dsh-app-boot and every live settings write from the
+      // native GUI dies with "profile reload requires the root Include entry"). The verified
+      // legacy lines keep their historical global-bin shape; their locks are never regenerated.
+      ...(isLegacyLine ? {} : { '@deepseek-ai/dsh': DSH_VERSION }),
       '@deepseek-ai/dsh-base': DSH_VERSION,
       '@deepseek-ai/dsh-web-app': DSH_VERSION,
       'ohdsh-api-facade': GATEWAY_REF,
@@ -142,7 +148,8 @@ writeFileSync(`${out}/package.json`, JSON.stringify(
   },
   null,
   2,
-) + '\n', 'utf8')
+) + '\n'
+writeFileSync(`${out}/package.json`, manifest, 'utf8')
 // Profile dependency installation moved to npm (see execFileSync below): pnpm@9 fails to resolve the inner
 // prerelease range of 0.1.2-rc.1, and pnpm@11's onlyBuiltDependencies allowlist stops working -- both nailed down by
 // two server builds; the same version set under npm demonstrably resolves and runs native build scripts with the old semantics.
@@ -154,7 +161,7 @@ writeFileSync(`${out}/cordis.patch.yml`, patchYaml, 'utf8')
 // Seed version marker: the entrypoint uses it to decide whether an old profile in the volume needs re-seeding (image upgrade self-heal)
 writeFileSync(
   `${out}/.seed-version`,
-  createHash('sha1').update(`${DSH_VERSION}|${GATEWAY_REF}|${patchYaml}`).digest('hex') + '\n',
+  createHash('sha1').update(`${DSH_VERSION}|${GATEWAY_REF}|${patchYaml}|${manifest}`).digest('hex') + '\n',
   'utf8',
 )
 

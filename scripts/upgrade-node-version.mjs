@@ -16,12 +16,16 @@
  *    and the privacy row (session-log-deepseek enabled:false, J1-22) is guaranteed along the way;
  * 3. global DSH: npm install @deepseek-ai/dsh@<target> in the prefix directory that holds bin.js
  *    (skip when the version already matches; a new node installed in isolation has no such entry);
+ *    3b. manager.config.yaml: spawn args[0] repointed at the PROFILE-LOCAL bin (comment-preserving
+ *    Document edit + backup) -- a launcher from a different tree than the profile bundles
+ *    double-instances dsh-app-boot and breaks every live settings write from the native GUI on the
+ *    0.2.0 line ("profile reload requires the root Include entry", dsh-facts §19.9);
  * 4. .env: DSH_NODE_IMAGE → hellodac/dac-node:<target> (container deployments swap the image tag),
  *    and GW_KEY_* written back with the new keys (process nodes).
  *
- * Does not touch the wiring shape of manager.config.yaml (that is upgrade-012.mjs); pinning a node's spawn
- * version edits manager.config.yaml and is done by the user on the nodes page/in the wizard -- this script
- * only changes the derived side.
+ * Does not touch the rest of the wiring shape of manager.config.yaml (that is upgrade-012.mjs); pinning
+ * a node's spawn version edits manager.config.yaml and is done by the user on the nodes page/in the
+ * wizard -- this script only changes the derived side plus the 3b bin repoint.
  * Usage: node scripts/upgrade-node-version.mjs <target-version> [config path] [--dry-run] [--force]
  */
 import { execFileSync } from 'node:child_process'
@@ -33,7 +37,7 @@ import { fileURLToPath } from 'node:url'
 import { createServer } from 'node:net'
 
 const require = createRequire(import.meta.url)
-const { parse: parseYaml, stringify: stringifyYaml } = require('yaml')
+const { parse: parseYaml, stringify: stringifyYaml, parseDocument: parseYamlDocument } = require('yaml')
 // Kept in sync with src/dsh-matrix.ts (asserted by check-docs.mjs at all times; missing this table after a matrix change = CI red).
 const COMPAT_DSH_PACKAGE = '@deepseek-ai/dsh'
 const GATEWAY_PACKAGE = 'ohdsh-api-facade'
@@ -145,7 +149,12 @@ if (!existsSync(configPath)) {
   console.error(`upgrade-node-version: ${configPath} not found`)
   process.exit(1)
 }
-const cfg = parseYaml(readFileSync(configPath, 'utf8'))
+const cfgText = readFileSync(configPath, 'utf8')
+const cfg = parseYaml(cfgText)
+// The truth file carries operator comments -- edits go through a YAML Document (comment-preserving),
+// never a parse/stringify round trip.
+const cfgDoc = parseYamlDocument(cfgText)
+let cfgTouched = false
 const actions = []
 
 const backup = (path) => {
@@ -267,6 +276,25 @@ for (const [id, ep] of Object.entries(cfg.endpoints ?? {})) {
   const marker = '/node_modules/@deepseek-ai/dsh/lib/bin.js'
   const normalizedBin = binPath.replace(/\\/g, '/')
   if (normalizedBin.endsWith(marker)) dshPrefixes.add(normalizedBin.slice(0, -marker.length))
+
+  // 3b) repoint spawn args[0] at the PROFILE-LOCAL bin (dsh-facts §19.9): booting from a different
+  // tree than the profile bundles double-instances dsh-app-boot -- the root Include registry of the
+  // booting instance is invisible to the profile-side config-editor reconcile, so every live
+  // settings write from the native GUI (the welcome acknowledgement, the settings pages) is
+  // rejected with "profile reload requires the root Include entry". Only an args[0] that already
+  // IS a dsh bin.js gets repointed; any other command shape is left alone.
+  const isolatedBin = join(profileDir, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
+  if (normalizedBin.endsWith(marker) && resolve(binPath) !== resolve(isolatedBin)) {
+    const styled = process.platform === 'win32' ? isolatedBin.replace(/\//g, '\\') : isolatedBin
+    actions.push(`node ${id}: spawn args[0] repointed to the profile-local bin (single-tree launch; 0.2.0 GUI settings writes require it)`)
+    if (!dryRun) cfgDoc.setIn(['endpoints', id, 'spawn', 'args', 0], styled)
+    cfgTouched = true
+  }
+}
+
+if (cfgTouched && !dryRun) {
+  backup(configPath)
+  writeFileSync(configPath, cfgDoc.toString(), 'utf8')
 }
 
 // ---- 4) .env: DSH_NODE_IMAGE tag + GW_KEY_* key sync ----
