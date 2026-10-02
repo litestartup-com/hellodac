@@ -52,11 +52,18 @@ What it does, in order:
   7. docker compose pull + up -d (single invocation carrying both image variables).
   8. health-probe the manager from inside the compose network (30 x 5s); on failure
      print its last 50 log lines, and roll back to PREV_SHA when one is set.
+  9. [--release] GitHub Release: push the clean manager version tag the release zip
+     references (dac-manager:${VERSION}), build dist-release/dac-compose.zip in a
+     node:22 container, then `gh release create v${VERSION}` with the CHANGELOG
+     section as the body and the zip attached. Needs: gh authenticated on this
+     machine, and the v${VERSION} git tag already pushed from the dev machine.
+     Idempotent: an existing release is left untouched.
 
 Flags:
   --with-nodes     also build and push the pinned-DSH-version node image
   --publish-only   stop after pushing: no backup, no compose pull/up, no healthcheck
                    (use it to refresh Hub images without touching the running stack)
+  --release        step 9: publish the GitHub Release for v${VERSION} (gh CLI)
   --backup         tar ./data into backups/ before redeploying
   --skip-push      local build + redeploy only, no Docker Hub (also skips compose pull)
   --test           run `npm run release:check -- --quick` in a container before building
@@ -72,23 +79,26 @@ Environment overrides:
   (identity is derived AFTER the git pull, so a stale checkout can never tag the fresh build)
 
 Examples:
-  ./deploy/deploy-linux.sh --test --with-nodes     # full release
+  ./deploy/deploy-linux.sh --test --with-nodes --release   # full release (images + stack + GitHub Release)
+  ./deploy/deploy-linux.sh --test --with-nodes     # full redeploy without a GitHub Release
   ./deploy/deploy-linux.sh --skip-push             # local validation, no Hub
   BRANCH=feat-x ./deploy/deploy-linux.sh --skip-push   # try a feature branch on the server,
                                                        # without publishing it anywhere
   ./deploy/deploy-linux.sh --with-nodes --publish-only # refresh Hub images only
+  ./deploy/deploy-linux.sh --with-nodes --publish-only --release # publish images + the GitHub Release, stack untouched
   PREV_SHA=abc1234 ./deploy/deploy-linux.sh --rollback
 EOF
 }
 
 # --- flags ---------------------------------------------------------------
-WITH_NODES=0; BACKUP=0; SKIP_PUSH=0; ROLLBACK=0; TEST_FIRST=0; DEEP_CLEAN=0; PUBLISH_ONLY=0; HELP=0
+WITH_NODES=0; BACKUP=0; SKIP_PUSH=0; ROLLBACK=0; TEST_FIRST=0; DEEP_CLEAN=0; PUBLISH_ONLY=0; RELEASE=0; HELP=0
 for arg in "$@"; do
   case "$arg" in
     --with-nodes)   WITH_NODES=1 ;;
     --backup)       BACKUP=1 ;;
     --skip-push)    SKIP_PUSH=1 ;;
     --publish-only) PUBLISH_ONLY=1 ;;
+    --release)      RELEASE=1 ;;
     --rollback)     ROLLBACK=1 ;;
     --test)         TEST_FIRST=1 ;;
     --deep-clean)   DEEP_CLEAN=1 ;;
@@ -101,6 +111,57 @@ if [ "$PUBLISH_ONLY" -eq 1 ] && [ "$ROLLBACK" -eq 1 ]; then
   echo "deploy: --publish-only and --rollback contradict each other." >&2
   exit 1
 fi
+if [ "$RELEASE" -eq 1 ] && [ "$SKIP_PUSH" -eq 1 ]; then
+  echo "deploy: --release pushes the clean version tag and needs the Hub -- it contradicts --skip-push." >&2
+  exit 1
+fi
+if [ "$RELEASE" -eq 1 ] && [ "$ROLLBACK" -eq 1 ]; then
+  echo "deploy: --release publishes the CURRENT version -- it contradicts --rollback." >&2
+  exit 1
+fi
+
+# --- step 9 as a function: the GitHub Release (used by both the publish-only and the full path) ----
+publish_release() {
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "deploy: --release needs the GitHub CLI (gh) on this machine -- install it or drop the flag." >&2
+    exit 1
+  fi
+  if ! gh auth status >/dev/null 2>&1; then
+    echo "deploy: gh is not authenticated -- run 'gh auth login' once on this machine." >&2
+    exit 1
+  fi
+  git fetch --tags origin >/dev/null 2>&1 || true
+  if ! git rev-parse -q --verify "refs/tags/v${VERSION}" >/dev/null; then
+    echo "deploy: git tag v${VERSION} does not exist -- push it from the dev machine first (a release pins a tag, not a branch)." >&2
+    exit 1
+  fi
+  # The clean version tag the release zip's compose references (the build step only pushes SHA tags + latest).
+  echo "deploy: publishing ${ORG}/dac-manager:${VERSION} (the tag dac-compose.zip references)"
+  docker tag "${ORG}/dac-manager:${VERSION}-${SHA}" "${ORG}/dac-manager:${VERSION}"
+  docker push "${ORG}/dac-manager:${VERSION}"
+  # Build the release zip in the same container posture as the --test gate (no host node needed).
+  echo "deploy: building dist-release/dac-compose.zip (DAC_VERSION=v${VERSION})..."
+  docker run --rm -v "$(pwd)":/repo -v dac-npm-cache:/root/.npm -w /repo -e DAC_VERSION="v${VERSION}" node:22 \
+    sh -c "npm ci --no-audit --no-fund --ignore-scripts && node scripts/make-release.mjs"
+  # Notes = this version's CHANGELOG section; title = the section heading, DAC-prefixed.
+  local notes; notes="$(mktemp)"
+  awk -v v="${VERSION}" 'BEGIN{f=0} /^## v/ { if (f==1) {f=0} else if (index($0, "## v" v)==1) {f=1}; next } f==1 {print}' CHANGELOG.md > "$notes"
+  if [ ! -s "$notes" ]; then
+    echo "deploy: CHANGELOG.md has no '## v${VERSION}' section -- cannot compose the release notes." >&2
+    rm -f "$notes"
+    exit 1
+  fi
+  local subtitle; subtitle="$(awk -v v="${VERSION}" 'index($0,"## v" v)==1 { sub(/^## v[^ ]+[[:space:]]*/, ""); print; exit }' CHANGELOG.md)"
+  local title="DAC v${VERSION}"
+  if [ -n "$subtitle" ]; then title="DAC v${VERSION} ${subtitle}"; fi
+  if gh release view "v${VERSION}" >/dev/null 2>&1; then
+    echo "deploy: release v${VERSION} already exists -- left untouched (delete it on GitHub to re-create)."
+  else
+    gh release create "v${VERSION}" dist-release/dac-compose.zip --title "$title" --notes-file "$notes"
+    echo "deploy: released v${VERSION}: $(gh release view "v${VERSION}" --json url -q .url)"
+  fi
+  rm -f "$notes"
+}
 
 # --- 0. free docker disk space before every run ----------------------------
 # Only what is regenerable or already disposable is removed:
@@ -214,6 +275,7 @@ if [ "$PUBLISH_ONLY" -eq 1 ]; then
     exit 1
   fi
   echo "deploy: published ${MANAGER_TAG}$( [ -n "$NODE_TAG" ] && echo " and ${NODE_TAG}" ); no deployment performed."
+  if [ "$RELEASE" -eq 1 ]; then publish_release; fi
   exit 0
 fi
 
@@ -263,3 +325,6 @@ if [ "$UP" -eq 0 ]; then
   exit 1
 fi
 echo "deploy: ok -- manager ${MANAGER_TAG} is healthy inside the compose network."
+
+# --- 9. GitHub Release (--release; only after a healthy deploy) -------------
+if [ "$RELEASE" -eq 1 ]; then publish_release; fi
