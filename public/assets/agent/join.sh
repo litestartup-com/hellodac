@@ -25,27 +25,72 @@ AGENT_JOIN_TOKEN="${AGENT_JOIN_TOKEN:?AGENT_JOIN_TOKEN is required (a one-time t
 AGENT_USER="${AGENT_USER:-}"
 UNIT_NAME="dac-agent"
 UNIT_PATH="/etc/systemd/system/$UNIT_NAME.service"
-NODE_BIN="$(command -v node || true)"
-
-if [ -z "$NODE_BIN" ]; then
-  echo "join.sh: Node >=22.19 is required (node is not on PATH) -- install node first, then re-run." >&2
-  exit 1
-fi
-# Measured on M2: the DSH 0.1.5 launcher depends on import.meta.main (on Node 22.17 it exits 0
-# silently -- the node dies the moment it is launched, the log stays empty), so the version gate must
-# really check. 0.2.0 corridor: the 0.2.x dsh family declares engines node >=22.19.0 (registry
-# manifest, verified in the profile locks), so 22.19 is the honest floor for the supported matrix.
-NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
-NODE_MINOR="$(node -p 'process.versions.node.split(".")[1]' 2>/dev/null || echo 0)"
-if [ "$NODE_MAJOR" -lt 22 ] || { [ "$NODE_MAJOR" -eq 22 ] && [ "$NODE_MINOR" -lt 19 ]; }; then
-  echo "join.sh: Node >=22.19 is required (DSH launcher import.meta.main; the 0.2.x engines floor) -- current $(node -v 2>/dev/null || echo none)" >&2
-  exit 1
-fi
-
-# A system unit has to be written to /etc/systemd/system -- say so plainly when not root, never pretend it installed.
+# A system unit has to be written to /etc/systemd/system, and installing Node (below) also needs root --
+# say so plainly when not root, never pretend it installed.
 if [ "$(id -u)" -ne 0 ]; then
-  echo "join.sh: root is required (installing a systemd system unit at $UNIT_PATH). Re-run with sudo." >&2
+  echo "join.sh: root is required (installing a systemd system unit and possibly Node). Re-run with sudo." >&2
   exit 1
+fi
+if ! command -v systemctl >/dev/null 2>&1; then
+  echo "join.sh: systemd is required (the agent is installed as a systemd system unit) -- this host does not look like a systemd Linux." >&2
+  exit 1
+fi
+
+# --- Node >= 22.19: detect, install or upgrade -----------------------------
+# The floor is a real check, not a "node exists" check: the DSH 0.1.5 launcher depends on
+# import.meta.main (below 22.17 it exits 0 silently -- the node dies the moment it is launched and
+# the log stays empty), and the 0.2.x dsh family declares engines node >=22.19.0 (registry manifest,
+# verified in the profile locks). When node is missing or below the floor, this installs Node
+# $NODE_VERSION (the official tarball, into /usr/local) so the one-command join really is one command.
+NODE_MIN_MAJOR=22
+NODE_MIN_MINOR=19
+NODE_VERSION="${NODE_VERSION:-22.19.0}"
+node_new_enough() {
+  local bin="${1:-node}" maj min
+  maj="$("$bin" -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+  min="$("$bin" -p 'process.versions.node.split(".")[1]' 2>/dev/null || echo 0)"
+  [ "$maj" -gt "$NODE_MIN_MAJOR" ] || { [ "$maj" -eq "$NODE_MIN_MAJOR" ] && [ "$min" -ge "$NODE_MIN_MINOR" ]; }
+}
+
+NODE_BIN="$(command -v node || true)"
+if [ -n "$NODE_BIN" ] && node_new_enough "$NODE_BIN"; then
+  echo "join.sh: node $(node -v) satisfies the >= ${NODE_MIN_MAJOR}.${NODE_MIN_MINOR} floor"
+else
+  if [ -n "$NODE_BIN" ]; then
+    echo "join.sh: node $(node -v 2>/dev/null || echo unknown) is below the floor (>= ${NODE_MIN_MAJOR}.${NODE_MIN_MINOR}) -- installing Node $NODE_VERSION into /usr/local"
+  else
+    echo "join.sh: node is not on PATH -- installing Node $NODE_VERSION into /usr/local"
+  fi
+  if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
+    echo "join.sh: curl or wget is required to download Node -- install one, then re-run." >&2
+    exit 1
+  fi
+  case "$(uname -m)" in
+    x86_64)         NODE_ARCH=x64 ;;
+    aarch64|arm64)  NODE_ARCH=arm64 ;;
+    *) echo "join.sh: unsupported architecture '$(uname -m)' -- install Node >= ${NODE_MIN_MAJOR}.${NODE_MIN_MINOR} manually, then re-run." >&2; exit 1 ;;
+  esac
+  if ldd --version 2>&1 | grep -qi musl; then
+    echo "join.sh: musl libc (e.g. Alpine) is not supported by the automatic install -- install Node >= ${NODE_MIN_MAJOR}.${NODE_MIN_MINOR} manually, then re-run." >&2
+    exit 1
+  fi
+  TARBALL="node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz"
+  NODE_TMP="$(mktemp -d)"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/${TARBALL}" -o "$NODE_TMP/$TARBALL"
+  else
+    wget -q "https://nodejs.org/dist/v${NODE_VERSION}/${TARBALL}" -O "$NODE_TMP/$TARBALL"
+  fi
+  tar -xJf "$NODE_TMP/$TARBALL" -C "$NODE_TMP"
+  cp -a "$NODE_TMP/node-v${NODE_VERSION}-linux-${NODE_ARCH}/." /usr/local/
+  rm -rf "$NODE_TMP"
+  # Prefer the fresh install deterministically (an older apt node earlier on PATH must not win).
+  NODE_BIN="/usr/local/bin/node"
+  if [ ! -x "$NODE_BIN" ] || ! node_new_enough "$NODE_BIN"; then
+    echo "join.sh: the Node install did not produce a usable binary -- check $NODE_BIN, then re-run." >&2
+    exit 1
+  fi
+  echo "join.sh: installed Node $(node -v) at $NODE_BIN"
 fi
 
 # Privilege drop (when AGENT_USER is set): create the user, settle its home directory, hand the agent directory to it.
@@ -91,6 +136,16 @@ for legacy in "$UNIT_NAME" "ohdsh-agent"; do
     rm -f "$HOME/.config/systemd/user/${legacy}.service"
     systemctl --user daemon-reload >/dev/null 2>&1 || true
     echo "join.sh: removed the old user unit ${legacy}.service (so it cannot be started twice alongside the system unit)"
+  fi
+done
+# Migration: the same leftover at the SYSTEM level (33.11 ran an ohdsh-agent system unit before the
+# rename); the user-unit loop above cannot see it. Remove it so it cannot start a second agent next to ours.
+for legacy in "ohdsh-agent"; do
+  if [ -f "/etc/systemd/system/${legacy}.service" ]; then
+    systemctl disable --now "${legacy}.service" >/dev/null 2>&1 || true
+    rm -f "/etc/systemd/system/${legacy}.service"
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    echo "join.sh: removed the old system unit ${legacy}.service (so it cannot fight the new one for the port)"
   fi
 done
 

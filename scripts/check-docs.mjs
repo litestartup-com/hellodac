@@ -276,6 +276,19 @@ try {
   if (!joinSh.includes('ohdsh-agent')) {
     failures.push('public/assets/agent/join.sh: missing the old user unit cleanup (a leftover fights the system unit for the port)')
   }
+  // The join is "one command" only if a missing/old Node installs itself (2026-09-29): the script must
+  // download the official tarball into /usr/local so ExecStart is deterministic, and it must also clear a
+  // legacy SYSTEM-level unit (33.11 ran an ohdsh-agent system unit before the rename; the user-unit loop
+  // cannot see it).
+  if (!joinSh.includes('nodejs.org/dist')) {
+    failures.push('public/assets/agent/join.sh: missing the automatic Node install (the join must not require a pre-installed Node)')
+  }
+  if (!joinSh.includes('/usr/local/bin/node')) {
+    failures.push('public/assets/agent/join.sh: the automatic Node install must land at /usr/local/bin/node (a deterministic ExecStart)')
+  }
+  if (!joinSh.includes('/etc/systemd/system/${legacy}.service')) {
+    failures.push('public/assets/agent/join.sh: missing the legacy SYSTEM-unit cleanup (33.11 ran an ohdsh-agent system unit before the rename)')
+  }
   if (!/\/api\/agents\/:id\/rotate/.test(readFileSync(join(root, 'src/routes/agents.ts'), 'utf8'))) {
     failures.push('src/routes/agents.ts: missing the /api/agents/:id/rotate rotation endpoint (M4-1)')
   }
