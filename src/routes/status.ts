@@ -2,8 +2,6 @@ import type { FastifyInstance, preHandlerHookHandler } from 'fastify'
 import { desc, eq } from 'drizzle-orm'
 import type { AppConfig } from '../config.js'
 import { schema, type Db } from '../db/index.js'
-import { errorText } from '../errors.js'
-import type { GatewayClient } from '../gateway/client.js'
 import type { SessionDriver } from '../session-driver/port.js'
 import { listArchivedChats, listChats } from '../chat/store.js'
 import { activeRunCount, runningRunId } from '../runner.js'
@@ -17,39 +15,38 @@ import { MANAGER_VERSION } from '../version.js'
 export interface EndpointStatus {
   id: string
   url: string
-  driver: 'gateway' | 'apiproxy'
+  /** Kept for API parity; the gateway driver was retired, so this is always 'apiproxy' now. */
+  driver: 'apiproxy'
   reachable: boolean
+  /** Legacy gateway-health fields: the facade probe reports no session count / key state, so these stay null. */
   sessions: number | null
   apiKeySet: boolean | null
   enabled: boolean | null
   error: string | null
-  /** Hive plan 2 P1: the node's DSH version as probed over apiproxy; gateway/unknown = null. */
+  /** Hive plan 2 P1: the node's DSH version as probed over the port (host.describe); unknown = null. */
   dshVersion: string | null
   /** Fleet M1 pilot regression: decided by the version matrix (dsh-matrix.ts); null = version unknown (no warning). */
   dshCompatible: boolean | null
 }
 
 /**
- * One endpoint liveness probe, branched by driver:
- * - gateway  → the old plugin's own GET /health
- * - apiproxy → one bounded host.describe RPC (there is no /health under /api)
+ * One endpoint liveness probe through the SessionDriver port: one bounded
+ * host.describe RPC (probeVersion throws when the node is unreachable).
  *
  * Exported for the nodes route (Hive P3): an unmanaged node's state *is* its
  * probe result.
  */
 export const probeEndpoint = async (
   config: AppConfig,
-  clients: Map<string, GatewayClient>,
   upstreamClients: Map<string, SessionDriver>,
   endpointId: string,
 ): Promise<EndpointStatus> => {
   const endpoint = config.endpoints[endpointId]
   const url = endpoint?.url ?? ''
-  const driver = endpoint?.driver ?? 'gateway'
   const row: EndpointStatus = {
     id: endpointId,
     url,
-    driver,
+    driver: 'apiproxy',
     reachable: false,
     sessions: null,
     apiKeySet: null,
@@ -58,44 +55,25 @@ export const probeEndpoint = async (
     dshVersion: null,
     dshCompatible: null,
   }
-  if (driver === 'apiproxy') {
-    const upstream = upstreamClients.get(endpointId)
-    if (upstream === undefined) {
-      row.error = 'endpoint not configured'
-      return row
-    }
-    try {
-      const version = await upstream.probeVersion()
-      row.reachable = true
-      if (version !== 'unknown') {
-        // From 0.1.2 on, host.describe is synthesised by the facade and version returns the real DSH
-        // version of the host tree (falling back to the protocol number '0.0.1' when unreadable) -- for display, and the compatibility signal follows from it.
-        row.dshVersion = version
-        row.dshCompatible = dshCompatible(version)
-      }
-      return row
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error)
-      row.error = detail.slice(0, 300)
-      return row
-    }
-  }
-  const client = clients.get(endpointId)
-  if (client === undefined) {
+  const upstream = upstreamClients.get(endpointId)
+  if (upstream === undefined) {
     row.error = 'endpoint not configured'
     return row
   }
   try {
-    const health = await client.health()
+    const version = await upstream.probeVersion()
     row.reachable = true
-    row.sessions = health.sessions
-    row.apiKeySet = health.apiKeySet
-    row.enabled = health.enabled
+    if (version !== 'unknown') {
+      // From 0.1.2 on, host.describe is synthesised by the facade and version returns the real DSH
+      // version of the host tree (falling back to the protocol number '0.0.1' when unreadable) -- for display, and the compatibility signal follows from it.
+      row.dshVersion = version
+      row.dshCompatible = dshCompatible(version)
+    }
     return row
   } catch (error) {
     // A dead endpoint must not take the whole status page down; it shows
     // up as one unreachable row instead.
-    const detail = errorText(error)
+    const detail = error instanceof Error ? error.message : String(error)
     row.error = detail.slice(0, 300)
     return row
   }
@@ -118,13 +96,12 @@ export const _clearProbeCache = (): void => {
 
 const probeCached = async (
   config: AppConfig,
-  clients: Map<string, GatewayClient>,
   upstreamClients: Map<string, SessionDriver>,
   endpointId: string,
 ): Promise<EndpointStatus> => {
   const hit = probeCache.get(endpointId)
   if (hit !== undefined && Date.now() - hit.at < PROBE_TTL_MS) return hit.result
-  const result = await probeEndpoint(config, clients, upstreamClients, endpointId)
+  const result = await probeEndpoint(config, upstreamClients, endpointId)
   probeCache.set(endpointId, { at: Date.now(), result })
   return result
 }
@@ -133,7 +110,6 @@ export const registerStatusRoutes = (
   app: FastifyInstance,
   config: AppConfig,
   db: Db,
-  clients: Map<string, GatewayClient>,
   requireUser: preHandlerHookHandler,
   upstreamClients: Map<string, SessionDriver>,
   /** Node supervisors (the agent detail panel reads the container image tag from them; without docker it is empty or the lookup misses). */
@@ -143,11 +119,11 @@ export const registerStatusRoutes = (
   app.get('/healthz', async (_request, reply) => reply.send({ ok: true }))
 
   app.get('/api/status', { preHandler: requireUser }, async (_request, reply) => {
-    // Every configured endpoint gets a row, whatever its driver: the green dot
-    // is the page's whole job, and a missing row reads as "forgotten", not "down".
+    // Every configured endpoint gets a row: the green dot is the page's whole
+    // job, and a missing row reads as "forgotten", not "down".
     // Debt B4: the TTL cache -- reuse the previous probe inside the polling window instead of fanning out per request.
     const endpoints: EndpointStatus[] = await Promise.all(
-      Object.keys(config.endpoints).map((id) => probeCached(config, clients, upstreamClients, id)),
+      Object.keys(config.endpoints).map((id) => probeCached(config, upstreamClients, id)),
     )
 
     const agents = Object.values(config.agents).map((agent) => ({
@@ -181,7 +157,7 @@ export const registerStatusRoutes = (
     const agent = config.agents[request.params.id]
     if (agent === undefined) return reply.code(404).send({ error: 'unknown_agent' })
 
-    const health = await probeCached(config, clients, upstreamClients, agent.endpoint)
+    const health = await probeCached(config, upstreamClients, agent.endpoint)
 
     // Container form: the node's image tag (the image tag is the DSH version) -- the detail panel shows it first.
     const image = await supervisors.get(agent.endpoint)?.containerImage() ?? null

@@ -8,12 +8,12 @@
  * - `TurnState`: the turn's mutable state made explicit (the old implementation was a pile of lets captured by the closure);
  * - `makeFinish`: writing the final state (Debt A2 atomic accounting) + idempotence (Debt R8) -- it takes a state
  *   object and the dependencies, no longer capturing runAgent's locals;
- * - `handleTurnFrame`: the frame handler shared by both loops -- each loop keeps only its own differences
- *   (gateway: hello replay / when to send the message; apiproxy: reconnect frames / audit log / subscription mechanics).
+ * - `handleTurnFrame`: the frame handler the turn loop shares with the recovered-card path -- the loop keeps only
+ *   its own differences (reconnect frames / audit log / subscription mechanics).
  */
 import { eq } from 'drizzle-orm'
 import { schema, type Db } from '../db/index.js'
-import { normalizeUsage, sumUsage, type GatewayFrame, type TokenUsage } from '../gateway/stream.js'
+import { normalizeUsage, sumUsage, type GatewayFrame, type TokenUsage } from '../frames.js'
 import { computeCost, type PricingTable } from '../pricing.js'
 import type { RunOutcome, RunState } from '../runner.js'
 
@@ -196,17 +196,16 @@ export interface FrameHooks {
   relay: (frame: GatewayFrame) => void
   trackAwaiting: (frame: GatewayFrame) => void
   armSilence: () => void
-  /** apiproxy special case: a mid-turn stream reconnect (result unknown, fails loudly). Not passed by gateway. */
+  /** A mid-turn stream reconnect (result unknown, fails loudly unless pending asks came back). */
   onReconnect?: () => void
 }
 
 /**
- * The shared processing core for one frame (the part both loops had word for word, brought together):
+ * The shared processing core for one frame:
  * trackAwaiting -> armSilence -> relay -> live pricing/text -> tool_call -> turn_end.
  *
- * Two special cases stay out of here (each loop handles its own):
- * - hello: gateway's history replay (never forwarded and never billed), and the message is sent on the first hello;
- * - stream_reconnected: apiproxy's explicit failure (through hooks.onReconnect).
+ * One special case stays with the loop:
+ * - stream_reconnected: the explicit mid-turn failure (through hooks.onReconnect).
  */
 export const handleTurnFrame = (
   state: TurnState,

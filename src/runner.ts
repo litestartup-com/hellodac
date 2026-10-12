@@ -1,18 +1,13 @@
 import { randomUUID } from 'node:crypto'
-import { realpathSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { eq } from 'drizzle-orm'
 import type { Db } from './db/index.js'
 import { schema } from './db/index.js'
 import type { ResolvedAgent } from './config.js'
-import { GatewayError, isAdoptDisabled, type GatewayClient } from './gateway/client.js'
-import { errorText } from './errors.js'
-import { streamFrames, type GatewayFrame, type TokenUsage } from './gateway/stream.js'
 import { DEFAULT_PRICING, type PricingTable } from './pricing.js'
 import { withCommitLock } from './workspace/commit-lock.js'
 import { currentHead, snapshotAfter, snapshotBefore } from './workspace/snapshot.js'
 import type { SessionDriver } from './session-driver/port.js'
-import { UpstreamError } from './upstream/rpc.js'
+import type { GatewayFrame, TokenUsage } from './frames.js'
 // Debt E1: turn state / finish / the shared frame handler moved down into runner/turn.ts.
 import { handleTurnFrame, makeFinish, newTurnState } from './runner/turn.js'
 
@@ -38,11 +33,12 @@ export const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000
  * long means the turn is not slow but stopped -- typically waiting on an
  * interactive prompt that, for an API-driven session, nobody can answer.
  *
- * The gateway is supposed to make that unanswerable-prompt case impossible
- * (its questionMode: conversation). This is the backstop for when it is not:
- * an older gateway, questionMode: host, or a permission dialog, which cannot be
- * turned into conversation at all. It costs one timer and guarantees that no
- * turn hangs indefinitely regardless of what the other side does.
+ * The facade contract is supposed to make that unanswerable-prompt case
+ * impossible (questions and approvals arrive as mux frames and are answerable
+ * through respond). This is the backstop for when it is not: a permission
+ * dialog that never surfaces as a frame at all, or a host that went quiet for
+ * reasons nobody can see. It costs one timer and guarantees that no turn hangs
+ * indefinitely regardless of what the other side does.
  */
 export const DEFAULT_SILENCE_MS = 5 * 60 * 1000
 /**
@@ -53,37 +49,17 @@ export const DEFAULT_SILENCE_MS = 5 * 60 * 1000
  */
 export const DEFAULT_OUTWARD_GRACE_MS = 30 * 1000
 
-/**
- * True when two paths denote the same directory.
- *
- * Compared through realpath where possible: on Windows the same directory can
- * be spelled with different case or as an 8.3 short name, and a false mismatch
- * here would block every run.
- */
-export const sameDirectory = (a: string, b: string): boolean => {
-  const canonical = (p: string): string => {
-    try {
-      return realpathSync(p)
-    } catch {
-      return resolve(p)
-    }
-  }
-  const left = canonical(a)
-  const right = canonical(b)
-  if (left === right) return true
-  return process.platform === 'win32' && left.toLowerCase() === right.toLowerCase()
-}
-
 export type RunTrigger = 'manual' | 'cron' | 'api' | 'capture' | 'brain'
 export type RunState = 'pending' | 'running' | 'done' | 'failed' | 'missed'
 
 export interface RunInput {
   agent: ResolvedAgent
-  client: GatewayClient
-  /** The apiproxy client, set when driver is 'apiproxy'. */
-  upstream?: SessionDriver
-  /** Which driver the endpoint uses. Defaults to 'gateway'. */
-  driver?: 'gateway' | 'apiproxy'
+  /**
+   * The SessionDriver plug of the agent's endpoint (port vocabulary, src/session-driver/port.ts).
+   * Required: the retired gateway driver was the last reason a turn could run without one
+   * (facade 0.2.x dropped its session REST surface -- facts/dsh-facts.md §15).
+   */
+  upstream: SessionDriver
   prompt: string
   trigger: RunTrigger
   cronId?: string | null
@@ -103,25 +79,12 @@ export interface RunInput {
    */
   outwardGraceMs?: number
   /**
-   * Continue this gateway session instead of creating a fresh one.
+   * Continue this session instead of creating a fresh one.
    *
    * This is what makes a conversation a conversation: the model only sees the
    * earlier turns because the session is the same one.
    */
   sessionId?: string | null
-  /**
-   * Keep the gateway session alive after this turn instead of releasing it.
-   *
-   * Set by a conversation, which continues on the same session and would
-   * otherwise pay for a cold resume on every turn. Left unset by one-shot work
-   * (cron, a manual run, a capture): those sessions are never continued, and a
-   * turn that does not hand its slot back holds one against the gateway's
-   * `maxSessions` until DSH restarts. Enough of those and the gateway can
-   * neither create nor adopt, which takes the conversations down too.
-   *
-   * Default is therefore to release: leaking has to be asked for.
-   */
-  keepSession?: boolean
   /** The chat this turn belongs to, recorded on the run row. */
   chatId?: string | null
   onSession?: (sessionId: string) => void
@@ -134,10 +97,9 @@ export interface RunInput {
   /**
    * Receives every *live* frame, for relaying to browsers.
    *
-   * Live only, and for the same reason usage is counted from live frames only:
-   * the gateway's `hello` frame replays the entire durable history, so treating
-   * it as live would re-emit -- and re-bill -- the whole conversation on every
-   * reconnect.
+   * Live frames only, for the same reason usage is counted from live frames
+   * only: anything replayed from the durable history would re-emit -- and
+   * re-bill -- what an earlier turn already emitted.
    */
   onFrame?: (frame: GatewayFrame) => void
 }
@@ -154,7 +116,7 @@ export interface RunOutcome {
   peakCostMicroUsd: number | null
   provider: string | null
   model: string | null
-  /** turn_end reason as reported by the gateway. */
+  /** turn_end reason as reported by the host. */
   reason: string | null
   error: string | null
   toolCalls: number
@@ -184,9 +146,8 @@ export interface RunnerDeps {
 }
 
 /**
- * Hive P5.4: the set of active runs per agent (concurrency). The ceiling is the gateway's
- * maxSessions -- DSH's own session slots -- and the manager no longer serialises by hand. This map only
- * serves the "in progress" display in the UI and the routes; it is no longer a reason to refuse.
+ * Hive P5.4: the set of active runs per agent (concurrency). The manager does not serialise by
+ * hand; this map only serves the "in progress" display in the UI and the routes.
  */
 const activeRuns = new Map<string, Set<string>>()
 
@@ -206,45 +167,10 @@ export const activeRunCount = (agentId: string): number => activeRuns.get(agentI
  * everything else runs in parallel throughout. The lock itself is in workspace/commit-lock.ts (fleet.md sync shares the same one).
  */
 
-/**
- * Turns an adopt failure into something a person can act on.
- *
- * The gateway funnels every adopt problem through one shape -- 400
- * `adopt_failed` with the real cause only in `detail` (its index.ts:721-723) --
- * so without this the user would see "gateway responded 400" for four situations
- * that need four different responses.
- */
-export const adoptFailure = (error: unknown, sessionId: string): string => {
-  if (isAdoptDisabled(error)) {
-    return (
-      `this conversation's DSH session (${sessionId}) is no longer live, and the gateway has session ` +
-      'adoption turned off, so it cannot be resumed. The history is still readable. ' +
-      'Set allowAdopt on the gateway to continue conversations across restarts.'
-    )
-  }
-  const detail = errorText(error)
-  if (detail.includes('session cap reached')) {
-    return (
-      'the gateway is holding its maximum number of live sessions, so this one could not be resumed. ' +
-      'Raise maxSessions on the gateway, or wait for a session to be released.'
-    )
-  }
-  if (detail.includes('session_not_found')) {
-    return (
-      `the DSH session ${sessionId} no longer exists on the gateway, so this conversation cannot be ` +
-      'continued. Start a new one; the history above is kept.'
-    )
-  }
-  if (detail.includes('resume_failed')) {
-    return `DSH could not rebuild the session ${sessionId}: ${detail}`
-  }
-  return error instanceof GatewayError ? error.message : String(error)
-}
-
 export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOutcome> => {
   const now = deps.clock ?? Date.now
   const log = deps.log
-  const { agent, client, prompt } = input
+  const { agent, prompt, upstream } = input
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const silenceMs = input.silenceMs ?? DEFAULT_SILENCE_MS
   const startedAt = now()
@@ -344,22 +270,19 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
   const declineFrame = async (frame: GatewayFrame): Promise<void> => {
     const sid = turnState.sessionId
     if (sid === null) return
-    const useUpstream = (input.driver ?? 'gateway') === 'apiproxy' && input.upstream !== undefined
     const graceSec = Math.round(outwardGraceMs / 1000)
     try {
       if (frame.kind === 'question_asked') {
         const qid = typeof frame.questionId === 'string' ? frame.questionId : null
         if (qid === null) return
-        // apiproxy: the questionId IS the rpc id; the gateway client takes the arguments the other way round.
-        if (useUpstream) await input.upstream?.declineQuestion(qid, sid)
-        else await client.declineQuestion(sid, qid)
+        // The questionId IS the rpc id of the respond contract.
+        await upstream.declineQuestion(qid, sid)
         log?.info(`run ${runId}: outward turn — nobody can answer prompts here, so question ${qid} was auto-declined after ${graceSec}s`)
       } else if (frame.kind === 'approval_pending') {
         const did = typeof frame.decisionId === 'string' ? frame.decisionId : null
         const ap = typeof frame.approvalId === 'string' ? frame.approvalId : null
         if (did === null || ap === null) return
-        if (useUpstream) await input.upstream?.decideApproval(did, sid, ap, 'rejected')
-        else await client.decideApproval(sid, did, 'rejected')
+        await upstream.decideApproval(did, sid, ap, 'rejected')
         const toolName = typeof (frame as { toolName?: unknown }).toolName === 'string' ? (frame as { toolName?: string }).toolName : ''
         log?.info(`run ${runId}: outward turn — approval ${did}${toolName === '' ? '' : ` (${toolName})`} was auto-rejected after ${graceSec}s`)
       } else {
@@ -411,21 +334,6 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
         awaitingHuman = Math.max(0, awaitingHuman - 1)
         if (isOutward) cancelAutoDecline(frame)
         return
-      case 'hello': {
-        // A stream can open onto a session that is already waiting on something.
-        const questions = Array.isArray(frame.questions) ? frame.questions.length : 0
-        const approvals = Array.isArray(frame.approvals) ? frame.approvals.length : 0
-        awaitingHuman = questions + approvals
-        if (isOutward && awaitingHuman > 0) {
-          // The gateway hello replay carries pending prompts with no frame ids to decline them by,
-          // and the gateway driver is a dead path for outward agents anyway (DSH-FACTS §15): count
-          // honestly and say so -- the armed silence backstop bounds the wait.
-          log?.warn(
-            `run ${runId}: outward turn opened onto ${awaitingHuman} pending prompt(s) it cannot decline (gateway hello replay); the silence backstop stays armed`,
-          )
-        }
-        return
-      }
       case 'turn_end':
         awaitingHuman = 0
         clearDeclines()
@@ -455,14 +363,13 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
         ? `nothing happened for ${Math.round(silenceMs / 1000)}s, so the turn was cancelled. ` +
         'A turn that goes quiet this long is usually waiting on something this side never saw -- ' +
         'an interactive question or a permission prompt that went somewhere else. Ask again, and if it ' +
-        "keeps happening set the gateway's questions/approvals to 'gateway' so they arrive here, and " +
-        "check the deployment's approval policy."
+        "keeps happening check the node's facade wiring (question/approval frames must reach the manager) " +
+        "and the deployment's approval policy."
       : `no response within ${Math.round(timeoutMs / 1000)}s; the turn was cancelled`
 
-  // Debt E1: the turn's mutable state is an explicit object -- both turn loops, the shared frame handler
+  // Debt E1: the turn's mutable state is an explicit object -- the turn loop, the shared frame handler
   // (runner/turn.ts) and finish read and write it, replacing the single closure-captured let of the old implementation.
   const turnState = newTurnState()
-  let timedOut = false
 
   // Accumulated per response, because the rate depends on when each one landed.
   const pricing = deps.pricing ?? DEFAULT_PRICING
@@ -483,137 +390,9 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
     clearTimers,
   })
 
-  // ---- gateway turn (existing path) ----
+  // ---- the turn (one path: the SessionDriver port) ----
 
-  const turnGateway = async (): Promise<RunOutcome> => {
-    try {
-      let cwd: string | null | undefined
-
-      if (input.sessionId === undefined || input.sessionId === null) {
-        const created = await client.createSession({
-          cwd: agent.workspacePath,
-          ...(agent.provider === undefined || agent.provider === null ? {} : { provider: agent.provider }),
-          ...(agent.model === undefined || agent.model === null ? {} : { model: agent.model }),
-        })
-        turnState.sessionId = created.sessionId
-        turnState.provider = created.provider ?? agent.provider ?? null
-        turnState.model = created.model ?? agent.model ?? null
-        cwd = created.cwd
-      } else {
-        // Adopt rather than send-and-retry-on-404.
-        //
-        // The gateway holds sessions in an in-memory map, so a DSH restart or its
-        // maxSessions cap turns a session cold, and both `messages` and `stream`
-        // answer 404 for a cold session. `adopt` is idempotent -- it returns the
-        // live entry untouched when one exists (gateway index.ts:570-573) -- so
-        // one unconditional call covers both the warm and the cold case.
-        turnState.sessionId = input.sessionId
-        let adopted
-        try {
-          adopted = await client.adopt(input.sessionId)
-        } catch (error) {
-          return finish('failed', adoptFailure(error, input.sessionId))
-        }
-        turnState.provider = adopted.provider ?? agent.provider ?? null
-        turnState.model = adopted.model ?? agent.model ?? null
-        cwd = adopted.cwd
-      }
-
-      // The gateway does not take a sandbox mode, and `cwd` is only the session's
-      // working directory -- the real write boundary is the DSH process's own
-      // sandboxPolicy.workspaceRoot, which manager cannot set. Worse, with
-      // workspaceMode 'auto' the gateway may remap cwd to a workspace's canonical
-      // path (dsh-api-gateway/src/index.ts:504-509).
-      //
-      // So verify where the session actually landed. Checked on the adopt path too,
-      // not just on creation: a resumed session reports the cwd DSH rebuilt it
-      // with, which is not guaranteed to be the one it was created with.
-      if (cwd !== null && cwd !== undefined && !sameDirectory(cwd, agent.workspacePath)) {
-        return finish(
-          'failed',
-          `the gateway placed the session in ${cwd} instead of ${agent.workspacePath}. ` +
-            'Check the DSH profile\'s workspaceMode and sandboxPolicy.workspaceRoot; ' +
-            'a session outside the agent workspace would write to the wrong place.',
-        )
-      }
-      if (cwd === null || cwd === undefined) {
-        log?.warn(
-          `run ${runId}: the gateway reported no cwd, so the session's write location is whatever the DSH profile defaults to`,
-        )
-      }
-
-      deps.db.update(schema.run).set({ dshSessionId: turnState.sessionId }).where(eq(schema.run.id, runId)).run()
-      if (turnState.sessionId !== null) input.onSession?.(turnState.sessionId)
-      log?.info(`run ${runId}: session ${turnState.sessionId} on ${client.id}, cwd=${agent.workspacePath}`)
-
-      const frames = streamFrames(client.streamUrl(turnState.sessionId), {
-        headers: client.headers(),
-        signal: controller.signal,
-      })
-
-      armSilence()
-      let sent = false
-      // Debt E1: the shared handling of live frames is handleTurnFrame in runner/turn.ts;
-      // the gateway loop keeps only its own difference -- the hello replay and when the message is sent.
-      const frameHooks = {
-        relay: (frame: GatewayFrame) => input.onFrame?.(frame),
-        trackAwaiting,
-        armSilence,
-      }
-      for await (const frame of frames) {
-        if (frame.kind === 'hello') {
-          // Deliberately ignoring frame.log: it is history, and counting its usage
-          // would bill previous turns again. The awaiting count and the silence re-arm happen in the same order as for live frames.
-          trackAwaiting(frame)
-          armSilence()
-          if (!sent) {
-            await client.sendMessage(turnState.sessionId, prompt)
-            sent = true
-          }
-          continue
-        }
-
-        const result = handleTurnFrame(turnState, { pricing, now }, frame, frameHooks)
-        if (result.kind === 'end') return finish(result.state, result.error)
-      }
-
-      // The stream ended without turn_end: the gateway keeps subscriptions open,
-      // so this means the connection dropped or the abort fired.
-      if (timedOut || controller.signal.aborted) {
-        return finish('failed', cancelledText())
-      }
-      if (!sent) return finish('failed', 'the stream closed before the instruction could be sent')
-      return finish('failed', 'the stream ended before the turn finished')
-    } catch (error) {
-      const aborted = controller.signal.aborted
-      if (aborted) {
-        timedOut = true
-        // Cancelled rather than released here: the session may still be wanted
-        // (a chat turn that timed out is still a chat), and the release decision
-        // belongs to the cleanup below, which knows whether it is.
-        if (turnState.sessionId !== null) {
-          await client.cancel(turnState.sessionId).catch((cancelError: unknown) => {
-            log?.warn(`run ${runId}: cancel failed: ${(cancelError as Error).message}`)
-          })
-        }
-        return finish('failed', cancelledText())
-      }
-      const message = error instanceof GatewayError ? error.message : (error as Error).message
-      log?.error(`run ${runId} failed: ${message}`)
-      return finish('failed', message)
-    }
-  }
-
-  // ---- apiproxy turn (new path) ----
-
-  const turnApiproxy = async (): Promise<RunOutcome> => {
-    // Debt E10: an explicit null check -- driver=apiproxy with no upstream client is a wiring error, and it has to
-    // fail loudly rather than let undefined blow up into an obscure TypeError at subscribe.
-    const upstream = input.upstream
-    if (upstream === undefined) {
-      return finish('failed', 'apiproxy driver selected but no upstream client is wired for this endpoint')
-    }
-
+  const driveTurn = async (): Promise<RunOutcome> => {
     /**
      * Pin the deferred sandbox override (chat.accessModeOverride) and clear it.
      * The host only allows pinning a live session: the create branch calls this right after creating, the resume branch
@@ -709,7 +488,7 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
 
       deps.db.update(schema.run).set({ dshSessionId: turnState.sessionId }).where(eq(schema.run.id, runId)).run()
       if (turnState.sessionId !== null) input.onSession?.(turnState.sessionId)
-      log?.info(`run ${runId}: session ${turnState.sessionId} on ${upstream.id} (apiproxy), cwd=${agent.workspacePath}`)
+      log?.info(`run ${runId}: session ${turnState.sessionId} on ${upstream.id}, cwd=${agent.workspacePath}`)
 
       // Debt E10: an explicit narrowing -- the create branch guarantees a non-null sessionId, so take a local before the closure instead of using `!`
       const sid = turnState.sessionId
@@ -802,7 +581,6 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
         // Abort handler: clean up the subscription
         const abortTurn = () => {
           unsub()
-          timedOut = true
           upstream.cancel(sid).catch((cancelError: unknown) => {
             log?.warn(`run ${runId}: cancel failed: ${(cancelError as Error).message}`)
           })
@@ -842,15 +620,11 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
       if (controller.signal.aborted) {
         return finish('failed', cancelledText())
       }
-      const message = error instanceof UpstreamError ? error.message
-        : error instanceof GatewayError ? error.message
-          : (error as Error).message
+      const message = error instanceof Error ? error.message : String(error)
       log?.error(`run ${runId} failed: ${message}`)
       return finish('failed', message)
     }
   }
-
-  const turn = (input.driver ?? 'gateway') === 'apiproxy' ? turnApiproxy : turnGateway
 
   try {
     // Hive P5.4: the first of the git trio -- commit serialisation. A snapshot (git add/commit included)
@@ -867,7 +641,7 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
     // The baseline for conflict detection = the workspace HEAD when this turn started writing to disk.
     const baseline = pre.commit ?? (await currentHead(agent.workspacePath))
 
-    const outcome = await turn()
+    const outcome = await driveTurn()
 
     // Hive P5.4: the second of the git trio -- making conflicts visible. Before the closing commit, check whether HEAD has
     // been pushed on by a concurrent turn: if so this turn worked from the older state, the conflict goes onto the run row, and nothing stays silent.
@@ -906,28 +680,7 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
     }
   } finally {
     input.signal?.removeEventListener('abort', stopFromCaller)
-    // Handed back before the lock is dropped, so the next run cannot be refused
-    // by `maxSessions` over a session this run has finished with.
-    //
-    // In `finally` because a thrown snapshot must not turn into a leaked slot,
-    // and the failure is swallowed for the same reason the snapshot's is: the
-    // turn already ran and was already paid for, so its outcome must not be lost
-    // to a cleanup error. The gateway keeps the transcript either way, so the
-    // worst case is a slot that stays held until DSH restarts -- visible in the
-    // log, and recoverable.
-    // apiproxy has no slot management; only gateway sessions need releasing.
-    if ((input.driver ?? 'gateway') === 'gateway' && input.keepSession !== true && turnState.sessionId !== null) {
-      try {
-        await client.release(turnState.sessionId)
-      } catch (error) {
-        log?.warn(
-          `run ${runId}: could not hand session ${turnState.sessionId} back to the gateway, ` +
-            `so it still counts against maxSessions: ${(error as Error).message}`,
-        )
-      }
-    }
-
-    // Hive P5.4: the session slot is handed back before any commit/release; the active set is only a display registration.
+    // Hive P5.4: the active set is only a display registration; drop it whatever the outcome.
     const set = activeRuns.get(agent.id)
     if (set !== undefined) {
       set.delete(runId)

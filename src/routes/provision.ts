@@ -8,7 +8,6 @@ import { mutateYamlFile, withConfigLock, writeFileAtomic } from '../config-store
 import type { AppConfig, ResolvedEndpoint, ResolvedSpawnSpec } from '../config.js'
 import type { Db } from '../db/index.js'
 import { schema } from '../db/index.js'
-import type { GatewayClient } from '../gateway/client.js'
 import type { SessionDriver } from '../session-driver/port.js'
 import { buildUpstreamClients } from '../upstream/client.js'
 import type { NodeSupervisor } from '../nodes/supervisor.js'
@@ -243,7 +242,6 @@ const spawnFor = (dshBin: string, name: string, nodeHomePath: string, pins?: { d
 interface ProvisionDeps {
   db: Db
   supervisors: Map<string, NodeSupervisor>
-  clients: Map<string, GatewayClient>
   upstreamClients: Map<string, SessionDriver>
   /** Hive plan 2 P6: needed when adding a node in container mode (docker runner wiring). */
   docker?: DockerRunner
@@ -483,7 +481,6 @@ export const registerProvisionRoutes = (
         if (upstream !== undefined) upstreamClients.set(body.name, upstream)
         const supervisor = makeSupervisor(endpoint, {
           upstream: (id) => upstreamClients.get(id),
-          gateway: () => deps.clients.get(body.name),
           log: (line) => app.log.info(line),
           ...(deps.docker === undefined ? {} : { docker: deps.docker }),
         })
@@ -579,7 +576,6 @@ export const registerProvisionRoutes = (
         if (upstream !== undefined) upstreamClients.set(body.name, upstream)
         const supervisor = makeSupervisor(endpoint, {
           upstream: (id) => upstreamClients.get(id),
-          gateway: () => deps.clients.get(body.name),
           log: (line) => app.log.info(line),
           ...(deps.docker === undefined ? {} : { docker: deps.docker }),
           ...(deps.agentCommand === undefined ? {} : { agentCommand: deps.agentCommand }),
@@ -677,7 +673,6 @@ export const registerProvisionRoutes = (
 
       const supervisor = makeSupervisor(endpoint, {
         upstream: (id) => upstreamClients.get(id),
-        gateway: () => deps.clients.get(body.name),
         log: (line) => app.log.info(line),
       })
       supervisors.set(body.name, supervisor)

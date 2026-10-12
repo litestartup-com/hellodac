@@ -19,7 +19,7 @@ import { join } from 'node:path'
 import { UpstreamClient } from '../src/upstream/client.js'
 import { waitForFrame } from '../src/upstream/mux.js'
 import type { ResolvedEndpoint } from '../src/config.js'
-import type { GatewayFrame } from '../src/gateway/stream.js'
+import type { GatewayFrame } from '../src/frames.js'
 
 const baseArg = process.argv[2] ?? process.env.SMOKE_BASE ?? 'http://127.0.0.1:3080/api'
 const presetArg = process.argv[3] ?? process.env.SMOKE_PRESET ?? 'minimal'

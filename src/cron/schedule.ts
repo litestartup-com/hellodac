@@ -4,7 +4,6 @@ import { eq } from 'drizzle-orm'
 import type { AppConfig } from '../config.js'
 import type { Db } from '../db/index.js'
 import { schema } from '../db/index.js'
-import { dummyGatewayClient, type GatewayClient } from '../gateway/client.js'
 import type { SessionDriver } from '../session-driver/port.js'
 import { runAgent, type RunInput, type RunOutcome, type RunnerDeps } from '../runner.js'
 import { USD_TO_MICRO, currentDay, daySpend } from '../usage/store.js'
@@ -45,11 +44,10 @@ export interface CronLog {
 export interface CronDeps {
   db: Db
   config: AppConfig
-  clients: Map<string, GatewayClient>
-  upstreamClients?: Map<string, SessionDriver>
+  upstreamClients: Map<string, SessionDriver>
   log: CronLog
   clock?: () => number
-  /** Swapped out in tests so the scheduler can be driven without a gateway. */
+  /** Swapped out in tests so the scheduler can be driven without a live upstream. */
   runTurn?: (deps: RunnerDeps, input: RunInput) => Promise<RunOutcome>
 }
 
@@ -129,7 +127,7 @@ export class Scheduler {
     return this.deps.db.select().from(schema.cron).where(eq(schema.cron.id, cronId)).all()[0]
   }
 
-  /** A `run` row for an attempt that never reached the gateway. */
+  /** A `run` row for an attempt that never reached the upstream. */
   private recordSkip(row: CronRow, state: 'missed', message: string): string {
     const runId = randomUUID()
     const at = this.now()
@@ -262,14 +260,9 @@ export class Scheduler {
     if (agent === undefined) {
       return skip('misconfigured', `agent "${row.agentId}" is no longer in manager.config.yaml`)
     }
-    const driver = this.deps.config.endpoints[agent.endpoint]?.driver ?? 'gateway'
-    const upstream = this.deps.upstreamClients?.get(agent.endpoint)
-    const client = this.deps.clients.get(agent.endpoint)
-    if (driver === 'apiproxy' && upstream === undefined) {
-      return skip('misconfigured', `endpoint "${agent.endpoint}" is apiproxy but has no upstream client`)
-    }
-    if (driver === 'gateway' && client === undefined) {
-      return skip('misconfigured', `endpoint "${agent.endpoint}" is not configured`)
+    const upstream = this.deps.upstreamClients.get(agent.endpoint)
+    if (upstream === undefined) {
+      return skip('misconfigured', `endpoint "${agent.endpoint}" has no upstream client`)
     }
 
     if (!force) {
@@ -283,9 +276,7 @@ export class Scheduler {
         { db: this.deps.db, pricing: this.deps.config.pricing, log: this.deps.log },
         {
           agent,
-          client: client ?? dummyGatewayClient(),
-          ...(upstream === undefined ? {} : { upstream }),
-          driver,
+          upstream,
           prompt: row.prompt,
           trigger: 'cron',
           cronId: row.id,
@@ -312,7 +303,7 @@ export class Scheduler {
       return this.countFailure(row, outcome.error ?? 'the run failed without a reason', outcome.runId)
     } catch (error) {
       // Hive P5.4: there is no more "agent busy" rejection -- cron runs concurrently like any other turn,
-      // with the ceiling set by the gateway's seats. The catch here is left with real failures only.
+      // with the ceiling set by the host's own limits. The catch here is left with real failures only.
       return this.countFailure(row, error instanceof Error ? error.message : String(error), null)
     }
   }

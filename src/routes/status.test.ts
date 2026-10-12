@@ -3,7 +3,6 @@ import { test } from 'node:test'
 import Fastify, { type FastifyInstance } from 'fastify'
 import type { AppConfig, ResolvedAgent } from '../config.js'
 import type { Db } from '../db/index.js'
-import { GatewayClient } from '../gateway/client.js'
 import { UpstreamClient } from '../upstream/client.js'
 import { FakeSessionDriver } from '../session-driver/fake.js'
 import { DEFAULT_PRICING } from '../pricing.js'
@@ -34,7 +33,7 @@ const boot = (): { app: FastifyInstance; db: Db } => {
   const config: AppConfig = {
     listen: { host: '127.0.0.1', port: 0 },
     // Port 1 is never listening, so health() fails the way a stopped DSH does.
-    endpoints: { A: { id: 'A', url: 'http://127.0.0.1:1', driver: 'gateway', prefix: '/api-gw/v1', key: 'k', sandboxBase: null, sandboxKey: '', spawn: null, access: null } },
+    endpoints: { A: { id: 'A', url: 'http://127.0.0.1:1', driver: 'apiproxy', prefix: '/api', key: 'k', sandboxBase: null, sandboxKey: '', spawn: null, access: null } },
     agents: {
       personal: agentFor('personal', 'Personal', workspace),
       company: agentFor('company', 'Company', workspace),
@@ -48,8 +47,9 @@ const boot = (): { app: FastifyInstance; db: Db } => {
   }
 
   const app = Fastify()
-  const clients = new Map([['A', new GatewayClient(config.endpoints.A!)]])
-  registerStatusRoutes(app, config, db, clients, async () => undefined, new Map())
+  // The endpoint is deliberately dead: probeVersion null makes the fake throw the way an unreachable node does.
+  const upstreamClients = new Map([['A', new FakeSessionDriver('A', { frames: [], probeVersion: null })]])
+  registerStatusRoutes(app, config, db, async () => undefined, upstreamClients)
   return { app, db }
 }
 
@@ -83,7 +83,7 @@ test('an agent that is not configured is a 404, not an empty panel', async () =>
   await app.close()
 })
 
-test('an apiproxy endpoint gets a row probed via host.describe, not /health', async () => {
+test('an endpoint gets a row probed via host.describe (the port probeVersion)', async () => {
   _clearProbeCache()
   const workspace = tempDir('route-status-apx-ws')
   const db = makeDbWithAgents([{ id: 'personal', workspacePath: workspace }])
@@ -102,7 +102,7 @@ test('an apiproxy endpoint gets a row probed via host.describe, not /health', as
   const app = Fastify()
   const upstream = new UpstreamClient(config.endpoints.A!)
   const upstreamClients = new Map([['A', upstream]])
-  registerStatusRoutes(app, config, db, new Map(), async () => undefined, upstreamClients)
+  registerStatusRoutes(app, config, db, async () => undefined, upstreamClients)
 
   const response = await app.inject({ method: 'GET', url: '/api/status' })
   assert.equal(response.statusCode, 200)
@@ -143,7 +143,7 @@ test('Debt B4 regression: polling again within the TTL reuses the cached probe i
     return '0.1.1-rc.2'
   }
   const upstreamClients = new Map([['A', fake]])
-  registerStatusRoutes(app, config, db, new Map(), async () => undefined, upstreamClients)
+  registerStatusRoutes(app, config, db, async () => undefined, upstreamClients)
 
   await app.inject({ method: 'GET', url: '/api/status' })
   await app.inject({ method: 'GET', url: '/api/status' })
@@ -173,7 +173,7 @@ test('Fleet M1 pilot regression: the compatibility signal goes through the matri
   const fake = new FakeSessionDriver('A', { frames: [], probeVersion: '0.1.5-rc.2' })
   fake.probeVersion = async (): Promise<string> => '0.1.5-rc.2'
   const upstreamClients = new Map([['A', fake]])
-  registerStatusRoutes(app, config, db, new Map(), async () => undefined, upstreamClients)
+  registerStatusRoutes(app, config, db, async () => undefined, upstreamClients)
 
   const response = await app.inject({ method: 'GET', url: '/api/status' })
   const body = response.json()

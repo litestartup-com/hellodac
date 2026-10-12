@@ -50,7 +50,7 @@ declare module 'fastify' {
 }
 
 /** Both headers are accepted: `Authorization: Bearer` is the standard, and `X-API-Key` matches the
- * gateway convention and is easier for reverse proxies to forward. */
+ * facade convention and is easier for reverse proxies to forward. */
 const extractToken = (request: FastifyRequest): string | undefined => {
   const authorization = request.headers.authorization
   if (typeof authorization === 'string' && authorization.length > 7 && authorization.slice(0, 7).toLowerCase() === 'bearer ') {

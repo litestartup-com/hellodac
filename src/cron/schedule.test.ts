@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { eq } from 'drizzle-orm'
 import type { AppConfig, ResolvedAgent } from '../config.js'
 import { schema, type Db } from '../db/index.js'
-import type { GatewayClient } from '../gateway/client.js'
+import { FakeSessionDriver } from '../session-driver/fake.js'
 import { DEFAULT_PRICING } from '../pricing.js'
 import { type RunOutcome } from '../runner.js'
 import { Scheduler, missedBetween, scheduleProblem, type CronDeps } from './schedule.js'
@@ -14,7 +14,7 @@ const AGENT: ResolvedAgent = { ...personalAgent('/tmp/ws') }
 
 const configWith = (over: Partial<AppConfig['runner']> = {}): AppConfig => ({
   listen: { host: '127.0.0.1', port: 0 },
-  endpoints: { A: { id: 'A', url: 'http://127.0.0.1:1', driver: 'gateway', prefix: '/api-gw/v1', key: 'k', sandboxBase: null, sandboxKey: '', spawn: null, access: null } },
+  endpoints: { A: { id: 'A', url: 'http://127.0.0.1:1', driver: 'apiproxy', prefix: '/api', key: 'k', sandboxBase: null, sandboxKey: '', spawn: null, access: null } },
   agents: { personal: AGENT },
   runner: { timeoutMs: 1000, silenceMs: 0, maxConsecutiveFailures: 3, dailyBudgetMicroUsd: null, ...over },
   databasePath: ':memory:',
@@ -80,7 +80,7 @@ const outcome = (over: Partial<RunOutcome> = {}): RunOutcome => ({
 const deps = (db: Db, over: Partial<CronDeps> = {}): CronDeps => ({
   db,
   config: configWith(),
-  clients: new Map<string, GatewayClient>([['A', {} as GatewayClient]]),
+  upstreamClients: new Map([['A', new FakeSessionDriver('A', { frames: [], probeVersion: '0.2.0-rc.2' })]]),
   log: silent,
   ...over,
 })

@@ -12,7 +12,6 @@ import { backupNow } from './backup.js'
 import { generatePassword, hashPassword } from './auth/password.js'
 import { pruneExpiredSessions } from './auth/session.js'
 import { makeRequirePage, makeRequireUser } from './auth/hooks.js'
-import { buildClients, dummyGatewayClient } from './gateway/client.js'
 import { getChat } from './chat/store.js'
 import { buildUpstreamClients, closeAllMux } from './upstream/client.js'
 import { setMuxLogger } from './upstream/mux.js'
@@ -106,7 +105,6 @@ const main = async (): Promise<void> => {
   // ↓ Converged into src/reconcile (A list #2, the single entry): the DB mirror / stale runs / orphan chats
   //   / the fleet push / node claiming all go through reconcileAll, see the call site below.
 
-  const clients = buildClients(config.endpoints)
   const upstreamClients = buildUpstreamClients(config.endpoints)
   // Debt card chain (2026-09-17): the diagnostic log for dropped mux frames and reconnects goes into app.log --
   // when a question/approval frame is rejected by the discrimination or lost in the outage window, the missing card leaves a trace.
@@ -115,7 +113,6 @@ const main = async (): Promise<void> => {
   const needsDocker = Object.values(config.endpoints).some((e) => e.spawn?.runner === 'docker')
   const dockerRunner = needsDocker ? new DockerRunner({}) : null
   const nodeSupervisors = buildNodeSupervisors(config, {
-    gateway: (id) => clients.get(id),
     upstream: (id) => upstreamClients.get(id),
     log: (line) => app.log.info(line),
     ...(dockerRunner === null ? {} : { docker: dockerRunner }),
@@ -304,18 +301,17 @@ const main = async (): Promise<void> => {
   // service" stops being "SSH in and edit YAML". Membership changes converge through the same
   // reconcile entry as every other config change.
   registerServiceEditorRoutes(app, { config, db, requireUser, reconcile: reconcileDeps })
-  registerStatusRoutes(app, config, db, clients, requireUser, upstreamClients, nodeSupervisors)
+  registerStatusRoutes(app, config, db, requireUser, upstreamClients, nodeSupervisors)
   registerWorkspaceRoutes(app, config, requireUser)
-  registerRunRoutes(app, config, db, clients, requireUser, upstreamClients)
+  registerRunRoutes(app, config, db, requireUser, upstreamClients)
   registerBoardRoutes(app, config, requireUser)
   // The public chat face reuses the same turn runner as the back office (one instance = one copy of the "this chat is running" state).
-  const chatTurns = registerChatRoutes(app, config, db, clients, requireUser, upstreamClients, (actor, kind, detail) =>
+  const chatTurns = registerChatRoutes(app, config, db, requireUser, upstreamClients, (actor, kind, detail) =>
     recordAudit(db, { actor, kind, detail }))
   registerUsageRoutes(app, config, db, requireUser)
   const scheduler = new Scheduler({
     db,
     config,
-    clients,
     upstreamClients,
     log: {
       info: (m) => app.log.info(m),
@@ -325,15 +321,14 @@ const main = async (): Promise<void> => {
   })
   registerCronRoutes(app, config, db, scheduler, requireUser)
   // Hive P2: the brain-side internal API (127.0.0.1 only, plus X-Brain-Token).
-  registerInternalRoutes(app, config, db, clients, upstreamClients, scheduler)
+  registerInternalRoutes(app, config, db, upstreamClients, scheduler)
   // Hive P3: the node (fleet) view. Audit callback: every node operation leaves a trace.
-  registerNodesRoutes(app, config, nodeSupervisors, clients, upstreamClients, requireUser, (actor, kind, detail) =>
+  registerNodesRoutes(app, config, nodeSupervisors, upstreamClients, requireUser, (actor, kind, detail) =>
     recordAudit(db, { actor, kind, detail }),
   )
   registerProvisionRoutes(app, config, requireUser, {
     db,
     supervisors: nodeSupervisors,
-    clients,
     upstreamClients,
     ...(dockerRunner === null ? {} : { docker: dockerRunner }),
     // Capability four (M1-7): needed to create an agent node (makeSupervisor's agent trio plus fleet)
@@ -414,12 +409,9 @@ const main = async (): Promise<void> => {
         if (chat === null) throw new Error(`unknown conversation ${chatId}`)
         const agent = config.agents[agentId]
         if (agent === undefined) throw new Error(`agent ${agentId} is not in the config`)
-        const driver = config.endpoints[agent.endpoint]?.driver ?? 'gateway'
-        const upstream = upstreamClients.get(agent.endpoint) ?? null
-        const client = clients.get(agent.endpoint)
-        if (driver === 'apiproxy' && upstream === null) throw new Error(`endpoint ${agent.endpoint} has no apiproxy client`)
-        if (driver === 'gateway' && client === undefined) throw new Error(`endpoint ${agent.endpoint} has no gateway client`)
-        return await chatTurns.startChatTurn(chat, agent, client ?? dummyGatewayClient(), upstream, driver, text, { apiKeyId })
+        const upstream = upstreamClients.get(agent.endpoint)
+        if (upstream === undefined) throw new Error(`endpoint ${agent.endpoint} has no upstream client`)
+        return await chatTurns.startChatTurn(chat, agent, upstream, text, { apiKeyId })
       },
     },
   })

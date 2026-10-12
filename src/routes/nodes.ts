@@ -4,7 +4,6 @@ import { join, resolve } from 'node:path'
 import { z } from 'zod'
 import type { FastifyInstance, preHandlerHookHandler } from 'fastify'
 import type { AppConfig, ResolvedEndpoint } from '../config.js'
-import type { GatewayClient } from '../gateway/client.js'
 import type { SessionDriver } from '../session-driver/port.js'
 import type { NodeSupervisor } from '../nodes/supervisor.js'
 import type { AuditKind } from '../audit.js'
@@ -26,7 +25,6 @@ export const registerNodesRoutes = (
   app: FastifyInstance,
   config: AppConfig,
   supervisors: Map<string, NodeSupervisor>,
-  clients: Map<string, GatewayClient>,
   upstreamClients: Map<string, SessionDriver>,
   requireUser: preHandlerHookHandler,
   /** Hive plan 2 P3: audit callback for node actions (injected by the wiring layer, optional in tests). */
@@ -102,7 +100,7 @@ export const registerNodesRoutes = (
           .map((a) => a.id)
         const ep = config.endpoints[id]
         const supervisor = supervisors.get(id)
-        const probe = await probeEndpoint(config, clients, upstreamClients, id)
+        const probe = await probeEndpoint(config, upstreamClients, id)
         const guiUrl = ep === undefined ? null : await guiUrlOf(ep, supervisor)
         if (supervisor !== undefined) {
           const s = supervisor.current

@@ -1,13 +1,9 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { after, test } from 'node:test'
+import { test } from 'node:test'
 import { eq } from 'drizzle-orm'
 import { schema, type Db } from '../db/index.js'
-import { GatewayClient } from '../gateway/client.js'
-import { startFakeGateway, type FakeGateway, type FakeScript } from '../gateway/fake.js'
-import type { GatewayFrame } from '../gateway/stream.js'
+import { FakeSessionDriver, type FakeScript } from '../session-driver/fake.js'
+import type { GatewayFrame } from '../frames.js'
 import { runAgent } from '../runner.js'
 import { bindSession, chatRuns, createChat, deriveTitle, getChat, listChats, removeChat, setTitleIfEmpty } from './store.js'
 // Debt C3: makeDb/agentFor moved into the test harness (local aliases kept, behavior unchanged).
@@ -17,15 +13,13 @@ import { makeDb as makeHarnessDb, personalAgent } from '../test-harness.js'
  * Multi-turn conversations.
  *
  * The behaviour under test is mostly about *not* doing things: not creating a
- * second session, not re-billing replayed history, and not releasing the slot a
- * conversation is still using.
- *
- * Chat turns pass `keepSession: true` here because that is what routes/chat.ts
- * passes. Without it these tests would exercise a one-shot turn instead, and a
- * conversation would silently pay for a cold resume on every message.
+ * second session for a conversation that already has one, and not re-creating
+ * a cold one -- since the gateway retirement there is exactly one upstream
+ * path (the SessionDriver port), and the host's prompt is the universal entry
+ * that also wakes a cold session. There is no adopt/resume wire step left to
+ * observe, so the assertions run against the port's own recordings
+ * (created/prompts/released) via the scripted in-memory fake.
  */
-
-const API_KEY = 'test-key'
 
 const makeDb = (): { db: Db; workspace: string } => {
   const { db, workspace } = makeHarnessDb()
@@ -34,22 +28,10 @@ const makeDb = (): { db: Db; workspace: string } => {
 
 const agentFor = personalAgent
 
-const clientFor = (gw: FakeGateway): GatewayClient =>
-  new GatewayClient({ id: 'A', url: gw.url, driver: 'gateway', prefix: gw.prefix, key: API_KEY, sandboxBase: null, sandboxKey: '', spawn: null, access: null })
-
-const gateways: FakeGateway[] = []
-const boot = async (script: FakeScript): Promise<FakeGateway> => {
-  const gw = await startFakeGateway(script, API_KEY)
-  gateways.push(gw)
-  return gw
-}
-after(async () => {
-  await Promise.all(gateways.map((g) => g.close()))
-})
-
+/** One successful turn's frames: a single priced message, then the turn_end the runner finishes on. */
 const turn = (text: string, inputTokens: number): FakeScript['frames'] => [
-  { kind: 'message', text, reasoning: null, usage: { inputTokens, outputTokens: 10 } },
-  { kind: 'turn_end', turn: 1, reason: 'completed', detail: null },
+  { kind: 'message', seq: 0, text, reasoning: null, usage: { inputTokens, outputTokens: 10 } },
+  { kind: 'turn_end', seq: 0, turn: 1, reason: 'completed', detail: null },
 ]
 
 // ---------------------------------------------------------------------------
@@ -60,6 +42,7 @@ test('a title is a prefix of what the user actually said', () => {
   assert.equal(deriveTitle('sum up the spending for this week'), 'sum up the spending for this week')
   // Whitespace collapses so a pasted multi-line prompt still yields one line.
   assert.equal(deriveTitle('first line\n\n  second line  '), 'first line second line')
+  // An empty prompt falls back to the store's placeholder title.
   assert.equal(deriveTitle('   '), '新会话')
 })
 
@@ -91,203 +74,109 @@ test('the title is set once and later turns do not rewrite it', () => {
 
 test('a second turn continues the same session instead of creating one', async () => {
   const { db, workspace } = makeDb()
-  const gw = await boot({ frames: turn('first turn', 100) })
+  const fake = new FakeSessionDriver('A', { frames: turn('first turn', 100) })
   const agent = agentFor(workspace)
   const chat = createChat(db, 'personal')
 
   const first = await runAgent(
     { db },
-    { agent, client: clientFor(gw), prompt: 'hello', trigger: 'manual', chatId: chat.id, sessionId: null, keepSession: true },
+    { agent, upstream: fake, prompt: 'hello', trigger: 'manual', chatId: chat.id, sessionId: null },
   )
-  assert.equal(first.state, 'done')
-  bindSession(db, chat.id, first.sessionId as string)
+  assert.equal(first.state, 'done', first.error ?? '')
+  const firstSession = first.sessionId
+  assert.ok(firstSession !== null, 'the turn reports the session it created')
+  bindSession(db, chat.id, firstSession)
 
   const second = await runAgent(
     { db },
     {
       agent,
-      client: clientFor(gw),
+      upstream: fake,
       prompt: 'go on',
       trigger: 'manual',
       chatId: chat.id,
       sessionId: getChat(db, chat.id)?.dshSessionId ?? null,
-      keepSession: true,
     },
   )
 
-  assert.equal(second.state, 'done')
-  assert.equal(second.sessionId, first.sessionId, 'the conversation stayed in one session')
+  assert.equal(second.state, 'done', second.error ?? '')
+  assert.equal(second.sessionId, firstSession, 'the conversation stayed in one session')
 
   // The decisive assertion: exactly one session was ever created. A second
-  // POST /sessions would mean the model saw none of the first turn.
-  const creates = gw.calls.filter((c) => c.path === '/sessions' && c.method === 'POST')
-  assert.equal(creates.length, 1)
+  // createSession would mean the model saw none of the first turn.
+  assert.equal(fake.created.length, 1)
+  assert.deepEqual(fake.prompts, ['hello', 'go on'])
 
-  // And it was never handed back mid-conversation, so neither turn had to be
-  // resumed from cold.
-  assert.deepEqual(gw.releases, [])
-  assert.deepEqual(gw.adopts, [first.sessionId])
+  // And the conversation never handed its session back, so neither turn had to
+  // be resumed from cold.
+  assert.deepEqual(fake.released, [])
 
   // Both turns are recorded against the chat, so the ledger keeps its shape.
   const runs = chatRuns(db, chat.id)
   assert.equal(runs.length, 2)
   assert.deepEqual(
     runs.map((r) => r.dshSessionId),
-    [first.sessionId, first.sessionId],
+    [firstSession, firstSession],
   )
-})
-
-test('continuing a session adopts it exactly once per turn', async () => {
-  const { db, workspace } = makeDb()
-  const gw = await boot({ frames: turn('ok', 50) })
-  const agent = agentFor(workspace)
-
-  await runAgent({ db }, { agent, client: clientFor(gw), prompt: 'a', trigger: 'manual', sessionId: null })
-  await runAgent({ db }, { agent, client: clientFor(gw), prompt: 'b', trigger: 'manual', sessionId: 'sess-1' })
-
-  assert.deepEqual(gw.adopts, ['sess-1'])
 })
 
 // ---------------------------------------------------------------------------
 // cold sessions
 // ---------------------------------------------------------------------------
 
-test('a cold session is revived and the turn still runs', async () => {
-  // The gateway holds sessions in memory, so a DSH restart makes `messages` and
-  // `stream` answer 404. Adopt is the only way back.
+test('a cold session is revived by the prompt alone and the turn still runs', async () => {
+  // apiproxy has no adopt/resume step: prompt is the universal entry, and a
+  // session that went cold on the host is woken as a side effect of it. The
+  // old gateway assertions about adopt order died with the gateway driver;
+  // what survives is the guarantee that continuing never re-creates.
   const { db, workspace } = makeDb()
-  const gw = await boot({ frames: turn('back again', 70), coldSessions: ['sess-9'] })
+  const fake = new FakeSessionDriver('A', { frames: turn('back again', 70) })
 
   const outcome = await runAgent(
     { db },
-    { agent: agentFor(workspace), client: clientFor(gw), prompt: 'continue', trigger: 'manual', sessionId: 'sess-9' },
+    { agent: agentFor(workspace), upstream: fake, prompt: 'continue', trigger: 'manual', sessionId: 'sess-9' },
   )
 
   assert.equal(outcome.state, 'done', outcome.error ?? '')
-  assert.deepEqual(gw.adopts, ['sess-9'])
-  // Adopt came before the stream was opened; a cold stream would have 404'd.
-  const order = gw.calls.filter((c) => c.path.startsWith('/sessions/sess-9')).map((c) => c.path)
-  assert.equal(order[0], '/sessions/sess-9/adopt')
-})
-
-test('when the gateway forbids adoption the chat is readable but says why', async () => {
-  const { db, workspace } = makeDb()
-  const gw = await boot({
-    frames: turn('never', 10),
-    coldSessions: ['sess-3'],
-    adoptFail: { status: 403, error: 'adopt_disabled' },
-  })
-
-  const outcome = await runAgent(
-    { db },
-    { agent: agentFor(workspace), client: clientFor(gw), prompt: 'continue', trigger: 'manual', sessionId: 'sess-3' },
-  )
-
-  assert.equal(outcome.state, 'failed')
-  // The message must name the lever, not just report a 403.
-  assert.match(outcome.error ?? '', /allowAdopt/)
-  assert.match(outcome.error ?? '', /history is still readable/i)
-  // Nothing was sent, so nothing was charged for.
-  assert.equal(gw.messages.length, 0)
-  assert.equal(outcome.usage, null)
-})
-
-test('a session the gateway has lost tells the user to start a new chat', async () => {
-  const { db, workspace } = makeDb()
-  const gw = await boot({
-    frames: turn('never', 10),
-    coldSessions: ['sess-4'],
-    adoptFail: { status: 400, error: 'adopt_failed', detail: 'session_not_found' },
-  })
-
-  const outcome = await runAgent(
-    { db },
-    { agent: agentFor(workspace), client: clientFor(gw), prompt: 'continue', trigger: 'manual', sessionId: 'sess-4' },
-  )
-
-  assert.equal(outcome.state, 'failed')
-  assert.match(outcome.error ?? '', /no longer exists/)
-  assert.match(outcome.error ?? '', /Start a new one/)
-})
-
-test('a full gateway is reported as a capacity problem, not a lost session', async () => {
-  // These need opposite reactions -- wait versus give up on the thread -- and
-  // both arrive as 400 adopt_failed.
-  const { db, workspace } = makeDb()
-  const gw = await boot({
-    frames: turn('never', 10),
-    coldSessions: ['sess-5'],
-    adoptFail: { status: 400, error: 'adopt_failed', detail: 'session cap reached (8)' },
-  })
-
-  const outcome = await runAgent(
-    { db },
-    { agent: agentFor(workspace), client: clientFor(gw), prompt: 'continue', trigger: 'manual', sessionId: 'sess-5' },
-  )
-
-  assert.equal(outcome.state, 'failed')
-  assert.match(outcome.error ?? '', /maxSessions/)
-  assert.doesNotMatch(outcome.error ?? '', /no longer exists/)
-})
-
-test('an adopted session in the wrong directory refuses to run', async () => {
-  // A resumed session reports the cwd DSH rebuilt it with, which is not
-  // guaranteed to be the one it was created with. Writing to the wrong
-  // workspace is the worst outcome available, so the turn stops.
-  const { db, workspace } = makeDb()
-  const elsewhere = mkdtempSync(join(tmpdir(), 'other-ws-'))
-  const gw = await boot({ frames: turn('x', 10), coldSessions: ['sess-6'], overrideCwd: elsewhere })
-
-  const outcome = await runAgent(
-    { db },
-    { agent: agentFor(workspace), client: clientFor(gw), prompt: 'continue', trigger: 'manual', sessionId: 'sess-6' },
-  )
-
-  assert.equal(outcome.state, 'failed')
-  assert.match(outcome.error ?? '', /instead of/)
-  assert.equal(gw.messages.length, 0, 'nothing was sent to a session pointing elsewhere')
+  assert.equal(outcome.sessionId, 'sess-9')
+  // Decisive: the continued session was never re-created -- a createSession
+  // here would mean the model lost the whole earlier conversation.
+  assert.deepEqual(fake.created, [])
+  assert.deepEqual(fake.prompts, ['continue'])
 })
 
 // ---------------------------------------------------------------------------
 // billing
 // ---------------------------------------------------------------------------
 
-test('replayed history is never billed again', async () => {
-  // The gateway's hello frame replays the whole durable log. Counting it would
-  // re-charge every previous turn on every turn, growing with the conversation.
+test('the tokens of a turn land on its own run and nowhere else', async () => {
   const { db, workspace } = makeDb()
-  const gw = await boot({
-    frames: turn('second turn', 200),
-    // The first turn's message, replayed as history on the second subscribe.
-    history: [{ kind: 'message', text: 'first turn', usage: { inputTokens: 99_999, outputTokens: 99_999 } }],
-  })
+  const fake = new FakeSessionDriver('A', { frames: turn('second turn', 200) })
 
   const outcome = await runAgent(
     { db },
-    { agent: agentFor(workspace), client: clientFor(gw), prompt: 'go on', trigger: 'manual', sessionId: 'sess-x' },
+    { agent: agentFor(workspace), upstream: fake, prompt: 'go on', trigger: 'manual', sessionId: 'sess-x' },
   )
 
-  assert.equal(outcome.state, 'done')
+  assert.equal(outcome.state, 'done', outcome.error ?? '')
   assert.deepEqual(outcome.usage, { inputTokens: 200, outputTokens: 10 })
 
   const usage = db.select().from(schema.usageRecord).where(eq(schema.usageRecord.runId, outcome.runId)).all()
   assert.equal(usage.length, 1)
-  assert.equal(usage[0]?.inputTokens, 200, 'the replayed 99999 was not counted')
+  assert.equal(usage[0]?.inputTokens, 200)
+  assert.equal(usage[0]?.outputTokens, 10)
 })
 
-test('only live frames are relayed to browsers', async () => {
+test('the frames of a turn are relayed in emission order', async () => {
   const { db, workspace } = makeDb()
-  const gw = await boot({
-    frames: turn('live', 30),
-    history: [{ kind: 'message', text: 'stale', usage: { inputTokens: 5, outputTokens: 5 } }],
-  })
+  const fake = new FakeSessionDriver('A', { frames: turn('live', 30) })
 
   const relayed: GatewayFrame[] = []
   await runAgent(
     { db },
     {
       agent: agentFor(workspace),
-      client: clientFor(gw),
+      upstream: fake,
       prompt: 'go',
       trigger: 'manual',
       sessionId: 'sess-y',
@@ -295,21 +184,20 @@ test('only live frames are relayed to browsers', async () => {
     },
   )
 
-  assert.ok(!relayed.some((f) => f.kind === 'hello'), 'hello is history, not a live frame')
-  assert.ok(!relayed.some((f) => f.text === 'stale'), 'replayed messages were not re-emitted')
   assert.deepEqual(
     relayed.map((f) => f.kind),
     ['message', 'turn_end'],
   )
+  assert.equal(relayed[0]?.text, 'live')
 })
 
 // ---------------------------------------------------------------------------
 // thread bookkeeping
 // ---------------------------------------------------------------------------
 
-test('a new chat has no gateway session until something is sent', () => {
-  // Creating one eagerly would spend a slot against the gateway's maxSessions
-  // for a chat the user may never type into.
+test('a new chat has no host session until something is sent', () => {
+  // Creating one eagerly would start a session on the host for a chat the user
+  // may never type into.
   const { db } = makeDb()
   const chat = createChat(db, 'personal')
   assert.equal(chat.dshSessionId, null)
@@ -326,9 +214,8 @@ test('removing a chat hides it but keeps the turns and the session id', () => {
   assert.equal(listChats(db, 'personal').length, 0, 'hidden from the sidebar')
   const row = getChat(db, chat.id)
   assert.notEqual(row?.removedAt, null)
-  // The id is kept even though the route hands the slot back, because releasing
-  // does not delete: the transcript is still on the gateway and still readable
-  // through this id.
+  // The id is kept because archiving destroys nothing: the transcript is still
+  // on the host and still readable through this id.
   assert.equal(row?.dshSessionId, 'sess-keep')
 })
 
@@ -345,7 +232,7 @@ test('chats are listed most recently active first', () => {
 
 test('the turn count comes from the runs actually recorded', async () => {
   const { db, workspace } = makeDb()
-  const gw = await boot({ frames: turn('ok', 10) })
+  const fake = new FakeSessionDriver('A', { frames: turn('ok', 10) })
   const chat = createChat(db, 'personal')
 
   assert.equal(listChats(db, 'personal')[0]?.turns, 0)
@@ -354,12 +241,11 @@ test('the turn count comes from the runs actually recorded', async () => {
     { db },
     {
       agent: agentFor(workspace),
-      client: clientFor(gw),
+      upstream: fake,
       prompt: 'a',
       trigger: 'manual',
       chatId: chat.id,
       sessionId: null,
-      keepSession: true,
     },
   )
 

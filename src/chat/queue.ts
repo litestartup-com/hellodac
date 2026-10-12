@@ -1,7 +1,7 @@
 /**
  * Per-chat send queue (revised for Hive P5.4).
  *
- * Concurrency semantics: **serial within a chat, parallel across chats**. One gateway chat can run
+ * Concurrency semantics: **serial within a chat, parallel across chats**. One chat session can run
  * only one turn at a time, so a new message for a chat queues until that chat's previous turn ends
  * (FIFO, consistent across pages); different chats never block each other -- the concurrency P5.4 wants.
  *

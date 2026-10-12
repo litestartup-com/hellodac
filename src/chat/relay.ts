@@ -2,7 +2,7 @@
  * Debt E2: relay (SSE pub-sub) extracted from routes/chat.ts into its own module -- the first layer of the
  * three-layer split (relay / turn orchestration / the CRUD route shell).
  *
- * One relay per chat: the browser does not connect to the gateway stream directly (the gateway needs the endpoint API key,
+ * One relay per chat: the browser does not connect to the node's stream directly (the upstream needs the endpoint API key,
  * and a secret never goes into a browser), and N open tabs cost one upstream subscription rather than N.
  */
 import type { FastifyInstance, FastifyReply, preHandlerHookHandler } from 'fastify'
@@ -12,8 +12,8 @@ import { getChat } from './store.js'
 /**
  * Browsers watching one chat.
  *
- * A relay rather than letting each browser open the gateway stream directly:
- * the gateway needs the endpoint API key, and that key must never reach a
+ * A relay rather than letting each browser open the node's stream directly:
+ * the upstream needs the endpoint API key, and that key must never reach a
  * browser. It also means N open tabs cost one upstream subscription, not N.
  */
 interface Relay {
@@ -82,10 +82,9 @@ export const registerRelayRoute = (
    * Live frames for one chat, as server-sent events.
    *
    * Carries live frames only. History comes from `GET /api/chats/:id`, because
-   * the gateway's own `hello` frame replays the entire durable log -- relaying
-   * that would re-render the whole conversation on every reconnect, and the same
-   * confusion between replayed and live events is what makes double-billing
-   * possible upstream.
+   * replaying the durable log here would re-render the whole conversation on
+   * every reconnect, and the same confusion between replayed and live events is
+   * what makes double-billing possible upstream.
    */
   app.get<{ Params: { id: string } }>('/api/chats/:id/events', { preHandler: requireUser }, async (request, reply) => {
     const chat = getChat(db, request.params.id)

@@ -6,7 +6,7 @@ import type { AppConfig, ResolvedAgent } from '../config.js'
 import type { AuditKind } from '../audit.js'
 import type { Db } from '../db/index.js'
 import { schema } from '../db/index.js'
-import { GatewayError, dummyGatewayClient, type GatewayClient, type HistoryEvent, type QuestionAnswer } from '../gateway/client.js'
+import type { HistoryEvent } from '../frames.js'
 import { errorText } from '../errors.js'
 import type { SessionDriver } from '../session-driver/port.js'
 import type { UpstreamComposerState } from '../upstream/client.js'
@@ -14,7 +14,6 @@ import type { UpstreamGoal } from '../upstream/translate.js'
 import { UpstreamError } from '../upstream/rpc.js'
 import { activeRunCount, runningRunId } from '../runner.js'
 import { cancelQueuedTurn, cancelQueuedTurns, enqueueTurn } from '../chat/queue.js'
-import { compactHistory } from '../chat/replay.js'
 import { HistoryCache } from '../chat/history-cache.js'
 // Debt E2: turn orchestration (serial within a chat, parallel across chats) moved down into chat/turn-runner.ts.
 import { makeChatTurnRunner, type ChatTurnRunner } from '../chat/turn-runner.js'
@@ -38,10 +37,10 @@ export { publish, openChatRelays, closeChatRelays } from '../chat/relay.js'
 /**
  * The chat API: threads, transcripts, and one live relay per chat.
  *
- * manager does not store the transcript. The gateway already persists it and
- * serves it from `GET /sessions/:id/history`, and a second copy would only be a
- * copy that can disagree with the first. So a transcript request is a read
- * through to the gateway, and manager's own tables hold nothing but the thread
+ * manager does not store the transcript. The host already persists it and the
+ * SessionDriver plug serves it through `history()`, and a second copy would only
+ * be a copy that can disagree with the first. So a transcript request is a read
+ * through to the host, and manager's own tables hold nothing but the thread
  * metadata and the cost ledger.
  */
 
@@ -55,22 +54,18 @@ export const registerChatRoutes = (
   app: FastifyInstance,
   config: AppConfig,
   db: Db,
-  clients: Map<string, GatewayClient>,
   requireUser: preHandlerHookHandler,
-  upstreamClients?: Map<string, SessionDriver>,
+  upstreamClients: Map<string, SessionDriver>,
   /** The audit callback (for leaving a trace of full-sandbox switches; tests may omit it). */
   audit?: (actor: string, kind: AuditKind, detail: string) => void,
 ): ChatTurnRunner => {
   const agentOf = (chatAgentId: string): ResolvedAgent | undefined => config.agents[chatAgentId]
 
-  const driverOf = (endpointId: string): 'gateway' | 'apiproxy' =>
-    config.endpoints[endpointId]?.driver ?? 'gateway'
-
-  /** Loads a chat and its agent, answering the right 404 for each. */
+  /** Loads a chat, its agent and the endpoint's SessionDriver plug, answering the right 404/500 for each. */
   const resolve = (
     chatId: string,
     reply: FastifyReply,
-  ): { chat: NonNullable<ReturnType<typeof getChat>>; agent: ResolvedAgent; client: GatewayClient; upstream: SessionDriver | null; driver: 'gateway' | 'apiproxy' } | null => {
+  ): { chat: NonNullable<ReturnType<typeof getChat>>; agent: ResolvedAgent; upstream: SessionDriver } | null => {
     const chat = getChat(db, chatId)
     if (chat === null || chat.removedAt !== null) {
       void reply.code(404).send({ error: 'unknown_chat' })
@@ -84,21 +79,12 @@ export const registerChatRoutes = (
       })
       return null
     }
-    const driver = driverOf(agent.endpoint)
-    const upstream = upstreamClients?.get(agent.endpoint) ?? null
-    const client = clients.get(agent.endpoint)
-    if (driver === 'apiproxy' && upstream === null) {
+    const upstream = upstreamClients.get(agent.endpoint)
+    if (upstream === undefined) {
       void reply.code(500).send({ error: 'endpoint_not_configured' })
       return null
     }
-    if (driver === 'gateway' && client === undefined) {
-      void reply.code(500).send({ error: 'endpoint_not_configured' })
-      return null
-    }
-    // For gateway mode, client is always defined here; for apiproxy, we still
-    // need a GatewayClient reference for routes that haven't been branched yet.
-    // Debt E10: the placeholder client never connects, and the branching guarantees it is never really called.
-    return { chat, agent, client: client ?? dummyGatewayClient(), upstream, driver }
+    return { chat, agent, upstream }
   }
 
   // ---- history cache (avoids re-reading the same session log on every page open) ----
@@ -242,8 +228,8 @@ export const registerChatRoutes = (
     const agent = agentOf(parsed.data.agentId)
     if (agent === undefined) return reply.code(404).send({ error: 'unknown_agent' })
 
-    // No gateway session yet. Creating one now would consume a slot against the
-    // gateway's maxSessions for a chat the user may never type into.
+    // No host session yet: it is created on the first turn, so opening a chat
+    // the user may never type into starts nothing on the node.
     const chat = createChat(db, agent.id)
     return reply.code(201).send({ chat, turns: [], events: [] })
   })
@@ -285,19 +271,19 @@ export const registerChatRoutes = (
    * different things from the user, and all of them look identical if you only
    * report a message list:
    *   - `fresh`   nothing sent yet
-   *   - `live`    the gateway holds the session and it can take a turn now
+   *   - `live`    the host holds the session and it can take a turn now
    *   - `cold`    readable, and will be revived on the next message
-   *   - `lost`    the gateway has no record of it at all; it cannot continue
+   *   - `lost`    the host has no record of it at all; it cannot continue
    */
   app.get<{ Params: { id: string } }>('/api/chats/:id', { preHandler: requireUser }, async (request, reply) => {
     const found = resolve(request.params.id, reply)
     if (found === null) return reply
-    const { chat, agent, client, upstream, driver } = found
+    const { chat, agent, upstream } = found
     const capabilities = {
-      modelSelection: upstream?.modelCatalog !== undefined && upstream.selectModel !== undefined,
-      accessMode: upstream?.canSetSandboxMode?.() === true && upstream.setSandboxMode !== undefined,
+      modelSelection: upstream.modelCatalog !== undefined && upstream.selectModel !== undefined,
+      accessMode: upstream.canSetSandboxMode?.() === true && upstream.setSandboxMode !== undefined,
       // The third access tier (danger-full-access): true only when the node is unlocked; the form feeds the UI's risk wording.
-      fullAccess: await upstream?.allowsFullAccess?.().catch(() => false) ?? false,
+      fullAccess: await upstream.allowsFullAccess?.().catch(() => false) ?? false,
       fullAccessForm: config.endpoints[agent.endpoint]?.spawn?.runner === 'docker' ? 'container' : 'bare-metal',
     }
     let composer: UpstreamComposerState = { model: null, context: null, accessMode: null }
@@ -319,7 +305,7 @@ export const registerChatRoutes = (
     // restart; question/approval are broadcast once) -- on a page refresh the cards come back through the replay and the user
     // can still answer (respond goes straight to the host, regardless of whether the turn is alive). Failures stay silent:
     // the recovery channel is best-effort. It has to come before base: the liveFrames replay must carry the just-recovered cards.
-    if (driver === 'apiproxy' && upstream !== null && chat.dshSessionId !== null) {
+    if (chat.dshSessionId !== null) {
       try {
         for (const ask of await (upstream.pendingAsks?.(chat.dshSessionId) ?? Promise.resolve([]))) {
           rememberLiveFrame(chat.id, ask)
@@ -365,41 +351,22 @@ export const registerChatRoutes = (
       app.log.info(`GET /api/chats/${chat.id}: history CACHED ${Date.now() - t0}ms, ${events.length} events`)
     } else {
       try {
-        if (driver === 'apiproxy' && upstream !== null) {
-          // apiproxy path: session.history returns raw events + projections.
-          // compactHistory is already called inside upstream.history().
-          const history = await upstream.history(chat.dshSessionId)
-          events = history.events
-          sessionState = history.sessionState
-          composer = history.composer
-          goal = history.goal
-          if (history.title !== null && history.title !== '') renameChat(db, chat.id, history.title)
-          historyCache.set(chat.dshSessionId, { events, sessionState, title: history.title, composer, goal })
-        } else {
-          // Read-only and does not wake the session, so opening an old chat costs
-          // nothing on the gateway.
-          const history = await client.history(chat.dshSessionId)
-          // Chunks were the streaming preview of text the `message` frames already
-          // carry. Replaying them costs the browser 30x the events for nothing.
-          events = compactHistory(history.events)
-          sessionState = history.adopted ? 'live' : 'cold'
-          // The gateway names sessions itself; prefer its title over our guess.
-          const title = history.header?.title
-          if (typeof title === 'string' && title !== '') renameChat(db, chat.id, title)
-          historyCache.set(chat.dshSessionId, { events, sessionState, title: title ?? null, composer, goal: null })
-        }
-        app.log.info(`GET /api/chats/${chat.id}: history ${driver} ${Date.now() - t0}ms, ${events.length} events`)
+        // session.history returns raw events + projections; compactHistory is already
+        // called inside upstream.history().
+        const history = await upstream.history(chat.dshSessionId)
+        events = history.events
+        sessionState = history.sessionState
+        composer = history.composer
+        goal = history.goal
+        if (history.title !== null && history.title !== '') renameChat(db, chat.id, history.title)
+        historyCache.set(chat.dshSessionId, { events, sessionState, title: history.title, composer, goal })
+        app.log.info(`GET /api/chats/${chat.id}: history ${Date.now() - t0}ms, ${events.length} events`)
       } catch (error) {
-        app.log.warn(`GET /api/chats/${chat.id}: history ${driver} failed after ${Date.now() - t0}ms: ${(error as Error).message}`)
-        if (error instanceof GatewayError && error.status === 404) {
-          sessionState = 'lost'
-        } else if (error instanceof UpstreamError && error.code === 'not_found') {
+        app.log.warn(`GET /api/chats/${chat.id}: history failed after ${Date.now() - t0}ms: ${(error as Error).message}`)
+        if (error instanceof UpstreamError && error.code === 'not_found') {
           sessionState = 'lost'
         } else {
-          const detail = error instanceof GatewayError ? error.message
-            : error instanceof UpstreamError ? error.message
-              : String(error)
-          return reply.code(502).send({ error: 'gateway_unreachable', detail })
+          return reply.code(502).send({ error: 'gateway_unreachable', detail: errorText(error) })
         }
       }
     }
@@ -422,51 +389,26 @@ export const registerChatRoutes = (
   )
 
   /**
-   * Hides a chat and hands its gateway slot back.
+   * Hides a chat (archives it).
    *
    * Still named `remove`, not `delete`, because nothing is destroyed: the
-   * transcript stays on the gateway and the `dshSessionId` stays on the row, so
-   * the conversation remains readable and could be adopted again. What the
-   * release gives up is one slot against the gateway's `maxSessions`. Chat
-   * sessions are long-lived, so without this every removed chat would hold a
-   * slot until DSH restarted.
+   * transcript stays on the host and the `dshSessionId` stays on the row, so
+   * the conversation remains readable and could be continued again. The port's
+   * `release` is a no-op for the facade plug (the host owns its sessions; there
+   * is no slot to hand back -- the old gateway driver's maxSessions slot model
+   * went with the driver), so archiving is purely a manager-side act.
    *
    * The run rows stay too -- they are the cost ledger, and money spent does not
    * become unspent.
-   *
-   * Best effort on the release: a chat whose agent has left the config, or an
-   * unreachable gateway, must still disappear from the list when asked. The
-   * response reports what actually happened rather than assuming.
    */
   app.post<{ Params: { id: string } }>('/api/chats/:id/remove', { preHandler: requireUser }, async (request, reply) => {
     const chat = getChat(db, request.params.id)
     if (chat === null) return reply.code(404).send({ error: 'unknown_chat' })
 
-    let slotReleased = false
-    let releaseFailure: string | null = null
-    if (chat.dshSessionId !== null) {
-      const agent = agentOf(chat.agentId)
-      const driver = agent !== undefined ? driverOf(agent.endpoint) : 'gateway'
-      if (driver === 'apiproxy') {
-        // apiproxy has no slot management; sessions persist in DSH until
-        // archived via workspace.archiveSession (which we don't call).
-        // Nothing to release.
-        slotReleased = false
-      } else {
-        const client = agent === undefined ? undefined : clients.get(agent.endpoint)
-        if (client === undefined) {
-          releaseFailure = `agent "${chat.agentId}" is no longer in the config, so the DSH session slot cannot be released`
-        } else {
-          try {
-            const result = await client.release(chat.dshSessionId)
-            slotReleased = result.released
-          } catch (error) {
-            releaseFailure = error instanceof GatewayError ? error.message : String(error)
-            app.log.warn(`chat ${chat.id}: releasing session ${chat.dshSessionId} failed: ${releaseFailure}`)
-          }
-        }
-      }
-    }
+    // Kept in the response shape for API parity: since the gateway retirement there is
+    // never a slot to release, so both fields have exactly one honest value.
+    const slotReleased = false
+    const releaseFailure: string | null = null
 
     removeChat(db, chat.id)
     // Queued turns of this chat must not fire after the chat is gone.
@@ -475,11 +417,7 @@ export const registerChatRoutes = (
     const detail =
       chat.dshSessionId === null
         ? 'session archived — restore it under Archived'
-        : releaseFailure !== null
-          ? `session archived, but the DSH session slot could not be released and still counts against the gateway limit: ${releaseFailure}`
-          : slotReleased
-            ? 'session archived and its DSH slot released. The transcript is kept and can be restored.'
-            : 'session archived. The gateway no longer holds it, so no slot had to be released. The transcript is kept and can be restored.'
+        : 'session archived. The host keeps the transcript and no slot had to be released; it can be restored.'
 
     return reply.send({
       ok: true,
@@ -494,9 +432,9 @@ export const registerChatRoutes = (
   /**
    * Hive Q5: clean up an empty chat, "created but not one word written".
    *
-   * A hard delete rather than an archive: an empty chat has no transcript, no ledger and no gateway session, and filing
+   * A hard delete rather than an archive: an empty chat has no transcript, no ledger and no host session, and filing
    * such a shell under "archived, recoverable" would itself misreport the promise of recovery. A chat with turns or
-   * with a title the gateway already set is always a 409 -- the red line: a chat with content may only be archived,
+   * with a title the host already set is always a 409 -- the red line: a chat with content may only be archived,
    * never physically deleted.
    */
   app.post<{ Params: { id: string } }>('/api/chats/:id/vacate', { preHandler: requireUser }, async (request, reply) => {
@@ -522,10 +460,10 @@ export const registerChatRoutes = (
   /**
    * Un-archives a chat.
    *
-   * The gateway slot was handed back on archive, so the thread may come back
-   * `cold` (revived on the next message) or `lost`. That is reported by
-   * `GET /api/chats/:id` and deliberately not hidden here: silently reviving a
-   * session would spend money on a click the user thought was free.
+   * The thread may come back `cold` (revived on the next message) or `lost`.
+   * That is reported by `GET /api/chats/:id` and deliberately not hidden here:
+   * silently reviving a session would spend money on a click the user thought
+   * was free.
    */
   app.post<{ Params: { id: string } }>('/api/chats/:id/restore', { preHandler: requireUser }, async (request, reply) => {
     const chat = getChat(db, request.params.id)
@@ -565,7 +503,7 @@ export const registerChatRoutes = (
     async (request, reply) => {
       const found = resolve(request.params.id, reply)
       if (found === null) return reply
-      const { chat, agent, client, upstream, driver } = found
+      const { chat, agent, upstream } = found
 
       const parsed = sendBody.safeParse(request.body)
       if (!parsed.success) {
@@ -605,7 +543,7 @@ export const registerChatRoutes = (
             execute: () => {
               const fresh = getChat(db, chat.id)
               if (fresh === null || fresh.removedAt !== null) return Promise.resolve()
-              return turns.startChatTurn(fresh, agent, client, upstream, driver, text).then(() => undefined).catch(() => undefined)
+              return turns.startChatTurn(fresh, agent, upstream, text).then(() => undefined).catch(() => undefined)
             },
           })
           publish(chat.id, { kind: 'turn_queued', id: queuedId, position, text })
@@ -616,7 +554,7 @@ export const registerChatRoutes = (
           })
         }
 
-        void turns.startChatTurn(chat, agent, client, upstream, driver, text).catch(() => undefined)
+        void turns.startChatTurn(chat, agent, upstream, text).catch(() => undefined)
         return reply.code(202).send({ accepted: true, chat: getChat(db, chat.id) })
       } catch (error) {
         app.log.error(`chat turn failed for ${chat.id}: ${(error as Error).message}`)
@@ -644,24 +582,18 @@ export const registerChatRoutes = (
   app.post<{ Params: { id: string } }>('/api/chats/:id/cancel', { preHandler: requireUser }, async (request, reply) => {
     const found = resolve(request.params.id, reply)
     if (found === null) return reply
-    const { chat, client, upstream, driver } = found
+    const { chat, upstream } = found
     if (turns.abortTurn(chat.id)) {
       return reply.code(202).send({ ok: true })
     }
     if (chat.dshSessionId === null) return reply.code(409).send({ error: 'no_session' })
     try {
-      if (driver === 'apiproxy' && upstream !== null) {
-        await upstream.cancel(chat.dshSessionId)
-      } else {
-        await client.cancel(chat.dshSessionId)
-      }
+      await upstream.cancel(chat.dshSessionId)
       return reply.send({ ok: true })
     } catch (error) {
       return reply.code(502).send({
         error: 'cancel_failed',
-        detail: error instanceof GatewayError ? error.message
-          : error instanceof UpstreamError ? error.message
-            : String(error),
+        detail: errorText(error),
       })
     }
   })
@@ -739,7 +671,7 @@ export const registerChatRoutes = (
   /**
    * Answer, or decline, one interactive question.
    *
-   * A thin pass-through on purpose: the gateway owns the pending question and the
+   * A thin pass-through on purpose: the host owns the pending question and the
    * validation of an answer against it, and duplicating either here would mean
    * two places deciding what a valid answer is. Everything this adds is the
    * session lookup and the browser's own authentication.
@@ -750,7 +682,7 @@ export const registerChatRoutes = (
     async (request, reply) => {
       const found = resolve(request.params.id, reply)
       if (found === null) return reply
-      const { chat, client, upstream, driver } = found
+      const { chat, upstream } = found
       if (chat.dshSessionId === null) return reply.code(409).send({ error: 'no_session' })
       const body = request.body ?? {}
       // Debt card chain: synthesise a resolved frame after a successful answer -- the upstream broadcast may never
@@ -762,36 +694,21 @@ export const registerChatRoutes = (
         publish(chat.id, resolved)
       }
       try {
-        if (driver === 'apiproxy' && upstream !== null) {
-          // apiproxy: questionId is the rpcId from the mux frame.
-          if (body.decline === true) {
-            await upstream.declineQuestion(request.params.questionId, chat.dshSessionId)
-            closeQuestion('cancelled')
-            return reply.send({ ok: true, outcome: 'cancelled' })
-          }
-          if (!Array.isArray(body.answers)) return reply.code(400).send({ error: 'answers_required' })
-          await upstream.answerQuestion(request.params.questionId, chat.dshSessionId, { answers: body.answers })
-          closeQuestion('answered')
-          return reply.send({ ok: true, outcome: 'answered' })
-        } else {
-          if (body.decline === true) {
-            await client.declineQuestion(chat.dshSessionId, request.params.questionId)
-            closeQuestion('cancelled')
-            return reply.send({ ok: true, outcome: 'cancelled' })
-          }
-          if (!Array.isArray(body.answers)) return reply.code(400).send({ error: 'answers_required' })
-          await client.answerQuestion(chat.dshSessionId, request.params.questionId, body.answers as QuestionAnswer[])
-          closeQuestion('answered')
-          return reply.send({ ok: true, outcome: 'answered' })
+        // The questionId is the rpcId from the mux frame (the respond contract answers by rpc id).
+        if (body.decline === true) {
+          await upstream.declineQuestion(request.params.questionId, chat.dshSessionId)
+          closeQuestion('cancelled')
+          return reply.send({ ok: true, outcome: 'cancelled' })
         }
+        if (!Array.isArray(body.answers)) return reply.code(400).send({ error: 'answers_required' })
+        await upstream.answerQuestion(request.params.questionId, chat.dshSessionId, { answers: body.answers })
+        closeQuestion('answered')
+        return reply.send({ ok: true, outcome: 'answered' })
       } catch (error) {
-        // The gateway's own detail is passed through rather than flattened: a
+        // The host's own detail is passed through rather than flattened: a
         // rejected answer says exactly what was wrong with it, and that message
         // is the only thing that lets the person fix it.
-        const status = error instanceof GatewayError && error.status === 404 ? 409
-          : error instanceof UpstreamError ? 502
-            : 502
-        return reply.code(status).send({
+        return reply.code(502).send({
           error: 'answer_failed',
           detail: errorText(error),
         })
@@ -806,7 +723,7 @@ export const registerChatRoutes = (
     async (request, reply) => {
       const found = resolve(request.params.id, reply)
       if (found === null) return reply
-      const { chat, client, upstream, driver } = found
+      const { chat, upstream } = found
       if (chat.dshSessionId === null) return reply.code(409).send({ error: 'no_session' })
       const outcome = request.body?.outcome
       if (outcome !== 'allowed-once' && outcome !== 'rejected') return reply.code(400).send({ error: 'invalid_outcome' })
@@ -817,25 +734,16 @@ export const registerChatRoutes = (
         publish(chat.id, resolved)
       }
       try {
-        if (driver === 'apiproxy' && upstream !== null) {
-          // apiproxy: decisionId is the rpcId from the mux frame; the respond
-          // contract also requires the approvalId and sessionId to name the
-          // exact pending request, so the browser echoes the approvalId the
-          // approval_pending frame carried.
-          const approvalId = request.body?.approvalId
-          if (typeof approvalId !== 'string' || approvalId === '') return reply.code(400).send({ error: 'approval_id_required' })
-          await upstream.decideApproval(request.params.decisionId, chat.dshSessionId, approvalId, outcome)
-          closeApproval(approvalId)
-        } else {
-          await client.decideApproval(chat.dshSessionId, request.params.decisionId, outcome)
-          closeApproval(undefined)
-        }
+        // The decisionId is the rpcId from the mux frame; the respond contract also
+        // requires the approvalId and sessionId to name the exact pending request,
+        // so the browser echoes the approvalId the approval_pending frame carried.
+        const approvalId = request.body?.approvalId
+        if (typeof approvalId !== 'string' || approvalId === '') return reply.code(400).send({ error: 'approval_id_required' })
+        await upstream.decideApproval(request.params.decisionId, chat.dshSessionId, approvalId, outcome)
+        closeApproval(approvalId)
         return reply.send({ ok: true, outcome })
       } catch (error) {
-        const status = error instanceof GatewayError && error.status === 404 ? 409
-          : error instanceof UpstreamError ? 502
-            : 502
-        return reply.code(status).send({
+        return reply.code(502).send({
           error: 'decide_failed',
           detail: errorText(error),
         })

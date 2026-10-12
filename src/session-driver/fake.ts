@@ -12,7 +12,7 @@ import type { MuxListener } from '../upstream/mux.js'
 import type { UpstreamCreatedSession, UpstreamSessionHistory } from '../upstream/client.js'
 import type { UpstreamGoal } from '../upstream/translate.js'
 import type { RpcReceipt } from '../upstream/respond.js'
-import type { GatewayFrame } from '../gateway/stream.js'
+import type { GatewayFrame } from '../frames.js'
 
 export interface FakeScript {
   /** The frames pumped to subscribers in order after prompt. */

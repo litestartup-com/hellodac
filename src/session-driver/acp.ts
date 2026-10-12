@@ -35,7 +35,7 @@ import type { SessionDriver } from './port.js'
 import type { MuxListener } from '../upstream/mux.js'
 import type { UpstreamCreatedSession, UpstreamSessionHistory } from '../upstream/client.js'
 import type { RpcReceipt } from '../upstream/respond.js'
-import type { GatewayFrame } from '../gateway/stream.js'
+import type { GatewayFrame } from '../frames.js'
 
 /** Attach the ClientApp the driver holds to one ACP connection (in production = the child process stdio; in tests = an in-process agent app). */
 export type AcpOpen = (app: ClientApp) => Promise<ClientConnection>

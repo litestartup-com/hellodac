@@ -1,15 +1,14 @@
 /**
- * High-level client for the apiproxy driver — SessionDriver plug one (the facade).
+ * High-level client for the apiproxy wire — SessionDriver plug one (the facade).
  *
  * Wraps rpc, mux, translate, and respond into the SessionDriver port (the first
- * item of the road-building stage): the layer above sees only the port, never the wire. Deliberately does NOT extend or implement
- * the GatewayClient class — the legacy gateway driver is a separate branch and
- * is not a SessionDriver plug (its slot/release model is pre-port).
+ * item of the road-building stage): the layer above sees only the port, never the wire.
+ * Since the gateway driver's retirement (facts/dsh-facts.md §15) this is the only
+ * live plug the manager ships; ACP (plug two) lives in session-driver/acp.ts.
  */
 
 import type { ResolvedEndpoint } from '../config.js'
-import type { HistoryEvent } from '../gateway/client.js'
-import type { GatewayFrame } from '../gateway/stream.js'
+import type { GatewayFrame, HistoryEvent } from '../frames.js'
 import type { SessionDriver } from '../session-driver/port.js'
 import { rpc, type UpstreamEndpoint, UpstreamError } from './rpc.js'
 import { respond, type RpcReceipt } from './respond.js'
@@ -184,7 +183,7 @@ export class UpstreamClient implements SessionDriver {
   }
 
   /**
-   * Pins a live session's sandbox mode through the gateway's sandbox-mode
+   * Pins a live session's sandbox mode through the facade's sandbox-mode
    * route (Hive P0). The override is durable — a `sandbox/mode` log event that
    * replays on cold wake — so one call at creation time is enough.
    *
@@ -211,7 +210,7 @@ export class UpstreamClient implements SessionDriver {
         signal: AbortSignal.timeout(10_000),
       })
     let response = await call()
-    // Hive plan 2 P6 (DSH-FACTS §7): a race on the gateway's asynchronously loaded settings namespace --
+    // Hive plan 2 P6 (DSH-FACTS §7): a race on the facade's asynchronously loaded settings namespace --
     // right after a node boots the first sandbox call may 401 with "provisions a key (first call only)",
     // and it recovers a few seconds later once settings are in place. Retry once for this one hint, turning the
     // race into something deterministic; any other 401 (a genuinely wrong key) is thrown as before.
@@ -385,15 +384,14 @@ export class UpstreamClient implements SessionDriver {
 }
 
 /**
- * Builds SessionDriver plugs for all apiproxy-mode endpoints.
- * Plug one = UpstreamClient (the facade contract).
+ * Builds SessionDriver plugs for every endpoint.
+ * Plug one = UpstreamClient (the facade contract; the only live driver since the
+ * gateway retirement -- facts/dsh-facts.md §15).
  */
 export const buildUpstreamClients = (endpoints: Record<string, ResolvedEndpoint>): Map<string, SessionDriver> => {
   const map = new Map<string, SessionDriver>()
   for (const endpoint of Object.values(endpoints)) {
-    if (endpoint.driver === 'apiproxy') {
-      map.set(endpoint.id, new UpstreamClient(endpoint))
-    }
+    map.set(endpoint.id, new UpstreamClient(endpoint))
   }
   return map
 }

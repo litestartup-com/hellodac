@@ -12,7 +12,7 @@ import { agentWith, makeDbWithAgents } from '../test-harness.js'
 const endpoint: ResolvedEndpoint = {
   id: 'A',
   url: 'http://127.0.0.1:1',
-  driver: 'gateway',
+  driver: 'apiproxy',
   prefix: '/api',
   key: 'test-key',
   sandboxBase: null,
@@ -41,7 +41,7 @@ const boot = (): { app: ReturnType<typeof Fastify>; db: Db } => {
     { id: 'brain', name: '主脑', workspacePath: '.' },
   ])
   const app = Fastify()
-  registerRunRoutes(app, config, db, new Map(), async () => {}, new Map())
+  registerRunRoutes(app, config, db, async () => {}, new Map())
   return { app, db }
 }
 
@@ -116,7 +116,6 @@ test('unauthenticated GET /api/runs is rejected by the requireUser hook', async 
     app,
     config,
     db,
-    new Map(),
     async () => {
       // A real Error carrying the status, not a bare object literal: Fastify only reads `statusCode`
       // off whatever is thrown, and throwing a non-Error trips `only-throw-error` -- which is the

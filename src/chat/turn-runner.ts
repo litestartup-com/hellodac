@@ -2,17 +2,16 @@
  * Debt E2: turn orchestration extracted from routes/chat.ts -- the middle layer of a three-way
  * split (relay / turn orchestration / CRUD route shell).
  *
- * Orchestration duties (Hive P5.4 revision): **serial within a chat, parallel across chats** -- one gateway
- * session runs one turn at a time, so a chat runs at most one turn at any moment (registered in chatTurns);
+ * Orchestration duties (Hive P5.4 revision): **serial within a chat, parallel across chats** -- one session
+ * runs one turn at a time, so a chat runs at most one turn at any moment (registered in chatTurns);
  * a new message for the same chat queues behind its turn and starts once the previous one finishes; different
- * chats never block each other. The chat slot limit (maxSessions) is still the global cap and a failure when
- * it is full is reported to the user as-is. The route shell only parses requests; dispatch, queue hand-off and teardown all live here.
+ * chats never block each other. A host-side limit failure is reported to the user as-is.
+ * The route shell only parses requests; dispatch, queue hand-off and teardown all live here.
  */
 import type { FastifyBaseLogger } from 'fastify'
 import type { AppConfig, ResolvedAgent } from '../config.js'
 import type { Db } from '../db/index.js'
-import type { GatewayClient } from '../gateway/client.js'
-import type { GatewayFrame } from '../gateway/stream.js'
+import type { GatewayFrame } from '../frames.js'
 import type { SessionDriver } from '../session-driver/port.js'
 import { runAgent, type RunOutcome } from '../runner.js'
 import { drainChatQueue } from './queue.js'
@@ -49,9 +48,7 @@ export interface ChatTurnRunner {
   startChatTurn: (
     chat: ChatRow,
     agent: ResolvedAgent,
-    client: GatewayClient,
-    upstream: SessionDriver | null,
-    driver: 'gateway' | 'apiproxy',
+    upstream: SessionDriver,
     text: string,
     options?: TurnOptions,
   ) => Promise<RunOutcome>
@@ -68,9 +65,7 @@ export const makeChatTurnRunner = (deps: TurnRunnerDeps): ChatTurnRunner => {
   const runChatTurn = async (
     chat: ChatRow,
     agent: ResolvedAgent,
-    client: GatewayClient,
-    upstream: SessionDriver | null,
-    driver: 'gateway' | 'apiproxy',
+    upstream: SessionDriver,
     text: string,
     signal: AbortSignal,
     options: TurnOptions = {},
@@ -87,9 +82,7 @@ export const makeChatTurnRunner = (deps: TurnRunnerDeps): ChatTurnRunner => {
       },
       {
         agent,
-        client,
-        ...(upstream === null ? {} : { upstream }),
-        driver,
+        upstream,
         prompt: text,
         trigger: 'manual',
         apiKeyId: options.apiKeyId ?? null,
@@ -106,10 +99,7 @@ export const makeChatTurnRunner = (deps: TurnRunnerDeps): ChatTurnRunner => {
         onSession: (sessionId) => {
           if (getChat(db, chat.id)?.dshSessionId === null) bindSession(db, chat.id, sessionId)
         },
-        // A conversation continues on this session, so it keeps its slot.
-        // Releasing here would make the next message pay for a cold resume.
-        keepSession: true,
-        // The gateway echoes the message we just sent back as its own
+        // The host echoes the message we just sent back as its own
         // `user` frame, and the route has already published one above. Both
         // would reach the browser and draw the same bubble twice. manager
         // owns the echo because it can publish before the session even
@@ -145,9 +135,7 @@ export const makeChatTurnRunner = (deps: TurnRunnerDeps): ChatTurnRunner => {
   const startChatTurn = (
     chat: ChatRow,
     agent: ResolvedAgent,
-    client: GatewayClient,
-    upstream: SessionDriver | null,
-    driver: 'gateway' | 'apiproxy',
+    upstream: SessionDriver,
     text: string,
     options: TurnOptions = {},
   ): Promise<RunOutcome> => {
@@ -155,7 +143,7 @@ export const makeChatTurnRunner = (deps: TurnRunnerDeps): ChatTurnRunner => {
     chatCancels.set(chat.id, controller)
     const tracked = (async () => {
       try {
-        return await runChatTurn(chat, agent, client, upstream, driver, text, controller.signal, options)
+        return await runChatTurn(chat, agent, upstream, text, controller.signal, options)
       } catch (error) {
         // The admin UI receives failures through the relay (no HTTP reply carries them); but the exception
         // **must also be rethrown to the caller**: the public API is synchronous Q&A, and swallowing it would

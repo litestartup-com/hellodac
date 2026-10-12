@@ -92,7 +92,10 @@ const accessSchema = z.object({
 
 const endpointSchema = z.object({
   url: z.string().url(),
-  driver: z.enum(['gateway', 'apiproxy']).default('gateway'),
+  // 'gateway' is still parsed so that loadConfig can refuse it with a targeted migration error
+  // (the driver was retired: facade 0.2.x dropped the session REST surface it spoke --
+  // facts/dsh-facts.md §15). New configs are apiproxy-only, and so is the default.
+  driver: z.enum(['apiproxy', 'gateway']).default('apiproxy'),
   prefix: z.string().startsWith('/').default('/api-gw/v1'),
   key_ref: z.string().default(''),
   // Hive P0: sandbox-mode route base of dsh-api-gateway (beside /api under Option A, pointing at
@@ -341,7 +344,8 @@ export interface ResolvedEndpointAccess {
 export interface ResolvedEndpoint {
   id: string
   url: string
-  driver: 'gateway' | 'apiproxy'
+  /** The only live driver since the gateway retirement (facade 0.2.x has no session REST surface; DSH-FACTS §15). */
+  driver: 'apiproxy'
   prefix: string
   /** Resolved from the env var named by `key_ref`. Never logged, never sent to a browser. */
   key: string
@@ -551,16 +555,25 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
   const endpoints: Record<string, ResolvedEndpoint> = {}
   for (const [id, ep] of Object.entries(file.endpoints)) {
     const driver = ep.driver
-    const key = ep.key_ref !== '' ? (process.env[ep.key_ref] ?? '') : ''
-    if (driver === 'gateway' && key === '') {
-      throw new Error(`endpoint "${id}": env var ${ep.key_ref} is empty; it must match one entry of the gateway's apiKeys`)
+    // The gateway driver was retired (2026-10): it spoke the 0.1.2-era dsh-api-gateway session REST
+    // surface, which facade 0.2.x dropped -- such an endpoint probes green and 404s on the first
+    // message, the hardest half-dead state to trace (facts/dsh-facts.md §15). Refuse at load with
+    // the migration spelled out instead of letting it come up.
+    if (driver === 'gateway') {
+      throw new Error(
+        `endpoint "${id}": driver "gateway" was retired -- facade 0.2.x dropped the session REST surface it ` +
+          'spoke, so its sessions answer 404 while health checks stay green. Switch this endpoint to ' +
+          "driver: apiproxy with prefix: /api-gw/v1/proxy and the node's own gateway key " +
+          '(facts/dsh-facts.md §15).',
+      )
     }
+    const key = ep.key_ref !== '' ? (process.env[ep.key_ref] ?? '') : ''
     // Since 0.1.2 (v1.0.3): an explicitly configured apiproxy prefix must take effect -- pointing
     // at the gateway facade that is `/api-gw/v1/proxy` (the precondition of the DSH-012-ASSESSMENT
     // route of 'change the base URL + the key header only'). Only when it is not configured (the
     // schema default '/api-gw/v1' stands) does the old '/api' behaviour apply (0.1.1 talking to the
     // host's native apiproxy); every existing config writes prefix: /api explicitly, so nothing changes.
-    const prefix = driver === 'apiproxy' && ep.prefix === '/api-gw/v1' ? '/api' : ep.prefix
+    const prefix = ep.prefix === '/api-gw/v1' ? '/api' : ep.prefix
     const sandboxBase = ep.sandbox_base === undefined ? null : ep.sandbox_base.replace(/\/+$/, '')
     const sandboxKey = ep.sandbox_key_ref !== '' ? (process.env[ep.sandbox_key_ref] ?? '') : ''
     if (sandboxBase !== null && sandboxKey === '') {
@@ -694,8 +707,9 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
   // Hence the two historical red lines (mixing public and private / no public agent behind apiproxy)
   // are no longer needed: with one agent per process neither can happen. The old error
   // 'Use a gateway-mode endpoint for public agents' is dead too (facade 0.2.x removed the chat
-  // REST surface, see the head of `src/gateway/client.ts` and the fact card §15) and sends users
-  // down a blind alley -- so it went with the red lines, leaving only the hard constraint below.
+  // REST surface, see the fact card §15; the gateway driver itself is retired -- loadConfig refuses
+  // it above) and sends users down a blind alley -- so it went with the red lines, leaving only the
+  // hard constraint below.
   const byEndpoint = new Map<string, ResolvedAgent[]>()
   for (const agent of Object.values(agents)) {
     const list = byEndpoint.get(agent.endpoint) ?? []
@@ -721,18 +735,6 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
   // P0 (hive/plan-config-version-switch): upgrade migration here -- an old config is translated
   // into the new structure and written back (the original is backed up as .pre-mig.bak); notes go to warnings.
   warnings.push(...migration.warnings)
-  // Blind-alley warning (fact card `manager/facts/dsh-facts.md` §15, observed 2026-09-27): the
-  // gateway driver depends on the old `dsh-api-gateway` chat REST surface (`POST /sessions`...),
-  // which facade 0.2.3 removed (`GET /health` -> 200, `POST /sessions` -> 404). Such an endpoint
-  // probes green and 404s on the first message -- the hardest 'half-dead' state to trace, so shout at boot.
-  for (const [endpointId, ep] of Object.entries(endpoints)) {
-    if (ep.driver !== 'gateway') continue
-    warnings.push(
-      `endpoint "${endpointId}" uses the gateway driver, which is a dead path: facade 0.2.x dropped the ` +
-        'session REST surface, so sessions on it answer 404 while health checks stay green. Use ' +
-        'driver: apiproxy with prefix /api-gw/v1/proxy (facts/dsh-facts.md §15).',
-    )
-  }
 
   let pricing = DEFAULT_PRICING
   if (file.pricing !== undefined) {

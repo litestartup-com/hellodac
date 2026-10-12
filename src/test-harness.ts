@@ -4,7 +4,7 @@
 // (some agents were written to the DB and some were not, fields were missing provider/model/sandboxMode).
 // One implementation = one meaning: any change to the DB shape or to a ResolvedAgent field is made here only.
 //
-// configFor stays out of the harness: its endpoint shape follows the FakeGateway/real gateway, and forcing it to be
+// configFor stays out of the harness: its endpoint shape follows each test's own fake upstream, and forcing it to be
 // uniform would turn "fake dependency injection" into "implicit network" -- leaving it in each test is more honest.
 
 import { mkdtempSync } from 'node:fs'

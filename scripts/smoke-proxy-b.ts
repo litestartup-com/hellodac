@@ -17,7 +17,7 @@ import { join } from 'node:path'
 import { UpstreamClient } from '../src/upstream/client.js'
 import { waitForFrame } from '../src/upstream/mux.js'
 import type { ResolvedEndpoint } from '../src/config.js'
-import type { GatewayFrame } from '../src/gateway/stream.js'
+import type { GatewayFrame } from '../src/frames.js'
 
 const baseArg = process.argv[2] ?? 'http://127.0.0.1:3999/api-gw/v1/proxy'
 const key = process.env.SMOKE_KEY ?? 'smoke-key'

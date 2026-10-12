@@ -1,7 +1,7 @@
 # ADR-0001 · Turn-driving semantics (subscribe before send / bill only live frames / price per response / release the session)
 
-- Status: accepted (fixed in review comments on 2026-09-12; behaviour unchanged since 0.1.1)
-- Code: `src/runner.ts`, `src/runner/turn.ts`, `src/gateway/stream.ts`
+- Status: accepted (fixed in review comments on 2026-09-12; behaviour unchanged since 0.1.1) — amended 2026-10-12 (gateway driver retired, see below)
+- Code: `src/runner.ts`, `src/runner/turn.ts`, `src/frames.ts`
 
 ## Context
 
@@ -45,3 +45,22 @@ line in the source that points at this file.
 - A failure on the release path is only warned about, never allowed to swallow the turn
   result: the turn ran, the money was spent, and the result must not be lost to a cleanup
   error.
+
+## Amendment (2026-10-12): the gateway driver was retired
+
+The legacy `gateway` driver (the 0.1.2-era dsh-api-gateway session REST surface) is gone —
+facade 0.2.x dropped that surface, so the driver was a proven dead path (facts §15). What
+that changes here, item by item:
+
+1. **Subscribe before sending** — unchanged; it is now the mux subscription in the single
+   turn loop (`driveTurn`).
+2. **Bill only live frames** — the principle stands, the mechanism is simpler: the facade
+   mux has no `hello` history replay, so every mux frame is live. Durable history is read
+   through `history()` (never billed), and the recovered card frames (`pendingAsks`) are
+   question/approval frames, which carry no usage.
+3. **Price per response** — unchanged.
+4. **Release the session** — superseded. The gateway's `maxSessions` slot model went with
+   the driver: the port's `release` is a no-op for the facade plug (the host owns its
+   sessions), and the runner no longer releases or accepts `keepSession`. Archiving a chat
+   is purely manager-side.
+5. **Silence timeout ≠ total timeout** — unchanged.

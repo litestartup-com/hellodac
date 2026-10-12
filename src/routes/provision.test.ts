@@ -60,7 +60,7 @@ const boot = (): {
   const { db, sqlite } = openDb(':memory:')
   const supervisors = new Map<string, NodeSupervisor>()
   const app = Fastify()
-  registerProvisionRoutes(app, config, async () => {}, { db, supervisors, clients: new Map(), upstreamClients: new Map() })
+  registerProvisionRoutes(app, config, async () => {}, { db, supervisors, upstreamClients: new Map() })
   return { app, config, db, sqlite, supervisors }
 }
 

@@ -1,65 +1,73 @@
-import { test, after } from 'node:test'
+import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import Fastify from 'fastify'
+import Fastify, { type FastifyInstance } from 'fastify'
 import { and, eq } from 'drizzle-orm'
 import { schema, type Db } from '../db/index.js'
 import type { AppConfig, ResolvedAgent, ResolvedEndpoint } from '../config.js'
 import { DEFAULT_PRICING } from '../pricing.js'
-import { GatewayClient } from '../gateway/client.js'
-import { startFakeGateway, type FakeGateway, type FakeScript } from '../gateway/fake.js'
+// The gateway driver is retired: the internal routes now hand the endpoint's SessionDriver plug
+// straight to runAgent, so the whole file runs on the scripted in-memory fake (no HTTP anywhere).
+import { FakeSessionDriver, type FakeScript } from '../session-driver/fake.js'
+import type { SessionDriver } from '../session-driver/port.js'
 import { registerInternalRoutes } from './internal.js'
 import type { Scheduler } from '../cron/schedule.js'
 // Debt C3: agent construction / temp dirs / the test DB consolidate into the test harness.
 import { agentWith, makeDbWithAgents, tempDir } from '../test-harness.js'
 
-const API_KEY = 'test-key'
 const BRAIN_TOKEN = 'brain-token-42'
 
 // The gate reads process.env per request; set it once for the whole file and
 // let individual tests toggle it (never delete it, or the rest 503).
 process.env.BRAIN_TOKEN = BRAIN_TOKEN
 
-const endpoint = (gw: FakeGateway): ResolvedEndpoint => ({
+/** The endpoint fixture: an apiproxy driver on a loopback URL (the fake never touches HTTP). */
+const endpointFixture = (): ResolvedEndpoint => ({
   id: 'A',
-  url: gw.url,
-  driver: 'gateway',
-  prefix: gw.prefix,
-  key: API_KEY,
+  url: 'http://127.0.0.1:3080',
+  driver: 'apiproxy',
+  prefix: '/api',
+  key: 'test-key',
   sandboxBase: null,
   sandboxKey: '',
-  spawn: null, access: null,
+  spawn: null,
+  access: null,
 })
 
 const agentFor = (workspacePath: string): ResolvedAgent =>
   agentWith({ id: 'personal', name: 'Personal', workspacePath })
 
+// One successful turn over the port: a priced message frame plus a clean turn_end.
 const SUCCESS: FakeScript = {
   frames: [
-    { kind: 'message', text: 'ok', reasoning: null, usage: { inputTokens: 10, outputTokens: 5 } },
-    { kind: 'turn_end', turn: 1, reason: 'completed', detail: null },
+    { kind: 'message', seq: 0, text: 'ok', reasoning: null, usage: { inputTokens: 10, outputTokens: 5 } },
+    { kind: 'turn_end', seq: 1, turn: 1, reason: 'completed', detail: null },
   ],
 }
 
 interface Harness {
-  app: ReturnType<typeof Fastify>
+  app: FastifyInstance
   db: Db
-  gw: FakeGateway
+  /** The port fake wired as endpoint A's plug (the observation surface: created/prompts recordings). */
+  upstream: FakeSessionDriver
   config: AppConfig
+  workspace: string
 }
 
-const gateways: FakeGateway[] = []
-
-const boot = async (script: FakeScript): Promise<Harness> => {
-  const gw = await startFakeGateway(script, API_KEY)
-  gateways.push(gw)
+/**
+ * Boot the internal routes against a FakeSessionDriver map.
+ *
+ * opts.omitUpstream leaves endpoint A WITHOUT a plug -- the way an endpoint whose driver was never
+ * wired looks after the gateway retirement; the prompt/dispatch routes must answer 500
+ * endpoint_not_configured for it.
+ */
+const boot = (script: FakeScript = SUCCESS, opts: { omitUpstream?: boolean } = {}): Harness => {
   // Debt C3: the test DB + temp dirs consolidate into the test harness.
   const workspace = tempDir('internal-ws')
   const db = makeDbWithAgents([{ id: 'personal', name: 'Personal', workspacePath: workspace }])
   const agent = agentFor(workspace)
-  const ep = endpoint(gw)
   const config: AppConfig = {
     listen: { host: '127.0.0.1', port: 0 },
-    endpoints: { A: ep },
+    endpoints: { A: endpointFixture() },
     agents: { personal: agent },
     runner: { timeoutMs: 10_000, silenceMs: 0, maxConsecutiveFailures: 3, dailyBudgetMicroUsd: null },
     databasePath: ':memory:',
@@ -71,15 +79,14 @@ const boot = async (script: FakeScript): Promise<Harness> => {
   // trustProxy=true matches production: request.ip takes X-Forwarded-For (the public client),
   // while the gate has to look at the socket peer -- the viaProxy case exists for exactly that gap.
   const app = Fastify({ trustProxy: true })
-  const clients = new Map([['A', new GatewayClient(ep)]])
+  const upstream = new FakeSessionDriver('A', script)
+  const upstreamClients = new Map<string, SessionDriver>(
+    opts.omitUpstream === true ? [] : [['A', upstream]],
+  )
   const schedulerStub = { reload: () => {}, nextRunAt: () => null, problemFor: () => null } as unknown as Scheduler
-  registerInternalRoutes(app, config, db, clients, new Map(), schedulerStub)
-  return { app, db, gw, config }
+  registerInternalRoutes(app, config, db, upstreamClients, schedulerStub)
+  return { app, db, upstream, config, workspace }
 }
-
-after(async () => {
-  await Promise.all(gateways.map((g) => g.close()))
-})
 
 const authed = (headers: Record<string, string> = {}): Record<string, string> => ({
   'x-brain-token': BRAIN_TOKEN,
@@ -87,7 +94,7 @@ const authed = (headers: Record<string, string> = {}): Record<string, string> =>
 })
 
 test('the brain gate fails closed: no token, wrong token, non-loopback, disabled', async () => {
-  const { app } = await boot(SUCCESS)
+  const { app } = boot()
   try {
     process.env.BRAIN_TOKEN = ''
     const disabled = await app.inject({ method: 'GET', url: '/api/internal/agents', headers: authed() })
@@ -137,10 +144,10 @@ test('the brain gate fails closed: no token, wrong token, non-loopback, disabled
 })
 
 test('agents list: shape and busy flag', async () => {
-  const { app } = await boot(SUCCESS)
+  const { app } = boot()
   const res = await app.inject({ method: 'GET', url: '/api/internal/agents', headers: authed() })
   assert.equal(res.statusCode, 200)
-  const body = res.json() as { agents: Array<{ id: string; busy: boolean; chatCount: number }> }
+  const body = res.json()
   assert.equal(body.agents.length, 1)
   assert.equal(body.agents[0]?.id, 'personal')
   assert.equal(body.agents[0]?.busy, false)
@@ -148,24 +155,25 @@ test('agents list: shape and busy flag', async () => {
 })
 
 test('agent detail and empty board read', async () => {
-  const { app } = await boot(SUCCESS)
+  const { app } = boot()
   const detail = await app.inject({ method: 'GET', url: '/api/internal/agents/personal', headers: authed() })
   assert.equal(detail.statusCode, 200)
-  const body = detail.json() as { id: string; endpoint: { driver: string } }
+  const body = detail.json()
   assert.equal(body.id, 'personal')
-  assert.equal(body.endpoint.driver, 'gateway')
+  // The gateway driver is retired: 'apiproxy' is the only driver the detail panel can report.
+  assert.equal(body.endpoint.driver, 'apiproxy')
 
   const board = await app.inject({ method: 'GET', url: '/api/internal/agents/personal/board', headers: authed() })
   assert.equal(board.statusCode, 200)
   // An uninitialised workspace reads as an empty model, not an error.
-  assert.ok(Array.isArray((board.json() as { pages: unknown[] }).pages))
+  assert.ok(Array.isArray((board.json()).pages))
 
   const missing = await app.inject({ method: 'GET', url: '/api/internal/agents/nope', headers: authed() })
   assert.equal(missing.statusCode, 404)
 })
 
 test('dispatch: unknown agent 404, success runs with trigger=brain, concurrent dispatches all land', async () => {
-  const { app, db, gw } = await boot(SUCCESS)
+  const { app, db, upstream, workspace } = boot()
 
   const missing = await app.inject({
     method: 'POST',
@@ -196,15 +204,19 @@ test('dispatch: unknown agent 404, success runs with trigger=brain, concurrent d
     payload: { agentId: 'personal', prompt: 'write one line', sourceChatId: 'brain-chat-1' },
   })
   assert.equal(ok.statusCode, 200, JSON.stringify(ok.body))
-  const outcome = ok.json() as { state: string }
+  const outcome = ok.json()
   assert.equal(outcome.state, 'done')
   const runRow = db.select().from(schema.run).where(eq(schema.run.agentId, 'personal')).all()[0]
   assert.equal(runRow?.trigger, 'brain')
   assert.equal(runRow?.sourceChatId, 'brain-chat-1')
+  // The runAgent invocation shape, observed on the port: the route handed THIS endpoint's
+  // SessionDriver to runAgent, which created a session on the agent workspace and sent the prompt.
+  assert.deepEqual(upstream.created, [{ cwd: workspace, preset: null }])
+  assert.deepEqual(upstream.prompts, ['write one line'])
 
   // Hive P5.4: no more busy rejection -- concurrent dispatches to the same agent just run in parallel,
-  // both dispatches succeed and each leaves its own row.
-  gw.setScript(SUCCESS)
+  // both dispatches succeed and each leaves its own row. (The fake pumps its script on every prompt,
+  // so one driver instance serves all of them -- each dispatch creates its own session.)
   const [c1, c2] = await Promise.all([
     app.inject({
       method: 'POST',
@@ -221,14 +233,16 @@ test('dispatch: unknown agent 404, success runs with trigger=brain, concurrent d
   ])
   assert.equal(c1.statusCode, 200)
   assert.equal(c2.statusCode, 200)
-  assert.equal((c1.json() as { state: string }).state, 'done')
-  assert.equal((c2.json() as { state: string }).state, 'done')
+  assert.equal((c1.json()).state, 'done')
+  assert.equal((c2.json()).state, 'done')
   const live = db.select().from(schema.run).where(and(eq(schema.run.agentId, 'personal'), eq(schema.run.state, 'done'))).all()
   assert.ok(live.length >= 3, `concurrent dispatches all landed (${live.length} runs)`)
+  assert.equal(upstream.created.length, 3, 'each concurrent dispatch created its own session through the port')
+  assert.equal(upstream.prompts.length, 3)
 })
 
 test('Hive P5.1: brain dispatch stops at the daily budget, and lifts when the cap is off', async () => {
-  const { app, db, config } = await boot(SUCCESS)
+  const { app, db, config } = boot()
   // One over-budget brain dispatch spent today
   const now = Date.now()
   db.insert(schema.run)
@@ -273,7 +287,7 @@ test('Hive P5.1: brain dispatch stops at the daily budget, and lifts when the ca
     payload: { agentId: 'personal', prompt: 'write one line' },
   })
   assert.equal(denied.statusCode, 409)
-  const deniedBody = denied.json() as { error: string; detail: string }
+  const deniedBody = denied.json()
   assert.equal(deniedBody.error, 'brain_budget_exhausted')
   assert.match(deniedBody.detail, /1\.50/)
 
@@ -289,7 +303,7 @@ test('Hive P5.1: brain dispatch stops at the daily budget, and lifts when the ca
 })
 
 test('Hive P5.3: internal prompt continues an existing chat, serialised per session', async () => {
-  const { app, db } = await boot(SUCCESS)
+  const { app, db, upstream } = boot()
   db.insert(schema.chat)
     .values({
       id: 'c-reuse',
@@ -309,13 +323,14 @@ test('Hive P5.3: internal prompt continues an existing chat, serialised per sess
     payload: { text: 'continue the weekly report' },
   })
   assert.equal(ok.statusCode, 200, JSON.stringify(ok.body))
-  const outcome = ok.json() as { state: string; runId: string }
+  const outcome = ok.json()
   assert.equal(outcome.state, 'done')
   const runRow = db.select().from(schema.run).where(eq(schema.run.id, outcome.runId)).all()[0]
   assert.equal(runRow?.trigger, 'brain')
   assert.equal(runRow?.chatId, 'c-reuse')
   const chatRow = db.select().from(schema.chat).where(eq(schema.chat.id, 'c-reuse')).all()[0]
   assert.ok(chatRow?.dshSessionId !== null && chatRow?.dshSessionId !== undefined, 'first turn binds the session')
+  assert.deepEqual(upstream.prompts, ['continue the weekly report'], 'the prompt went through the endpoint SessionDriver')
 
   // Serialised within a chat: 409 while that chat has a turn running
   const now = Date.now()
@@ -344,7 +359,7 @@ test('Hive P5.3: internal prompt continues an existing chat, serialised per sess
     payload: { text: 'continue one more sentence' },
   })
   assert.equal(busy.statusCode, 409)
-  assert.equal((busy.json() as { error: string }).error, 'chat_busy')
+  assert.equal((busy.json()).error, 'chat_busy')
 
   const missing = await app.inject({
     method: 'POST',
@@ -355,7 +370,43 @@ test('Hive P5.3: internal prompt continues an existing chat, serialised per sess
   assert.equal(missing.statusCode, 404)
 })
 
-test('crons: drafted disabled by default, duplicate name 409, bad schedule 400', async () => {  const { app, db } = await boot(SUCCESS)
+test('prompt and dispatch answer 500 endpoint_not_configured when the endpoint has no SessionDriver', async () => {
+  // The gateway retirement made the plug mandatory: an endpoint missing from the upstream map
+  // cannot run a turn, and the routes say so instead of falling back to anything.
+  const { app, db } = boot(SUCCESS, { omitUpstream: true })
+
+  const dispatch = await app.inject({
+    method: 'POST',
+    url: '/api/internal/dispatch',
+    headers: authed(),
+    payload: { agentId: 'personal', prompt: 'write one line' },
+  })
+  assert.equal(dispatch.statusCode, 500)
+  assert.equal((dispatch.json()).error, 'endpoint_not_configured')
+
+  db.insert(schema.chat)
+    .values({
+      id: 'c-nowhere',
+      agentId: 'personal',
+      dshSessionId: null,
+      title: 'orphan chat',
+      createdAt: Date.now(),
+      lastActiveAt: Date.now(),
+      removedAt: null,
+    })
+    .run()
+  const prompt = await app.inject({
+    method: 'POST',
+    url: '/api/internal/chats/c-nowhere/prompt',
+    headers: authed(),
+    payload: { text: 'continue' },
+  })
+  assert.equal(prompt.statusCode, 500)
+  assert.equal((prompt.json()).error, 'endpoint_not_configured')
+})
+
+test('crons: drafted disabled by default, duplicate name 409, bad schedule 400', async () => {
+  const { app, db } = boot()
   const ok = await app.inject({
     method: 'POST',
     url: '/api/internal/crons',
@@ -363,7 +414,7 @@ test('crons: drafted disabled by default, duplicate name 409, bad schedule 400',
     payload: { agentId: 'personal', name: 'brain-drafted', schedule: '30 21 * * *', prompt: 'retrospective' },
   })
   assert.equal(ok.statusCode, 201)
-  const body = ok.json() as { id: string; enabled: boolean }
+  const body = ok.json()
   assert.equal(body.enabled, false)
   const row = db.select().from(schema.cron).where(eq(schema.cron.id, body.id)).all()[0]
   assert.equal(row?.enabled, 0)

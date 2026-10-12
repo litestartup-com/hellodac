@@ -2,7 +2,6 @@ import { readFileSync, existsSync, rmSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 import { loadConfig } from '../config.js'
-import { buildClients } from '../gateway/client.js'
 import { buildUpstreamClients } from '../upstream/client.js'
 import { buildNodeSupervisors } from '../nodes/registry.js'
 import type { NodeSupervisor } from '../nodes/supervisor.js'
@@ -76,10 +75,8 @@ const main = (): void => {
   }
 
   const config = loadConfig()
-  const clients = buildClients(config.endpoints)
   const upstreamClients = buildUpstreamClients(config.endpoints)
   const supervisors = buildNodeSupervisors(config, {
-    gateway: (id) => clients.get(id),
     upstream: (id) => upstreamClients.get(id),
     log: (line) => console.log(line),
   })

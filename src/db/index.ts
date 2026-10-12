@@ -112,12 +112,12 @@ const MIGRATIONS: readonly string[][] = [
   [
     // A chat owns exactly one long-lived DSH session and many turns. The session
     // id is nullable because a chat exists from the moment the user opens it,
-    // while the gateway session is only created when the first message is sent.
+    // while the host session is only created when the first message is sent.
     //
     // `removed_at` rather than DELETE, and the session id survives it. Removing
-    // a chat hands the gateway slot back but does not destroy the transcript,
-    // which stays on the gateway and stays reachable through this id. Dropping
-    // the row would lose the only pointer to a conversation that still exists.
+    // a chat does not destroy the transcript, which stays on the host and stays
+    // reachable through this id. Dropping the row would lose the only pointer
+    // to a conversation that still exists.
     `CREATE TABLE IF NOT EXISTS chat (
        id TEXT PRIMARY KEY,
        agent_id TEXT NOT NULL REFERENCES agent(id) ON DELETE CASCADE,
@@ -129,7 +129,7 @@ const MIGRATIONS: readonly string[][] = [
      )`,
     // The sidebar lists an agent's chats newest-first, so order by the same key.
     `CREATE INDEX IF NOT EXISTS chat_agent_active ON chat(agent_id, last_active_at)`,
-    // Looking a chat up by the gateway session id is how an inbound stream frame
+    // Looking a chat up by the host session id is how an inbound stream frame
     // is attributed back to a chat.
     `CREATE UNIQUE INDEX IF NOT EXISTS chat_session ON chat(dsh_session_id)
        WHERE dsh_session_id IS NOT NULL`,

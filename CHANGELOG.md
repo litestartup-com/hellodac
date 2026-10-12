@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+- **The legacy `gateway` driver is retired.** It spoke the 0.1.2-era `dsh-api-gateway`
+  session REST surface, which the facade (ohdsh-api-facade 0.2.x) no longer serves: such an
+  endpoint probed green and answered 404 on the first message. Every endpoint now runs the
+  one live path — the frozen apiproxy contract behind the SessionDriver port — and a config
+  still declaring `driver: gateway` is refused at load with the migration spelled out
+  (switch to `driver: apiproxy` with `prefix: /api-gw/v1/proxy`). The duplicate
+  gateway/apiproxy branches in the runner, chat, status, nodes, cron and internal routes
+  went with it; `driver:` now defaults to `apiproxy`.
+
 ## v1.1.0 — the DSH 0.2.0 corridor (2026-10-01)
 
 **The default node line is now DSH `0.2.0-rc.2`**, paired with facade v0.2.5 (gateway

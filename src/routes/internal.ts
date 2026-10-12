@@ -6,7 +6,6 @@ import { z } from 'zod'
 import type { AppConfig } from '../config.js'
 import type { Db } from '../db/index.js'
 import { schema } from '../db/index.js'
-import { dummyGatewayClient, type GatewayClient } from '../gateway/client.js'
 import type { SessionDriver } from '../session-driver/port.js'
 import { listChats, getChat, bindSession, touchChat } from '../chat/store.js'
 import { publish } from './chat.js'
@@ -91,7 +90,6 @@ export const registerInternalRoutes = (
   app: FastifyInstance,
   config: AppConfig,
   db: Db,
-  clients: Map<string, GatewayClient>,
   upstreamClients: Map<string, SessionDriver>,
   scheduler: Scheduler,
 ): void => {
@@ -265,11 +263,8 @@ export const registerInternalRoutes = (
       return reply.code(409).send({ error: 'chat_busy', detail: 'this session is running a turn — continue it once that finishes.' })
     }
 
-    const driver = config.endpoints[agent.endpoint]?.driver ?? 'gateway'
     const upstream = upstreamClients.get(agent.endpoint)
-    const client = clients.get(agent.endpoint)
-    if (driver === 'apiproxy' && upstream === undefined) return reply.code(500).send({ error: 'endpoint_not_configured' })
-    if (driver === 'gateway' && client === undefined) return reply.code(500).send({ error: 'endpoint_not_configured' })
+    if (upstream === undefined) return reply.code(500).send({ error: 'endpoint_not_configured' })
 
     try {
       const outcome = await runAgent(
@@ -280,9 +275,7 @@ export const registerInternalRoutes = (
         },
         {
           agent,
-          client: client ?? dummyGatewayClient(),
-          ...(upstream === undefined ? {} : { upstream }),
-          driver,
+          upstream,
           prompt: parsed.data.text,
           trigger: 'brain',
           chatId: chat.id,
@@ -290,7 +283,6 @@ export const registerInternalRoutes = (
           onSession: (sessionId) => {
             if (getChat(db, chat.id)?.dshSessionId === null) bindSession(db, chat.id, sessionId)
           },
-          keepSession: true,
           timeoutMs: config.runner.timeoutMs,
           silenceMs: config.runner.silenceMs,
           onFrame: (frame) => {
@@ -331,11 +323,8 @@ export const registerInternalRoutes = (
       }
     }
 
-    const driver = config.endpoints[agent.endpoint]?.driver ?? 'gateway'
     const upstream = upstreamClients.get(agent.endpoint)
-    const client = clients.get(agent.endpoint)
-    if (driver === 'apiproxy' && upstream === undefined) return reply.code(500).send({ error: 'endpoint_not_configured' })
-    if (driver === 'gateway' && client === undefined) return reply.code(500).send({ error: 'endpoint_not_configured' })
+    if (upstream === undefined) return reply.code(500).send({ error: 'endpoint_not_configured' })
 
     try {
       const outcome = await runAgent(
@@ -350,9 +339,7 @@ export const registerInternalRoutes = (
         },
         {
           agent,
-          client: client ?? dummyGatewayClient(),
-          ...(upstream === undefined ? {} : { upstream }),
-          driver,
+          upstream,
           prompt: body.prompt,
           trigger: 'brain',
           sourceChatId: body.sourceChatId ?? null,

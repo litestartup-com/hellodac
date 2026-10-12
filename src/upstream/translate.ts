@@ -11,8 +11,7 @@
  */
 
 import { z } from 'zod'
-import type { HistoryEvent } from '../gateway/client.js'
-import { normalizeUsage, type TokenUsage, type GatewayFrame } from '../gateway/stream.js'
+import { normalizeUsage, type GatewayFrame, type HistoryEvent, type TokenUsage } from '../frames.js'
 
 // ---- mux frame → HistoryEvent ----
 

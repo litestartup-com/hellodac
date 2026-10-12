@@ -11,7 +11,7 @@
 
 import type { UpstreamEndpoint } from './rpc.js'
 import { parseMuxPayload } from './translate.js'
-import type { GatewayFrame } from '../gateway/stream.js'
+import type { GatewayFrame } from '../frames.js'
 import { z } from 'zod'
 import {
   muxFrameToGatewayFrame,

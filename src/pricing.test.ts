@@ -32,10 +32,10 @@ test('the same work inside a peak window costs exactly double', () => {
   assert.equal(on.peak, true)
 })
 
-test('the provider the gateway actually reports still resolves a rate', () => {
-  // The gateway says `deepseek-official`, while the rate table is keyed by bare
+test('the provider the host actually reports still resolves a rate', () => {
+  // The host says `deepseek-official`, while the rate table is keyed by bare
   // model name. If the fallback ever went away every run would silently become
-  // unpriced, so pin the exact string the gateway sends.
+  // unpriced, so pin the exact string the host sends.
   const cost = computeCost(MILLION, 'deepseek-official', 'deepseek-v4-pro', OFF_PEAK)
   assert.ok(cost !== null, 'deepseek-official/deepseek-v4-pro must price')
 })

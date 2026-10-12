@@ -74,16 +74,16 @@ export const cron = sqliteTable('cron', {
 /**
  * A multi-turn conversation, owning exactly one long-lived DSH session.
  *
- * `removedAt` hides a chat rather than deleting anything. Removing it hands the
- * gateway slot back, but the transcript stays on the gateway, so `dshSessionId`
- * remains the pointer to a conversation that still exists and can be adopted.
+ * `removedAt` hides a chat rather than deleting anything. The transcript stays
+ * on the host, so `dshSessionId` remains the pointer to a conversation that
+ * still exists and can be continued.
  */
 export const chat = sqliteTable('chat', {
   id: text('id').primaryKey(),
   agentId: text('agent_id').notNull(),
-  /** Null until the first message creates the gateway session. */
+  /** Null until the first message creates the host session. */
   dshSessionId: text('dsh_session_id'),
-  /** The gateway's own session title when it has one, else the first message. */
+  /** The host's own session title when it has one, else the first message. */
   title: text('title'),
   createdAt: integer('created_at').notNull(),
   lastActiveAt: integer('last_active_at').notNull(),
@@ -205,7 +205,7 @@ export const auditLog = sqliteTable('audit_log', {
 })
 
 /**
- * Written from the provider's reported usage on the gateway SSE stream, never
+ * Written from the provider's reported usage on the live frames, never
  * from dsh-token-meter (that one is a context-pressure heuristic, not billing).
  */
 export const usageRecord = sqliteTable('usage_record', {

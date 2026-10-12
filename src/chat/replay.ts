@@ -1,4 +1,4 @@
-import type { HistoryEvent } from '../gateway/client.js'
+import type { HistoryEvent } from '../frames.js'
 
 /**
  * Trimming a replayed transcript down to what the browser can actually use.

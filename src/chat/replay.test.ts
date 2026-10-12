@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import type { HistoryEvent } from '../gateway/client.js'
+import type { HistoryEvent } from '../frames.js'
 import { compactHistory } from './replay.js'
 
 let seq = 0

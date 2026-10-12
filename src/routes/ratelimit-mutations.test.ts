@@ -29,7 +29,7 @@ const configFor = (): AppConfig => {
   const dir = mkdtempSync(join(tmpdir(), 'ratelimit-mut-'))
   return {
     listen: { host: '127.0.0.1', port: 0 },
-    endpoints: { A: { id: 'A', url: 'http://127.0.0.1:1', driver: 'gateway', prefix: '/api-gw/v1', key: 'k', sandboxBase: null, sandboxKey: '', spawn: null, access: null } },
+    endpoints: { A: { id: 'A', url: 'http://127.0.0.1:1', driver: 'apiproxy', prefix: '/api', key: 'k', sandboxBase: null, sandboxKey: '', spawn: null, access: null } },
     agents: {
       personal: { id: 'personal', name: 'Personal', endpoint: 'A', workspacePath: '.', public: false, preset: null, sandboxMode: null, gitRemote: null, provider: null, model: null, validate: null },
     },
@@ -58,7 +58,7 @@ const buildNodesApp = async (): Promise<ReturnType<typeof Fastify>> => {
   await app.register(rateLimit, { global: false })
   const config = configFor()
   const supervisor = new NodeSupervisor('A', { probe: async () => ({ ok: false, detail: 'x' }), spawn: () => { throw new Error('no real spawn') }, killTree: () => {} })
-  registerNodesRoutes(app, config, new Map([['A', supervisor]]), new Map(), new Map(), async () => {})
+  registerNodesRoutes(app, config, new Map([['A', supervisor]]), new Map(), async () => {})
   // Not inserting an agent row in the test can make the handler 404 or 500 -- that is fine: the 429 has to come from the rate-limit layer
   return app
 }
@@ -74,7 +74,7 @@ const buildProvisionApp = async (): Promise<ReturnType<typeof Fastify>> => {
   await app.register(rateLimit, { global: false })
   const config = configFor()
   const db = openDb(join(mkdtempSync(join(tmpdir(), 'rl-prov-')), 'test.db')).db
-  registerProvisionRoutes(app, config, async () => {}, { db, supervisors: new Map(), clients: new Map(), upstreamClients: new Map() })
+  registerProvisionRoutes(app, config, async () => {}, { db, supervisors: new Map(), upstreamClients: new Map() })
   return app
 }
 
@@ -89,7 +89,7 @@ const buildInternalApp = async (): Promise<ReturnType<typeof Fastify>> => {
   await app.register(rateLimit, { global: false })
   const config = configFor()
   const db = openDb(join(mkdtempSync(join(tmpdir(), 'rl-int-')), 'test.db')).db
-  registerInternalRoutes(app, config, db, new Map(), new Map(), { reload: () => {}, nextRunAt: () => null, problemFor: () => null } as never)
+  registerInternalRoutes(app, config, db, new Map(), { reload: () => {}, nextRunAt: () => null, problemFor: () => null } as never)
   return app
 }
 

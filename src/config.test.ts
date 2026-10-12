@@ -317,13 +317,11 @@ test('v1.0.3: apiproxy prefix — explicit config wins, legacy default only when
     endpoints: { A: { url: 'http://127.0.0.1:3091', driver: 'apiproxy', prefix: '/api-gw/v1/proxy' } },
   }))
   assert.equal(facade.endpoints['A']?.prefix, '/api-gw/v1/proxy')
-  // The gateway driver's prefix behaves as before (explicit wins).
-  withEnv({ GW_KEY_A: 'test-gw-key' }, () => {
-    const gw = loadFrom(baseConfig({
-      endpoints: { A: { url: 'http://127.0.0.1:3080', driver: 'gateway', prefix: '/api-gw/v1', key_ref: 'GW_KEY_A' } },
-    }))
-    assert.equal(gw.endpoints['A']?.prefix, '/api-gw/v1')
-  })
+  // Gateway retirement: the driver itself defaults to apiproxy, so an endpoint that omits it lands on the live path.
+  const omittedDriver = loadFrom(baseConfig({
+    endpoints: { A: { url: 'http://127.0.0.1:3080' } },
+  }))
+  assert.equal(omittedDriver.endpoints['A']?.driver, 'apiproxy')
 })
 
 test('no spawn block resolves to null (externally managed node)', () => {  const cfg = loadFrom(baseConfig())
@@ -641,18 +639,23 @@ test('remote workspace: a relative path fails loud (a remote has no "current dir
   assert.throws(() => loadFrom(relative), /must be an absolute path on the remote machine/)
 })
 
-test('dead-path warning: a driver: gateway endpoint must warn (facade 0.2.x has no chat REST surface)', () => {
+test('gateway retirement: a driver: gateway endpoint is refused at load with the migration spelled out', () => {
   const legacy = baseConfig({
     endpoints: { G: { url: 'http://127.0.0.1:3090', driver: 'gateway', key_ref: 'GW_KEY_TEST' } },
     agents: { g: { name: 'g', endpoint: 'G', workspace: '.' } },
   })
-  const cfg = loadWithKeyEnv(legacy)
-  assert.ok(
-    cfg.warnings.some((w) => w.includes('gateway driver, which is a dead path')),
-    'the gateway driver is half dead: liveness green, chats 404 -- the boot has to say so out loud',
+  // The dead path must not come up at all: facade 0.2.x answers 404 on every session call while
+  // health checks stay green (facts/dsh-facts.md §15) -- a boot-time warning was the old behaviour,
+  // the retirement turned it into a hard error naming the replacement.
+  assert.throws(
+    () => loadWithKeyEnv(legacy),
+    (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error)
+      return message.includes('driver "gateway" was retired') && message.includes('driver: apiproxy')
+    },
   )
   const ok = loadFrom(baseConfig())
-  assert.ok(!ok.warnings.some((w) => w.includes('dead path')), 'an apiproxy endpoint should not carry this warning')
+  assert.equal(ok.endpoints['A']?.driver, 'apiproxy')
 })
 
 test('outward API service: a member must be a public agent (a private member fails loud, not silently)', () => {

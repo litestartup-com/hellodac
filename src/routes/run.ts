@@ -4,7 +4,6 @@ import { z } from 'zod'
 import type { AppConfig } from '../config.js'
 import type { Db } from '../db/index.js'
 import { schema } from '../db/index.js'
-import { dummyGatewayClient, type GatewayClient } from '../gateway/client.js'
 import type { SessionDriver } from '../session-driver/port.js'
 import { activeRunCount, runAgent, runningRunId } from '../runner.js'
 
@@ -37,9 +36,8 @@ export const registerRunRoutes = (
   app: FastifyInstance,
   config: AppConfig,
   db: Db,
-  clients: Map<string, GatewayClient>,
   requireUser: preHandlerHookHandler,
-  upstreamClients?: Map<string, SessionDriver>,
+  upstreamClients: Map<string, SessionDriver>,
 ): void => {
   app.post<{ Params: { id: string }; Body: unknown }>(
     '/api/agents/:id/run',
@@ -58,11 +56,8 @@ export const registerRunRoutes = (
         return reply.code(400).send({ error: 'invalid_body', detail: parsed.error.issues.map((i) => i.message) })
       }
 
-      const driver = config.endpoints[agent.endpoint]?.driver ?? 'gateway'
-      const upstream = upstreamClients?.get(agent.endpoint)
-      const client = clients.get(agent.endpoint)
-      if (driver === 'apiproxy' && upstream === undefined) return reply.code(500).send({ error: 'endpoint_not_configured' })
-      if (driver === 'gateway' && client === undefined) return reply.code(500).send({ error: 'endpoint_not_configured' })
+      const upstream = upstreamClients.get(agent.endpoint)
+      if (upstream === undefined) return reply.code(500).send({ error: 'endpoint_not_configured' })
 
       try {
         const outcome = await runAgent(
@@ -77,9 +72,7 @@ export const registerRunRoutes = (
           },
           {
             agent,
-            client: client ?? dummyGatewayClient(),
-            ...(upstream === undefined ? {} : { upstream }),
-            driver,
+            upstream,
             prompt: parsed.data.prompt,
             trigger: 'manual',
             timeoutMs: config.runner.timeoutMs,

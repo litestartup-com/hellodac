@@ -1,4 +1,4 @@
-import type { TokenUsage } from './gateway/stream.js'
+import type { TokenUsage } from './frames.js'
 
 /**
  * Token cost, recorded at run time.
@@ -92,7 +92,7 @@ export const parseUtcTime = (value: string): number => {
  * 2026-08-16 16:00 UTC). Peak is 01:00-04:00 and 06:00-10:00 UTC, which is
  * 09:00-12:00 and 14:00-18:00 Beijing time -- the working day.
  *
- * The gateway reports the provider as `deepseek-official`, not `deepseek`, so
+ * The host reports the provider as `deepseek-official`, not `deepseek`, so
  * these are keyed by bare model name and reached through the fallback. Keying
  * them by `provider/model` alone would silently never match.
  */

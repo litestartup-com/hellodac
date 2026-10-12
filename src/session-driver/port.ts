@@ -20,7 +20,7 @@
 import type { MuxListener } from '../upstream/mux.js'
 import type { UpstreamCreatedSession, UpstreamModelCatalog, UpstreamModelSelection, UpstreamSessionHistory } from '../upstream/client.js'
 import type { RpcReceipt } from '../upstream/respond.js'
-import type { GatewayFrame } from '../gateway/stream.js'
+import type { GatewayFrame } from '../frames.js'
 
 export interface SessionDriver {
   /** Endpoint id (the key in the manager config). */

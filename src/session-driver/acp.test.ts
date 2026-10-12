@@ -11,7 +11,6 @@ import { test } from 'node:test'
 import { eq } from 'drizzle-orm'
 import { agent, type AgentApp, type RequestPermissionRequest, type RequestPermissionResponse, type SessionUpdate, type StopReason, type PermissionOptionKind } from '@agentclientprotocol/sdk'
 import { schema, type Db } from '../db/index.js'
-import { GatewayClient } from '../gateway/client.js'
 import { runAgent } from '../runner.js'
 import { AcpSessionDriver } from './acp.js'
 // Debt C3: makeDb/agentFor moved into the test harness (local aliases kept, behavior unchanged).
@@ -66,9 +65,6 @@ const driverFor = (opts: FakeAcpOptions): { driver: AcpSessionDriver; decisions:
 const makeDb = (): Db => makeHarnessDb().db
 
 const agentFor = personalAgent
-
-const dummyClient = (): GatewayClient =>
-  new GatewayClient({ id: 'A', url: 'http://127.0.0.1:1', driver: 'apiproxy', prefix: '/api', key: '', sandboxBase: null, sandboxKey: '', spawn: null, access: null })
 
 test('Plug two, nine operations: probe/create/subscribe/prompt frame pump/history/release', async () => {
   const { driver } = driverFor({ chunks: ['under', 'stood'] })
@@ -134,9 +130,7 @@ test('Re-run on the swapped plug: the runner drives a whole turn through ACP wit
 
   const outcome = await runAgent({ db }, {
     agent: agentFor(workspace),
-    client: dummyClient(),
     upstream: driver,
-    driver: 'apiproxy',
     prompt: 'reply with just: understood',
     trigger: 'manual',
   })

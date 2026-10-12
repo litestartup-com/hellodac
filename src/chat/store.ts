@@ -6,11 +6,11 @@ import { schema } from '../db/index.js'
 /**
  * Chat threads: manager's side of a multi-turn conversation.
  *
- * A chat owns exactly one gateway session and many turns. The turns themselves
+ * A chat owns exactly one host session and many turns. The turns themselves
  * stay in `run`, so the cost ledger, cron jobs and the outward task API are
  * untouched by any of this -- a chat is only the thread that groups them.
  *
- * Nothing here talks to the gateway. The transcript is *not* stored: the gateway
+ * Nothing here talks to the host. The transcript is *not* stored: the host
  * already persists it and will replay it on request, and a second copy would
  * only be a copy that can disagree with the first.
  */
@@ -20,7 +20,7 @@ export const TITLE_LIMIT = 60
 /**
  * A readable title from the first thing the user said.
  *
- * Used only when the gateway has no title of its own for the session, and never
+ * Used only when the host has no title of its own for the session, and never
  * paraphrased -- it is a prefix of the user's own words, so it cannot claim
  * something they did not say.
  */
@@ -60,8 +60,8 @@ export const createChat = (db: Db, agentId: string, now = Date.now(), owner?: Ch
   const row: ChatRow = {
     id: randomUUID(),
     agentId,
-    // Null until the first turn: creating a gateway session for a chat the user
-    // may never type into would burn a slot against the gateway's maxSessions.
+    // Null until the first turn: creating a host session for a chat the user
+    // may never type into would start a session nobody asked for.
     dshSessionId: null,
     title: null,
     createdAt: now,
@@ -140,7 +140,7 @@ export const listChats = (db: Db, agentId: string, limit = 100): ChatListItem[] 
   return rows.map((row) => ({ ...row, turns: byChat.get(row.id) ?? 0 }))
 }
 
-/** Records the gateway session a chat became bound to on its first turn. */
+/** Records the host session a chat became bound to on its first turn. */
 export const bindSession = (db: Db, chatId: string, sessionId: string, now = Date.now()): void => {
   db.update(schema.chat)
     .set({ dshSessionId: sessionId, lastActiveAt: now })
@@ -168,9 +168,8 @@ export const renameChat = (db: Db, chatId: string, title: string): void => {
  * Hides a chat from manager.
  *
  * Deliberately not a DELETE, and `dshSessionId` is deliberately left on the row.
- * The gateway's own `DELETE /sessions/:id` -- which routes/chat.ts calls when a
- * chat is removed -- frees the session's slot but keeps the transcript, so the
- * conversation stays readable through this id and could be adopted again.
+ * Archiving is purely manager-side: the host keeps the transcript, so the
+ * conversation stays readable through this id and can be continued again.
  * Clearing the id here would throw that away and tell the user something untrue
  * about their own data.
  *
@@ -244,8 +243,8 @@ export const listArchivedChats = (db: Db, limit = 200): ArchivedChat[] => {
 /**
  * Brings an archived chat back into the list.
  *
- * Only clears the flag. The gateway session was released when the chat was
- * archived, so a restored chat may come back `cold` or `lost` -- which
+ * Only clears the flag. A restored chat may come back `cold` (revived on the
+ * next message) or `lost` (the host no longer has it) -- which
  * `GET /api/chats/:id` already reports, and which is the truth rather than
  * something to paper over here.
  */

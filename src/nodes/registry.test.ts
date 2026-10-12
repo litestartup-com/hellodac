@@ -11,11 +11,11 @@ import type { AppConfig, ResolvedEndpoint, ResolvedSpawnSpec } from '../config.j
  * this file pins registry's own contract: the type it builds, that it only takes managed nodes, and the dockerEnv key assembly.
  */
 
-const endpointFor = (id: string, driver: 'gateway' | 'apiproxy', spawn: ResolvedEndpoint['spawn']): ResolvedEndpoint => ({
+const endpointFor = (id: string, spawn: ResolvedEndpoint['spawn']): ResolvedEndpoint => ({
   id,
   url: 'http://127.0.0.1:1',
-  driver,
-  prefix: driver === 'apiproxy' ? '/api' : '/api-gw/v1',
+  driver: 'apiproxy',
+  prefix: '/api',
   key: '',
   sandboxBase: null,
   sandboxKey: 'apigw-test-key',
@@ -38,24 +38,22 @@ const managedProcess: ResolvedEndpoint['spawn'] = {
   docker: null,
 }
 
-test('Debt C2: the makeSupervisor construction contract -- both apiproxy and gateway produce a NodeSupervisor', () => {
+test('Debt C2: the makeSupervisor construction contract -- an endpoint produces a NodeSupervisor probing through the port', () => {
   const up = new FakeSessionDriver('A', { frames: [], probeVersion: '0.1.1-rc.2' })
-  const apiproxy = makeSupervisor(endpointFor('A', 'apiproxy', null), { upstream: () => up, gateway: () => undefined })
-  assert.ok(apiproxy instanceof NodeSupervisor)
-  const gateway = makeSupervisor(endpointFor('G', 'gateway', null), { upstream: () => undefined, gateway: () => undefined })
-  assert.ok(gateway instanceof NodeSupervisor)
+  const supervisor = makeSupervisor(endpointFor('A', null), { upstream: () => up })
+  assert.ok(supervisor instanceof NodeSupervisor)
 })
 
-test('Debt C2: buildNodeSupervisors only takes managed nodes (an externally managed one is skipped; one process and one docker managed node are in)', () => {
+test('Debt C2: buildNodeSupervisors only takes managed nodes (an externally managed one is skipped; managed process and docker nodes are in)', () => {
   const config = {
     endpoints: {
-      A: endpointFor('A', 'apiproxy', null),
-      B: endpointFor('B', 'apiproxy', managedProcess),
-      C: endpointFor('C', 'gateway', managedProcess),
+      A: endpointFor('A', null),
+      B: endpointFor('B', managedProcess),
+      C: endpointFor('C', managedProcess),
     },
     agents: {},
   } as unknown as AppConfig
-  const map = buildNodeSupervisors(config, { upstream: () => undefined, gateway: () => undefined })
+  const map = buildNodeSupervisors(config, { upstream: () => undefined })
   assert.equal(map.size, 2, 'the externally managed one (spawn null) is skipped; the two managed ones are in')
   assert.ok(map.has('B') && map.has('C'))
   assert.ok(!map.has('A'), 'an unmanaged endpoint never makes it into the registry')
@@ -65,9 +63,8 @@ test('Fleet M3 regression: with agentFullAccess=true the spawn payload carries A
   const up = new FakeSessionDriver('A', { frames: [], probeVersion: '0.1.5-rc.2' })
   const enqueued: Array<{ type: string; payload: Record<string, unknown> }> = []
   const agentSpawn = { ...managedProcess, runner: 'agent', host: 'agent-1' } as ResolvedSpawnSpec
-  const s = makeSupervisor(endpointFor('A', 'apiproxy', agentSpawn), {
+  const s = makeSupervisor(endpointFor('A', agentSpawn), {
     upstream: () => up,
-    gateway: () => undefined,
     agentFullAccess: true,
     agentCommand: (_a, type, payload) => {
       enqueued.push({ type, payload: payload as Record<string, unknown> })
@@ -80,16 +77,14 @@ test('Fleet M3 regression: with agentFullAccess=true the spawn payload carries A
   assert.equal(env?.ALLOW_FULL_ACCESS, 'true', 'a danger-full-access node -> the agent gets the unlock signal (to write into settings)')
   assert.equal(env?.GW_KEY, 'apigw-test-key', 'GW_KEY is injected as before')
 
-  const plain = makeSupervisor(endpointFor('B', 'apiproxy', agentSpawn), {
+  const plain = makeSupervisor(endpointFor('B', agentSpawn), {
     upstream: () => up,
-    gateway: () => undefined,
     agentCommand: () => 1,
     agentResult: () => () => {},
   })
   const enqueued2: Array<{ payload: Record<string, unknown> }> = []
-  const s2 = makeSupervisor(endpointFor('B', 'apiproxy', agentSpawn), {
+  const s2 = makeSupervisor(endpointFor('B', agentSpawn), {
     upstream: () => up,
-    gateway: () => undefined,
     agentCommand: (_a, _t, payload) => {
       enqueued2.push({ payload: payload as Record<string, unknown> })
       return 1

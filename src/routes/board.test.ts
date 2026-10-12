@@ -17,7 +17,7 @@ const agentFor = (workspacePath: string): ResolvedAgent =>
 
 const configFor = (agent: ResolvedAgent): AppConfig => ({
   listen: { host: '127.0.0.1', port: 0 },
-  endpoints: { A: { id: 'A', url: 'http://127.0.0.1:1', driver: 'gateway', prefix: '/api-gw/v1', key: 'k', sandboxBase: null, sandboxKey: '', spawn: null, access: null } },
+  endpoints: { A: { id: 'A', url: 'http://127.0.0.1:1', driver: 'apiproxy', prefix: '/api', key: 'k', sandboxBase: null, sandboxKey: '', spawn: null, access: null } },
   agents: { [agent.id]: agent },
   runner: { timeoutMs: 1000, silenceMs: 0, maxConsecutiveFailures: 3, dailyBudgetMicroUsd: null },
   databasePath: ':memory:',

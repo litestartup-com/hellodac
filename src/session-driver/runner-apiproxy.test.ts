@@ -11,11 +11,10 @@ import { test } from 'node:test'
 import { eq } from 'drizzle-orm'
 import type { ResolvedAgent } from '../config.js'
 import { schema, type Db } from '../db/index.js'
-import { GatewayClient } from '../gateway/client.js'
 import { runAgent } from '../runner.js'
 import { FakeSessionDriver, type FakeScript } from './fake.js'
 import type { MuxListener } from '../upstream/mux.js'
-import type { GatewayFrame } from '../gateway/stream.js'
+import type { GatewayFrame } from '../frames.js'
 import { mintApiKey } from '../auth/api-key.js'
 // Debt C3: makeDb/agentFor moved into the test harness (local aliases kept, behavior unchanged).
 import { makeDb as makeHarnessDb, personalAgent } from '../test-harness.js'
@@ -37,9 +36,6 @@ const agentFor = (workspacePath: string, sandboxMode: 'read-only' | 'workspace-w
   sandboxMode,
 })
 
-/** The port does not involve a GatewayClient, but RunInput requires one (only the gateway branch uses it). */
-const dummyClient = (): GatewayClient =>
-  new GatewayClient({ id: 'A', url: 'http://127.0.0.1:1', driver: 'apiproxy', prefix: '/api', key: '', sandboxBase: null, sandboxKey: '', spawn: null, access: null })
 
 /**
  * A pricing table holding only the model the host *confirmed*: the config pin (what the manager
@@ -64,9 +60,7 @@ test('apiproxy turn: create -> sandbox -> prompt -> frames -> turn_end, all thro
 
   const outcome = await runAgent({ db }, {
     agent: agentFor(workspace, 'workspace-write'),
-    client: dummyClient(),
     upstream: fake,
-    driver: 'apiproxy',
     prompt: 'reply with just: understood',
     trigger: 'manual',
     onSession: (sessionId) => timeline.push(`session:${sessionId}`),
@@ -98,7 +92,7 @@ test('apiproxy turn: a prompt that was not accepted = failed, without waiting fo
   const fake = new FakeSessionDriver('A', { ...SUCCESS, promptAccepted: false })
   const outcome = await runAgent({ db }, {
     agent: agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))),
-    client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'hi', trigger: 'manual',
+    upstream: fake, prompt: 'hi', trigger: 'manual',
   })
   assert.equal(outcome.state, 'failed')
   assert.match(outcome.error ?? '', /not accepted/)
@@ -109,7 +103,7 @@ test('apiproxy turn: createSession throwing = failed, carrying the upstream info
   const fake = new FakeSessionDriver('A', { ...SUCCESS, createError: 'upstream 503' })
   const outcome = await runAgent({ db }, {
     agent: agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))),
-    client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'hi', trigger: 'manual',
+    upstream: fake, prompt: 'hi', trigger: 'manual',
   })
   assert.equal(outcome.state, 'failed')
   assert.match(outcome.error ?? '', /upstream 503/)
@@ -122,7 +116,7 @@ test('apiproxy turn: turn_end with reason=error carries detail.message', async (
   })
   const outcome = await runAgent({ db }, {
     agent: agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))),
-    client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'hi', trigger: 'manual',
+    upstream: fake, prompt: 'hi', trigger: 'manual',
   })
   assert.equal(outcome.state, 'failed')
   assert.match(outcome.error ?? '', /model exploded/)
@@ -140,7 +134,7 @@ test('apiproxy turn: question/approval frames reach onFrame as usual and the tur
   const seen: string[] = []
   const outcome = await runAgent({ db }, {
     agent: agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))),
-    client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'hi', trigger: 'manual',
+    upstream: fake, prompt: 'hi', trigger: 'manual',
     onFrame: (frame) => seen.push(frame.kind),
   })
   assert.equal(outcome.state, 'done')
@@ -153,7 +147,7 @@ test('apiproxy turn: an external stop ends a question-waiting run locally', asyn
   const controller = new AbortController()
   const pending = runAgent({ db }, {
     agent: agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))),
-    client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'hi', trigger: 'manual',
+    upstream: fake, prompt: 'hi', trigger: 'manual',
     signal: controller.signal, silenceMs: 0, timeoutMs: 10_000,
   })
   await new Promise((resolve) => setTimeout(resolve, 20))
@@ -169,7 +163,7 @@ test('apiproxy turn: a silence timeout = cancelled, with cancel called through t
   const fake = new FakeSessionDriver('A', { frames: [] })
   const outcome = await runAgent({ db }, {
     agent: agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))),
-    client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'hi', trigger: 'manual',
+    upstream: fake, prompt: 'hi', trigger: 'manual',
     silenceMs: 60,
   })
   assert.equal(outcome.state, 'failed')
@@ -188,7 +182,7 @@ test('Debt A4 regression: a stream reconnecting mid-turn -> fail loudly (outcome
   })
   const outcome = await runAgent({ db }, {
     agent: agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))),
-    client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'hi', trigger: 'manual',
+    upstream: fake, prompt: 'hi', trigger: 'manual',
     silenceMs: 0, timeoutMs: 5_000,
   })
   assert.equal(outcome.state, 'failed')
@@ -210,7 +204,7 @@ test('Debt card chain regression: a reconnect while someone is answering -> do n
   const seen: string[] = []
   const outcome = await runAgent({ db }, {
     agent: agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))),
-    client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'hi', trigger: 'manual',
+    upstream: fake, prompt: 'hi', trigger: 'manual',
     silenceMs: 0, timeoutMs: 5_000,
     onFrame: (frame) => seen.push(frame.kind),
   })
@@ -279,7 +273,7 @@ test('outward turn: a pending question is auto-declined after the grace window a
   )
   const outcome = await runAgent({ db }, {
     agent: agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))),
-    client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'follow-up', trigger: 'api',
+    upstream: fake, prompt: 'follow-up', trigger: 'api',
     apiKeyId: outwardKey(db),
     outwardGraceMs: 20,
     silenceMs: 0, timeoutMs: 5_000,
@@ -302,7 +296,7 @@ test('outward turn: a pending approval is auto-rejected after the grace window',
   )
   const outcome = await runAgent({ db }, {
     agent: agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))),
-    client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'write something', trigger: 'api',
+    upstream: fake, prompt: 'write something', trigger: 'api',
     apiKeyId: outwardKey(db),
     outwardGraceMs: 20,
     silenceMs: 0, timeoutMs: 5_000,
@@ -322,7 +316,7 @@ test('inward turn: questions are left to the humans at the screen even with a ti
   })
   const outcome = await runAgent({ db }, {
     agent: agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))),
-    client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'hi', trigger: 'manual',
+    upstream: fake, prompt: 'hi', trigger: 'manual',
     outwardGraceMs: 5, // ignored without an apiKeyId
     silenceMs: 0, timeoutMs: 5_000,
   })
@@ -350,7 +344,7 @@ test('Debt card chain: a question frame lost in the outage window is recovered t
   const seen: string[] = []
   const outcome = await runAgent({ db }, {
     agent: agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))),
-    client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'hi', trigger: 'manual',
+    upstream: fake, prompt: 'hi', trigger: 'manual',
     silenceMs: 0, timeoutMs: 5_000,
     onFrame: (frame) => seen.push(frame.kind),
   })
@@ -391,7 +385,7 @@ test('Debt R8: a rejected prompt = the subscription must be cleaned up (no lefto
   const fake = new FakeSessionDriver('A', { ...SUCCESS, promptAccepted: false })
   const outcome = await runAgent({ db }, {
     agent: agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))),
-    client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'hi', trigger: 'manual',
+    upstream: fake, prompt: 'hi', trigger: 'manual',
   })
   assert.equal(outcome.state, 'failed')
   await new Promise((resolve) => setTimeout(resolve, 20))
@@ -403,7 +397,7 @@ test('Debt R8: a prompt that throws = the subscription must be cleaned up', asyn
   const fake = new FakeSessionDriver('A', { ...SUCCESS, promptError: 'upstream 500' })
   const outcome = await runAgent({ db }, {
     agent: agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))),
-    client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'hi', trigger: 'manual',
+    upstream: fake, prompt: 'hi', trigger: 'manual',
   })
   assert.equal(outcome.state, 'failed')
   assert.match(outcome.error ?? '', /upstream 500/)
@@ -416,7 +410,7 @@ test('Debt R8: a silence timeout = the subscription must be cleaned up', async (
   const fake = new FakeSessionDriver('A', { frames: [] })
   const outcome = await runAgent({ db }, {
     agent: agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))),
-    client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'hi', trigger: 'manual',
+    upstream: fake, prompt: 'hi', trigger: 'manual',
     silenceMs: 60,
   })
   assert.equal(outcome.state, 'failed')
@@ -450,7 +444,7 @@ test('outward accounting: the agent pin is landed through selectModel and the tu
     { db, pricing: CONFIRMED_MODEL_PRICING },
     {
       agent: { ...agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))), provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-      client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'hi', trigger: 'api',
+      upstream: fake, prompt: 'hi', trigger: 'api',
     },
   )
 
@@ -481,7 +475,7 @@ test('outward accounting: a continued turn re-lands the pin, so the ledger keeps
     { db, pricing: CONFIRMED_MODEL_PRICING },
     {
       agent: { ...agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))), provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-      client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'again', trigger: 'api',
+      upstream: fake, prompt: 'again', trigger: 'api',
       sessionId: 'existing-session',
     },
   )
@@ -511,7 +505,7 @@ test('outward accounting: a pin the host cannot route fails the turn loudly inst
     { db, pricing: CONFIRMED_MODEL_PRICING },
     {
       agent: { ...agentFor(mkdtempSync(join(tmpdir(), 'apiproxy-ws-'))), provider: 'deepseek-official', model: 'typo-model' },
-      client: dummyClient(), upstream: fake, driver: 'apiproxy', prompt: 'hi', trigger: 'api',
+      upstream: fake, prompt: 'hi', trigger: 'api',
     },
   )
 
