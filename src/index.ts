@@ -272,6 +272,7 @@ const main = async (): Promise<void> => {
   // Hive plan 2 P3: the password-change page (where a forced change lands) and the audit page
   app.get('/password', { preHandler: requirePage }, page('password'))
   app.get('/audit', { preHandler: requirePage }, page('audit'))
+  app.get('/approvals', { preHandler: requirePage }, page('approvals'))
   // Public API: the key management page (the back-office face; the customer face is /v1 on 8081, and the two doors do
   // not recognise each other). Miss this line and /keys 404s while /api/keys works -- pages-routes.test.ts now guards that.
   app.get('/keys', { preHandler: requirePage }, page('keys'))

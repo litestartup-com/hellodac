@@ -126,6 +126,15 @@ export const PAGES: Record<string, PageDef> = {
     script: 'audit.js',
     contentClass: 'wide',
   },
+  // Headless approval (design doc hive/topics/headless-approval-p1.md): the PO's pending permission
+  // prompt queue -- a headless run has no chat card to hang the prompt on, this page is where it lands.
+  approvals: {
+    file: 'approvals.html',
+    title: `{{t:approvals.title}} · ${BRAND.name}`,
+    css: [],
+    script: 'approvals.js',
+    contentClass: 'wide',
+  },
 }
 
 /**
