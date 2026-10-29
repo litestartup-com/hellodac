@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import type { Db } from './db/index.js'
 import { schema } from './db/index.js'
 import type { ResolvedAgent } from './config.js'
@@ -332,6 +332,54 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
     }
   }
 
+  /**
+   * Headless approval registry (design doc hive/topics/headless-approval-p1.md): the durable pendant
+   * of the chat's in-memory pending cards. Recording must never break the turn -- a failed write is
+   * a warning, not a run failure.
+   */
+  const recordPendingApproval = (frame: GatewayFrame): void => {
+    const decisionId = typeof frame.decisionId === 'string' && frame.decisionId !== '' ? frame.decisionId : null
+    if (decisionId === null) return
+    try {
+      deps.db
+        .insert(schema.approvalQueue)
+        .values({
+          id: decisionId,
+          runId,
+          agentId: agent.id,
+          approvalId: typeof frame.approvalId === 'string' && frame.approvalId !== '' ? frame.approvalId : decisionId,
+          toolName: typeof frame.toolName === 'string' ? frame.toolName : '',
+          reason: typeof frame.reason === 'string' ? frame.reason : null,
+          state: 'pending',
+          outcome: null,
+          createdAt: now(),
+          resolvedAt: null,
+        })
+        .onConflictDoNothing()
+        .run()
+    } catch (error) {
+      log?.warn(`run ${runId}: could not record the pending approval: ${(error as Error).message}`)
+    }
+  }
+
+  const resolveApproval = (frame: GatewayFrame): void => {
+    const decisionId = typeof frame.decisionId === 'string' && frame.decisionId !== '' ? frame.decisionId : null
+    if (decisionId === null) return
+    try {
+      deps.db
+        .update(schema.approvalQueue)
+        .set({
+          state: 'resolved',
+          outcome: typeof frame.outcome === 'string' ? frame.outcome : null,
+          resolvedAt: now(),
+        })
+        .where(and(eq(schema.approvalQueue.id, decisionId), eq(schema.approvalQueue.runId, runId)))
+        .run()
+    } catch (error) {
+      log?.warn(`run ${runId}: could not resolve the approval row: ${(error as Error).message}`)
+    }
+  }
+
   const trackAwaiting = (frame: GatewayFrame) => {
     switch (frame.kind) {
       case 'tool_call':
@@ -343,11 +391,13 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
       case 'question_asked':
       case 'approval_pending':
         awaitingHuman += 1
+        if (frame.kind === 'approval_pending') recordPendingApproval(frame)
         if (isOutward) scheduleAutoDecline(frame)
         return
       case 'question_resolved':
       case 'approval_resolved':
         awaitingHuman = Math.max(0, awaitingHuman - 1)
+        if (frame.kind === 'approval_resolved') resolveApproval(frame)
         if (isOutward) cancelAutoDecline(frame)
         return
       case 'turn_end':

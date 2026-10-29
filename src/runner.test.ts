@@ -517,6 +517,58 @@ test('after the last tool finishes, real silence still cancels the turn', async 
   assert.match(outcome.error ?? '', /nothing happened/)
 })
 
+test('a pending permission prompt lands in the approval queue and the decision resolves it', async () => {
+  const db = makeDb()
+  // A headless run has no chat to hang the approval card on, so the prompt must be recorded durably
+  // (the registry the headless decide endpoint acts on). decisionId is the host's rpc id.
+  const fake = new ScheduledFake('A', [
+    { afterMs: 20, frame: { kind: 'approval_pending', seq: 0, decisionId: 'd-1', approvalId: 'a-1', toolName: 'bash', reason: null } },
+    { afterMs: 20, frame: { kind: 'approval_resolved', seq: 0, decisionId: 'd-1', outcome: 'allowed-once' } },
+    { afterMs: 20, frame: { kind: 'turn_end', seq: 0, turn: 1, reason: 'completed', detail: null } },
+  ])
+
+  const outcome = await runAgent({ db }, {
+    agent: agentFor(tempDir('ws')),
+    upstream: fake,
+    prompt: 'hi',
+    trigger: 'manual',
+    timeoutMs: 10_000,
+    silenceMs: 1_000,
+  })
+
+  assert.equal(outcome.state, 'done', outcome.error ?? '')
+  const rows = db.select().from(schema.approvalQueue).where(eq(schema.approvalQueue.runId, outcome.runId ?? '')).all()
+  assert.equal(rows.length, 1, 'the pending prompt is recorded exactly once')
+  assert.equal(rows[0]?.id, 'd-1')
+  assert.equal(rows[0]?.approvalId, 'a-1')
+  assert.equal(rows[0]?.toolName, 'bash')
+  assert.equal(rows[0]?.state, 'resolved')
+  assert.equal(rows[0]?.outcome, 'allowed-once')
+  assert.ok(typeof rows[0]?.resolvedAt === 'number')
+})
+
+test('a pending permission prompt that the turn never answers stays pending', async () => {
+  const db = makeDb()
+  const fake = new ScheduledFake('A', [
+    { afterMs: 20, frame: { kind: 'approval_pending', seq: 0, decisionId: 'd-2', approvalId: 'a-2', toolName: 'bash', reason: null } },
+    { afterMs: 20, frame: { kind: 'turn_end', seq: 0, turn: 1, reason: 'completed', detail: null } },
+  ])
+
+  const outcome = await runAgent({ db }, {
+    agent: agentFor(tempDir('ws')),
+    upstream: fake,
+    prompt: 'hi',
+    trigger: 'manual',
+    timeoutMs: 10_000,
+    silenceMs: 1_000,
+  })
+
+  assert.equal(outcome.state, 'done', outcome.error ?? '')
+  const rows = db.select().from(schema.approvalQueue).where(eq(schema.approvalQueue.runId, outcome.runId ?? '')).all()
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0]?.state, 'pending', 'an unanswered prompt stays pending, so the queue shows it')
+})
+
 // ---------------------------------------------------------------------------
 // concurrency and the active-run registration (Hive P5.4)
 // ---------------------------------------------------------------------------

@@ -357,6 +357,23 @@ const MIGRATIONS: readonly string[][] = [
     // A partial index: archived or removed chats (removed_at not null) take no part in uniqueness.
     `CREATE UNIQUE INDEX IF NOT EXISTS chat_api_key_user_live ON chat(api_key_id, external_user_id) WHERE removed_at IS NULL AND external_user_id IS NOT NULL`,
   ],
+  // 35 -- Headless approval registry (design doc hive/topics/headless-approval-p1.md): a headless run has no
+  // chat to hang the permission card on, so the pending prompt lands here and the decide endpoint resolves it.
+  [
+    `CREATE TABLE IF NOT EXISTS approval_queue (
+       id TEXT PRIMARY KEY,
+       run_id TEXT NOT NULL,
+       agent_id TEXT NOT NULL,
+       approval_id TEXT NOT NULL,
+       tool_name TEXT NOT NULL DEFAULT '',
+       reason TEXT,
+       state TEXT NOT NULL DEFAULT 'pending',
+       outcome TEXT,
+       created_at INTEGER NOT NULL,
+       resolved_at INTEGER
+     )`,
+    `CREATE INDEX IF NOT EXISTS approval_queue_run ON approval_queue(run_id)`,
+  ],
 ]
 
 export interface OpenDbResult {
