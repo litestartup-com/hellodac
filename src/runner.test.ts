@@ -469,6 +469,54 @@ test('a turn waiting on a question is left alone by the silence backstop', async
   assert.match(outcome.summary, /thanks/)
 })
 
+test('a turn with a tool in flight is left alone by the silence backstop', async () => {
+  const db = makeDb()
+  // A tool call is progress: the host is executing it and no frames stream while it runs (the measured
+  // P0 kill: a single sleep 400 command was cancelled at 304s, pre-announcement notwithstanding).
+  const fake = new ScheduledFake('A', [
+    { afterMs: 20, frame: { kind: 'tool_call', seq: 0, name: 'bash', arguments: '{}' } },
+    { afterMs: 400, frame: { kind: 'tool_result', seq: 0, name: 'bash' } },
+    { afterMs: 20, frame: { kind: 'message', seq: 0, text: 'command done', usage: { inputTokens: 1, outputTokens: 1 } } },
+    { afterMs: 20, frame: { kind: 'turn_end', seq: 0, turn: 1, reason: 'completed', detail: null } },
+  ])
+
+  const outcome = await runAgent({ db }, {
+    agent: agentFor(tempDir('ws')),
+    upstream: fake,
+    prompt: 'hi',
+    trigger: 'manual',
+    timeoutMs: 10_000,
+    silenceMs: 120,
+  })
+
+  assert.equal(outcome.state, 'done', outcome.error ?? '')
+  assert.equal(fake.cancels, 0, 'a tool running silently is progress, not silence')
+  assert.match(outcome.summary, /command done/)
+})
+
+test('after the last tool finishes, real silence still cancels the turn', async () => {
+  const db = makeDb()
+  // The backstop stands down only WHILE a tool runs; once the tool result lands and nothing follows,
+  // genuine silence must still kill the turn -- the total timeout is not the only net.
+  const fake = new ScheduledFake('A', [
+    { afterMs: 20, frame: { kind: 'tool_call', seq: 0, name: 'bash', arguments: '{}' } },
+    { afterMs: 20, frame: { kind: 'tool_result', seq: 0, name: 'bash' } },
+  ])
+
+  const outcome = await runAgent({ db }, {
+    agent: agentFor(tempDir('ws')),
+    upstream: fake,
+    prompt: 'hi',
+    trigger: 'manual',
+    timeoutMs: 10_000,
+    silenceMs: 100,
+  })
+
+  assert.equal(outcome.state, 'failed')
+  assert.equal(fake.cancels, 1, 'silence after the tool finished must still cancel')
+  assert.match(outcome.error ?? '', /nothing happened/)
+})
+
 // ---------------------------------------------------------------------------
 // concurrency and the active-run registration (Hive P5.4)
 // ---------------------------------------------------------------------------
