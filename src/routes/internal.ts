@@ -409,4 +409,56 @@ export const registerInternalRoutes = (
     scheduler.reload()
     return reply.code(201).send({ id, enabled: false, note: 'drafted — enable it once you have confirmed it' })
   })
+
+  // ---- headless approvals (design doc hive/topics/headless-approval-p1.md) ----------------------
+  // A headless run has no chat to hang the permission card on; the queue rows recorded by the runner
+  // are listed and decided here, through the same upstream.decideApproval port the chat endpoint uses.
+  app.get('/api/internal/approvals', gated, async (_request, reply) => {
+    const rows = db.select().from(schema.approvalQueue).all()
+    return reply.send({ ok: true, approvals: rows })
+  })
+
+  app.post<{ Params: { decisionId: string }; Body: { outcome?: unknown } }>(
+    '/api/internal/approvals/:decisionId',
+    gated,
+    async (request, reply) => {
+      const outcome = request.body?.outcome
+      if (outcome !== 'allowed-once' && outcome !== 'rejected') {
+        return reply.code(400).send({ error: 'invalid_outcome' })
+      }
+      const row = db
+        .select()
+        .from(schema.approvalQueue)
+        .where(eq(schema.approvalQueue.id, request.params.decisionId))
+        .all()[0]
+      if (row === undefined) return reply.code(404).send({ error: 'unknown_approval' })
+      if (row.state !== 'pending') return reply.code(409).send({ error: 'already_decided' })
+      const run = db.select().from(schema.run).where(eq(schema.run.id, row.runId)).all()[0]
+      if (run === undefined || run.dshSessionId === null) {
+        return reply.code(409).send({ error: 'no_session' })
+      }
+      const agent = config.agents[row.agentId]
+      if (agent === undefined) return reply.code(404).send({ error: 'unknown_agent' })
+      const upstream = upstreamClients.get(agent.endpoint)
+      if (upstream === undefined) return reply.code(500).send({ error: 'endpoint_not_configured' })
+      try {
+        await upstream.decideApproval(request.params.decisionId, run.dshSessionId, row.approvalId, outcome)
+      } catch (error) {
+        return reply.code(502).send({ error: 'decide_failed', detail: (error as Error).message })
+      }
+      db.update(schema.approvalQueue)
+        .set({ state: 'resolved', outcome, resolvedAt: Date.now() })
+        .where(eq(schema.approvalQueue.id, request.params.decisionId))
+        .run()
+      db.insert(schema.auditLog)
+        .values({
+          at: Date.now(),
+          actor: 'internal',
+          kind: 'approval_decide',
+          detail: JSON.stringify({ decisionId: request.params.decisionId, agentId: row.agentId, outcome }),
+        })
+        .run()
+      return reply.send({ ok: true, outcome })
+    },
+  )
 }

@@ -435,3 +435,65 @@ test('crons: drafted disabled by default, duplicate name 409, bad schedule 400',
   })
   assert.equal(bad.statusCode, 400)
 })
+
+test('approvals: the queue lists pending prompts and a decision resolves them through the port', async () => {
+  const { app, db, upstream } = boot()
+  db.insert(schema.run).values({
+    id: 'run-approval-1', agentId: 'personal', trigger: 'brain', state: 'running',
+    startedAt: Date.now(), dshSessionId: 'sess-1',
+  }).run()
+  db.insert(schema.approvalQueue).values({
+    id: 'd-1', runId: 'run-approval-1', agentId: 'personal', approvalId: 'a-1',
+    toolName: 'bash', reason: null, state: 'pending', outcome: null,
+    createdAt: Date.now(), resolvedAt: null,
+  }).run()
+
+  const listed = await app.inject({ method: 'GET', url: '/api/internal/approvals', headers: authed() })
+  assert.equal(listed.statusCode, 200)
+  const approvals = listed.json().approvals as Array<{ id: string; state: string }>
+  assert.equal(approvals.length, 1)
+  assert.equal(approvals[0]?.id, 'd-1')
+
+  const decided = await app.inject({
+    method: 'POST',
+    url: '/api/internal/approvals/d-1',
+    headers: authed(),
+    payload: { outcome: 'allowed-once' },
+  })
+  assert.equal(decided.statusCode, 200, decided.body)
+  assert.deepEqual(upstream.decided, [
+    { rpcId: 'd-1', sessionId: 'sess-1', approvalId: 'a-1', outcome: 'allowed-once' },
+  ])
+
+  const rows = db.select().from(schema.approvalQueue).where(eq(schema.approvalQueue.id, 'd-1')).all()
+  assert.equal(rows[0]?.state, 'resolved')
+  assert.equal(rows[0]?.outcome, 'allowed-once')
+  assert.ok(typeof rows[0]?.resolvedAt === 'number')
+
+  const again = await app.inject({
+    method: 'POST',
+    url: '/api/internal/approvals/d-1',
+    headers: authed(),
+    payload: { outcome: 'rejected' },
+  })
+  assert.equal(again.statusCode, 409, 'a decided prompt cannot be decided twice')
+})
+
+test('approvals: an unknown decision id and an invalid outcome are refused', async () => {
+  const { app } = boot()
+  const bad = await app.inject({
+    method: 'POST',
+    url: '/api/internal/approvals/nope',
+    headers: authed(),
+    payload: { outcome: 'whatever' },
+  })
+  assert.equal(bad.statusCode, 400)
+
+  const missing = await app.inject({
+    method: 'POST',
+    url: '/api/internal/approvals/nope',
+    headers: authed(),
+    payload: { outcome: 'allowed-once' },
+  })
+  assert.equal(missing.statusCode, 404)
+})
