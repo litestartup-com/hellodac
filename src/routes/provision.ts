@@ -405,6 +405,9 @@ export const registerProvisionRoutes = (
           port,
           host_volumes: { [hostKey]: agentSpec?.workspace ?? workspaceDefault },
           named_volumes: { [`dac-${body.name}`]: '/data' },
+          // Web-provisioned nodes run uncapped until the create form grows a cap field; config-file
+          // endpoints carry their own memory_limit_mb through dockerSpawnSchema.
+          memory_limit_mb: null,
         }
 
         // Pipeline 2: DB first (Debt H2/R9)
@@ -458,6 +461,7 @@ export const registerProvisionRoutes = (
             port,
             hostVolumes: dockerSpec.host_volumes,
             namedVolumes: dockerSpec.named_volumes,
+            memoryLimitMb: dockerSpec.memory_limit_mb ?? null,
           },
           // Capability two: attached only when explicitly pinned (the default follows the global default)
           ...(pinnedDsh === undefined ? {} : { dshVersion, gatewayRef }),

@@ -196,7 +196,7 @@ test('Hive plan 2 P2b: a docker runner node serves its logs through docker logs'
   const dockerSpawn: ResolvedSpawnSpec = {
     ...managedSpawn,
     runner: 'docker',
-    docker: { image: 'hellodac/dac-node:0.1.1-rc.2', containerName: null, network: 'hive', port: 3081, hostVolumes: {}, namedVolumes: {} },
+    docker: { image: 'hellodac/dac-node:0.1.1-rc.2', containerName: null, network: 'hive', port: 3081, hostVolumes: {}, namedVolumes: {}, memoryLimitMb: null },
   }
   ep.spawn = dockerSpawn
   const calls = { start: 0, stop: 0, restart: 0 }
@@ -409,7 +409,7 @@ test('P1 regression: POST /api/nodes/:id/version on the container branch -- the 
   ep.spawn = {
     ...managedSpawn,
     runner: 'docker',
-    docker: { image: 'hellodac/dac-node:0.1.2-rc.1', containerName: null, network: 'dac-hive', port: 3081, hostVolumes: {}, namedVolumes: {} },
+    docker: { image: 'hellodac/dac-node:0.1.2-rc.1', containerName: null, network: 'dac-hive', port: 3081, hostVolumes: {}, namedVolumes: {}, memoryLimitMb: null },
   }
   const calls = { start: 0, stop: 0, restart: 0 }
   const audits: string[] = []

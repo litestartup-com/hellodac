@@ -23,6 +23,8 @@ const dockerSpawnSchema = z.object({
   host_volumes: z.record(z.string(), z.string()).default({}),
   /** Named volume -> container path (typically the node home /data). */
   named_volumes: z.record(z.string(), z.string()).default({}),
+  /** Container memory cap in MiB (docker HostConfig.Memory). Absent = no cap, a runaway agent can eat the host. */
+  memory_limit_mb: z.number().int().positive().optional(),
 })
 
 const spawnSchema = z
@@ -323,6 +325,8 @@ export interface ResolvedSpawnSpec {
     port: number
     hostVolumes: Record<string, string>
     namedVolumes: Record<string, string>
+    /** Container memory cap in MiB, or null for no cap. */
+    memoryLimitMb: number | null
   } | null
   /** Capability two: the DSH version pinned per node; null = follow the global default (matrix row one). */
   dshVersion?: string | null
@@ -615,6 +619,7 @@ export const loadConfig = (configPath = 'manager.config.yaml'): AppConfig => {
                     port: spawnRaw.docker.port,
                     hostVolumes: spawnRaw.docker.host_volumes,
                     namedVolumes: spawnRaw.docker.named_volumes,
+                    memoryLimitMb: spawnRaw.docker.memory_limit_mb ?? null,
                   },
             dshVersion: spawnRaw.dsh_version ?? null,
             gatewayRef: spawnRaw.gateway_ref ?? null,

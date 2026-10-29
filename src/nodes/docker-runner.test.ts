@@ -92,7 +92,18 @@ const dockerSpec = (): ResolvedSpawnSpec => ({
     port: 3081,
     hostVolumes: { '/opt/dac/workspaces/personal': '/workspace' },
     namedVolumes: { 'dac-personal': '/data' },
+    memoryLimitMb: null,
   },
+})
+
+test('a node with memory_limit_mb gets a container Memory cap', async () => {
+  const f = fake()
+  const runner = new DockerRunner({ docker: f.docker })
+  const spec = dockerSpec()
+  spec.docker = { ...(spec.docker as NonNullable<typeof spec.docker>), memoryLimitMb: 2048 }
+  await runner.start(spec, 'personal', {})
+  const host = f.state.created[0]?.HostConfig as { Memory?: number }
+  assert.equal(host.Memory, 2048 * 1024 * 1024, 'the memory cap lands on the container')
 })
 
 test('Hive plan 2 P2b: ensureImage pulls only when missing; when present, no network at all', async () => {
