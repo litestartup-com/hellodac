@@ -33,6 +33,7 @@ import { registerWorkspaceRoutes } from './routes/workspace.js'
 import { registerRunRoutes } from './routes/run.js'
 import { closeBoardWatchers, registerBoardRoutes } from './routes/board.js'
 import { closeChatRelays, registerChatRoutes } from './routes/chat.js'
+import { registerApprovalRoutes } from './routes/approval.js'
 import { registerUsageRoutes } from './routes/usage.js'
 import { registerCronRoutes } from './routes/cron.js'
 import { registerInternalRoutes } from './routes/internal.js'
@@ -305,6 +306,7 @@ const main = async (): Promise<void> => {
   registerWorkspaceRoutes(app, config, requireUser)
   registerRunRoutes(app, config, db, requireUser, upstreamClients)
   registerBoardRoutes(app, config, requireUser)
+  registerApprovalRoutes(app, config, db, requireUser, upstreamClients)
   // The public chat face reuses the same turn runner as the back office (one instance = one copy of the "this chat is running" state).
   const chatTurns = registerChatRoutes(app, config, db, requireUser, upstreamClients, (actor, kind, detail) =>
     recordAudit(db, { actor, kind, detail }))

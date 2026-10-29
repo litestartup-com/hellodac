@@ -14,6 +14,7 @@ import { notify } from '../notify.js'
 import { activeRunCount, runAgent, runningRunId } from '../runner.js'
 import { USD_TO_MICRO, monthTotals, monthByAgent, monthByModel, currentMonth } from '../usage/store.js'
 import { scheduleProblem, type Scheduler } from '../cron/schedule.js'
+import { decidePendingApproval } from '../approval.js'
 
 /**
  * Hive P2: the brain-side internal REST API.
@@ -422,43 +423,17 @@ export const registerInternalRoutes = (
     '/api/internal/approvals/:decisionId',
     gated,
     async (request, reply) => {
-      const outcome = request.body?.outcome
-      if (outcome !== 'allowed-once' && outcome !== 'rejected') {
-        return reply.code(400).send({ error: 'invalid_outcome' })
-      }
-      const row = db
-        .select()
-        .from(schema.approvalQueue)
-        .where(eq(schema.approvalQueue.id, request.params.decisionId))
-        .all()[0]
-      if (row === undefined) return reply.code(404).send({ error: 'unknown_approval' })
-      if (row.state !== 'pending') return reply.code(409).send({ error: 'already_decided' })
-      const run = db.select().from(schema.run).where(eq(schema.run.id, row.runId)).all()[0]
-      if (run === undefined || run.dshSessionId === null) {
-        return reply.code(409).send({ error: 'no_session' })
-      }
-      const agent = config.agents[row.agentId]
-      if (agent === undefined) return reply.code(404).send({ error: 'unknown_agent' })
-      const upstream = upstreamClients.get(agent.endpoint)
-      if (upstream === undefined) return reply.code(500).send({ error: 'endpoint_not_configured' })
-      try {
-        await upstream.decideApproval(request.params.decisionId, run.dshSessionId, row.approvalId, outcome)
-      } catch (error) {
-        return reply.code(502).send({ error: 'decide_failed', detail: (error as Error).message })
-      }
-      db.update(schema.approvalQueue)
-        .set({ state: 'resolved', outcome, resolvedAt: Date.now() })
-        .where(eq(schema.approvalQueue.id, request.params.decisionId))
-        .run()
-      db.insert(schema.auditLog)
-        .values({
-          at: Date.now(),
-          actor: 'internal',
-          kind: 'approval_decide',
-          detail: JSON.stringify({ decisionId: request.params.decisionId, agentId: row.agentId, outcome }),
-        })
-        .run()
-      return reply.send({ ok: true, outcome })
+      // The decide path is shared with the user-facing web endpoint (src/approval.ts) so the two
+      // doors can never drift; the actor differs, everything else is the same function.
+      const result = await decidePendingApproval(
+        db,
+        config,
+        upstreamClients,
+        request.params.decisionId,
+        request.body?.outcome,
+        'internal',
+      )
+      return reply.code(result.status).send(result.body)
     },
   )
 }
