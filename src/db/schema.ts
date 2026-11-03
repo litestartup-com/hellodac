@@ -205,6 +205,28 @@ export const auditLog = sqliteTable('audit_log', {
 })
 
 /**
+ * Headless approval registry (design doc hive/topics/headless-approval-p1.md).
+ *
+ * A headless run has no chat to hang the permission card on, so the pending prompt lands here and the
+ * headless decide endpoint resolves it through the same upstream.decideApproval port the chat uses.
+ * Rows are the durable pendant of the chat's in-memory pending card frames: a restart does not lose
+ * the prompt, and an unanswered prompt stays `pending` so the queue keeps showing it.
+ */
+export const approvalQueue = sqliteTable('approval_queue', {
+  /** The decisionId the approval_pending frame carried -- the host's rpc id. */
+  id: text('id').primaryKey(),
+  runId: text('run_id').notNull(),
+  agentId: text('agent_id').notNull(),
+  approvalId: text('approval_id').notNull(),
+  toolName: text('tool_name').notNull().default(''),
+  reason: text('reason'),
+  state: text('state').notNull().default('pending'),
+  outcome: text('outcome'),
+  createdAt: integer('created_at').notNull(),
+  resolvedAt: integer('resolved_at'),
+})
+
+/**
  * Written from the provider's reported usage on the live frames, never
  * from dsh-token-meter (that one is a context-pressure heuristic, not billing).
  */

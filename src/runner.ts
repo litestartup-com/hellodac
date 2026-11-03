@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import type { Db } from './db/index.js'
 import { schema } from './db/index.js'
 import type { ResolvedAgent } from './config.js'
@@ -249,6 +249,16 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
    * workspace -- re-asks in plain reply text, which the customer's next message CAN answer.
    */
   let awaitingHuman = 0
+  /**
+   * How many tool calls are currently executing on the host.
+   *
+   * A tool call is progress, not silence: the host is running the command and no frames stream while
+   * it works (measured on the fleet pilot: a single `sleep 400` command was cancelled at 304s because
+   * the agent's pre-announcement message armed the backstop and nothing followed it). The backstop
+   * stands down while the count is above zero -- the total timeout still bounds a genuinely stuck
+   * tool, and once the tool result lands, real silence is caught again.
+   */
+  let toolsInFlight = 0
   const isOutward = input.apiKeyId !== undefined && input.apiKeyId !== null
   const outwardGraceMs = input.outwardGraceMs ?? DEFAULT_OUTWARD_GRACE_MS
   /** Auto-decline timers keyed by frame id (question id / decision id), so a human answering first cancels one. */
@@ -322,20 +332,77 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
     }
   }
 
+  /**
+   * Headless approval registry (design doc hive/topics/headless-approval-p1.md): the durable pendant
+   * of the chat's in-memory pending cards. Recording must never break the turn -- a failed write is
+   * a warning, not a run failure.
+   */
+  const recordPendingApproval = (frame: GatewayFrame): void => {
+    const decisionId = typeof frame.decisionId === 'string' && frame.decisionId !== '' ? frame.decisionId : null
+    if (decisionId === null) return
+    try {
+      deps.db
+        .insert(schema.approvalQueue)
+        .values({
+          id: decisionId,
+          runId,
+          agentId: agent.id,
+          approvalId: typeof frame.approvalId === 'string' && frame.approvalId !== '' ? frame.approvalId : decisionId,
+          toolName: typeof frame.toolName === 'string' ? frame.toolName : '',
+          reason: typeof frame.reason === 'string' ? frame.reason : null,
+          state: 'pending',
+          outcome: null,
+          createdAt: now(),
+          resolvedAt: null,
+        })
+        .onConflictDoNothing()
+        .run()
+    } catch (error) {
+      log?.warn(`run ${runId}: could not record the pending approval: ${(error as Error).message}`)
+    }
+  }
+
+  const resolveApproval = (frame: GatewayFrame): void => {
+    const decisionId = typeof frame.decisionId === 'string' && frame.decisionId !== '' ? frame.decisionId : null
+    if (decisionId === null) return
+    try {
+      deps.db
+        .update(schema.approvalQueue)
+        .set({
+          state: 'resolved',
+          outcome: typeof frame.outcome === 'string' ? frame.outcome : null,
+          resolvedAt: now(),
+        })
+        .where(and(eq(schema.approvalQueue.id, decisionId), eq(schema.approvalQueue.runId, runId)))
+        .run()
+    } catch (error) {
+      log?.warn(`run ${runId}: could not resolve the approval row: ${(error as Error).message}`)
+    }
+  }
+
   const trackAwaiting = (frame: GatewayFrame) => {
     switch (frame.kind) {
+      case 'tool_call':
+        toolsInFlight += 1
+        return
+      case 'tool_result':
+        toolsInFlight = Math.max(0, toolsInFlight - 1)
+        return
       case 'question_asked':
       case 'approval_pending':
         awaitingHuman += 1
+        if (frame.kind === 'approval_pending') recordPendingApproval(frame)
         if (isOutward) scheduleAutoDecline(frame)
         return
       case 'question_resolved':
       case 'approval_resolved':
         awaitingHuman = Math.max(0, awaitingHuman - 1)
+        if (frame.kind === 'approval_resolved') resolveApproval(frame)
         if (isOutward) cancelAutoDecline(frame)
         return
       case 'turn_end':
         awaitingHuman = 0
+        toolsInFlight = 0
         clearDeclines()
         return
       default:
@@ -348,7 +415,9 @@ export const runAgent = async (deps: RunnerDeps, input: RunInput): Promise<RunOu
     clearSilence()
     // An inward turn waiting on a human stands the backstop down (someone may be mid-answer);
     // an outward turn has nobody to wait for, so it stays armed (see trackAwaiting).
-    if (awaitingHuman > 0 && !isOutward) return
+    // A tool running on the host is progress, so the backstop stands down for it too -- the
+    // total timeout is the net for a genuinely stuck tool.
+    if ((awaitingHuman > 0 || toolsInFlight > 0) && !isOutward) return
     silenceTimer = setTimeout(() => {
       silenced = true
       controller.abort(new Error('no frames'))

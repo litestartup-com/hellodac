@@ -14,6 +14,7 @@ import { notify } from '../notify.js'
 import { activeRunCount, runAgent, runningRunId } from '../runner.js'
 import { USD_TO_MICRO, monthTotals, monthByAgent, monthByModel, currentMonth } from '../usage/store.js'
 import { scheduleProblem, type Scheduler } from '../cron/schedule.js'
+import { decidePendingApproval } from '../approval.js'
 
 /**
  * Hive P2: the brain-side internal REST API.
@@ -409,4 +410,30 @@ export const registerInternalRoutes = (
     scheduler.reload()
     return reply.code(201).send({ id, enabled: false, note: 'drafted — enable it once you have confirmed it' })
   })
+
+  // ---- headless approvals (design doc hive/topics/headless-approval-p1.md) ----------------------
+  // A headless run has no chat to hang the permission card on; the queue rows recorded by the runner
+  // are listed and decided here, through the same upstream.decideApproval port the chat endpoint uses.
+  app.get('/api/internal/approvals', gated, async (_request, reply) => {
+    const rows = db.select().from(schema.approvalQueue).all()
+    return reply.send({ ok: true, approvals: rows })
+  })
+
+  app.post<{ Params: { decisionId: string }; Body: { outcome?: unknown } }>(
+    '/api/internal/approvals/:decisionId',
+    gated,
+    async (request, reply) => {
+      // The decide path is shared with the user-facing web endpoint (src/approval.ts) so the two
+      // doors can never drift; the actor differs, everything else is the same function.
+      const result = await decidePendingApproval(
+        db,
+        config,
+        upstreamClients,
+        request.params.decisionId,
+        request.body?.outcome,
+        'internal',
+      )
+      return reply.code(result.status).send(result.body)
+    },
+  )
 }

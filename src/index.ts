@@ -33,6 +33,7 @@ import { registerWorkspaceRoutes } from './routes/workspace.js'
 import { registerRunRoutes } from './routes/run.js'
 import { closeBoardWatchers, registerBoardRoutes } from './routes/board.js'
 import { closeChatRelays, registerChatRoutes } from './routes/chat.js'
+import { registerApprovalRoutes } from './routes/approval.js'
 import { registerUsageRoutes } from './routes/usage.js'
 import { registerCronRoutes } from './routes/cron.js'
 import { registerInternalRoutes } from './routes/internal.js'
@@ -271,6 +272,7 @@ const main = async (): Promise<void> => {
   // Hive plan 2 P3: the password-change page (where a forced change lands) and the audit page
   app.get('/password', { preHandler: requirePage }, page('password'))
   app.get('/audit', { preHandler: requirePage }, page('audit'))
+  app.get('/approvals', { preHandler: requirePage }, page('approvals'))
   // Public API: the key management page (the back-office face; the customer face is /v1 on 8081, and the two doors do
   // not recognise each other). Miss this line and /keys 404s while /api/keys works -- pages-routes.test.ts now guards that.
   app.get('/keys', { preHandler: requirePage }, page('keys'))
@@ -305,6 +307,7 @@ const main = async (): Promise<void> => {
   registerWorkspaceRoutes(app, config, requireUser)
   registerRunRoutes(app, config, db, requireUser, upstreamClients)
   registerBoardRoutes(app, config, requireUser)
+  registerApprovalRoutes(app, config, db, requireUser, upstreamClients)
   // The public chat face reuses the same turn runner as the back office (one instance = one copy of the "this chat is running" state).
   const chatTurns = registerChatRoutes(app, config, db, requireUser, upstreamClients, (actor, kind, detail) =>
     recordAudit(db, { actor, kind, detail }))
