@@ -15,15 +15,15 @@ Default install = manager (HQ) + brain (chief controller) + personal workspace. 
 **Linux server (containers, recommended):**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.1.0/install.sh -o install.sh && bash install.sh
-# pros: curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.1.0/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.2.0/install.sh -o install.sh && bash install.sh
+# pros: curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.2.0/install.sh | bash
 ```
 
 **Windows (bare metal):**
 
 ```powershell
-irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.1.0/install.ps1 -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File .\install.ps1
-# pros: irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.1.0/install.ps1 | iex
+irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.2.0/install.ps1 -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File .\install.ps1
+# pros: irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.2.0/install.ps1 | iex
 ```
 
 The scripts are idempotent: already-installed components are skipped, and re-runs never overwrite config or data.

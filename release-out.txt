@@ -1,0 +1,21 @@
+
+release self-check (full) -- repo C:\Users\Administrator\Documents\deepseek-workspace\dsh-agent-manager
+
+✓  typecheck                          31.8s
+✓  lint (0 error)                     41.3s
+✓  backend tests                      54.4s
+✓  web tests                          2.5s
+✓  i18n key guard                     0.9s
+✓  build                              19.6s
+✓  check-docs                         0.3s
+✓  openapi spec                       0.4s
+✓  required files present (LICENSE/SECURITY/CONTRIBUTING/CODE_OF_CONDUCT/README.zh) 
+✓  LICENSE attribution = Litestartup  
+✓  locale parity (en/zh key sets identical, no empty values) 
+✓  container node image dependency locks complete (every supported DSH version) 
+✓  landing page present (used by hellodac.com) 
+✓  CHANGELOG has a public v1.0.0 entry 
+✓  one single version number (pkg / version.ts / compose / install.sh / lock file / doc pin URLs) 
+✓  old brand name is fully cleared (green after the B2 rename) 
+
+16/16 passed

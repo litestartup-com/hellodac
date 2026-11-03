@@ -13,15 +13,15 @@ DAC 是 MIT 开源的多机 agent 控制面：跨服务器管理并暴露容器�
 **Linux 服务器（容器，推荐）：**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.1.0/install.sh -o install.sh && bash install.sh
-# 熟手一行：curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.1.0/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.2.0/install.sh -o install.sh && bash install.sh
+# 熟手一行：curl -fsSL https://raw.githubusercontent.com/litestartup-com/hellodac/v1.2.0/install.sh | bash
 ```
 
 **Windows（本机直跑）：**
 
 ```powershell
-irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.1.0/install.ps1 -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File .\install.ps1
-# 熟手一行：irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.1.0/install.ps1 | iex
+irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.2.0/install.ps1 -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File .\install.ps1
+# 熟手一行：irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.2.0/install.ps1 | iex
 ```
 
 脚本幂等：已装组件自动跳过，重跑不覆盖配置与数据；唯一需要输入的是 DeepSeek API key

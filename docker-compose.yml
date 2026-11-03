@@ -29,7 +29,7 @@ services:
     build:
       context: .
       dockerfile: images/manager/Dockerfile
-    image: hellodac/dac-manager:${MANAGER_VERSION:-1.1.0}
+    image: hellodac/dac-manager:${MANAGER_VERSION:-1.2.0}
     container_name: dac-manager
     env_file: .env
     # Debt H1: the manager runs non-root (the same HOST_UID convention as node-brain);

@@ -1,10 +1,10 @@
-﻿# DAC — one-command install for Windows (bare-metal form: manager + brain + personal, running right on this machine).
+# DAC — one-command install for Windows (bare-metal form: manager + brain + personal, running right on this machine).
 #
 # Recommended (download and read it first):
-#   irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.1.0/install.ps1 -OutFile install.ps1
+#   irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.2.0/install.ps1 -OutFile install.ps1
 #   powershell -ExecutionPolicy Bypass -File .\install.ps1
 # One-liner for the impatient (runs straight away; parameters cannot be passed):
-#   irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.1.0/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.2.0/install.ps1 | iex
 #
 # Idempotent: Node/git/pnpm/DSH already installed at the right version = skipped; repo/config already there = not overwritten.
 # Plan first: DRY_RUN=1 only looks, it does not execute; -Yes skips the confirmation. The only manual input = the DeepSeek API key
