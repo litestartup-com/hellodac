@@ -33,7 +33,7 @@ const dockerSpec = (): ResolvedSpawnSpec =>
     host: null,
     readyTimeoutMs: 2_000,
     restart: { maxAttempts: 2, baseDelayMs: 10, maxDelayMs: 20 },
-    docker: { image: 'hellodac/dac-node:0.1.1-rc.2', containerName: null, network: 'hive', port: 3081, hostVolumes: {}, namedVolumes: {} },
+    docker: { image: 'hellodac/dac-node:0.1.1-rc.2', containerName: null, network: 'hive', port: 3081, hostVolumes: {}, namedVolumes: {}, memoryLimitMb: null },
   })
 
 const stubDocker = (startFails = false): { runner: DockerRunner; calls: { ensureImage: number; start: number; stop: number; logs: number } } => {

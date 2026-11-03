@@ -102,6 +102,9 @@ export class DockerRunner {
           ...Object.entries(d.namedVolumes).map(([volume, containerPath]) => `${volume}:${containerPath}`),
         ],
         RestartPolicy: { Name: 'unless-stopped' },
+        // A runaway agent must not eat the whole host: memory_limit_mb lands as docker's Memory cap.
+        // Absent (null) = no cap, the historical behaviour kept for hand-written configs.
+        ...(d.memoryLimitMb === null ? {} : { Memory: d.memoryLimitMb * 1024 * 1024 }),
       },
       // Hive plan 2 P6, measured root cause: the manager's probe URL is http://node-<id>:port, but compose's
       // embedded DNS only knows compose service names -- a container the manager pulled itself must register a network

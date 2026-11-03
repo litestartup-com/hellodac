@@ -34,7 +34,7 @@ const configFor = (): AppConfig => {
           restart: { maxAttempts: 3, baseDelayMs: 1_000, maxDelayMs: 30_000 },
           runner: 'docker',
           host: null,
-          docker: { image: 'x', containerName: null, network: 'dac-hive', port: 3081, hostVolumes: {}, namedVolumes: { 'dac-personal': '/data' } },
+          docker: { image: 'x', containerName: null, network: 'dac-hive', port: 3081, hostVolumes: {}, namedVolumes: { 'dac-personal': '/data' }, memoryLimitMb: null },
         },
         access: null,
       },
