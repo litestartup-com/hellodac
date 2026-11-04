@@ -135,6 +135,16 @@ export const PAGES: Record<string, PageDef> = {
     script: 'approvals.js',
     contentClass: 'wide',
   },
+  // The cron page returned (the engine and /api/crons never left; only the page did in the public
+  // trim). The coding fleet needs a place to toggle and edit its duty-call schedules without a
+  // console round-trip, so the page is back, talking to the same API.
+  crons: {
+    file: 'crons.html',
+    title: `{{t:crons.title}} · ${BRAND.name}`,
+    css: [],
+    script: 'crons.js',
+    contentClass: 'wide',
+  },
 }
 
 /**

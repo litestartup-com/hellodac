@@ -1128,6 +1128,7 @@ const MORE_NAV = [
   { href: '/spend', nav: 'spend', icon: 'coin', label: t('nav.spend'), hint: 'spend-hint' },
   { href: '/audit', nav: 'audit', icon: 'shield', label: t('nav.audit'), hint: null },
   { href: '/approvals', nav: 'approvals', icon: 'bell', label: t('nav.approvals'), hint: null },
+  { href: '/crons', nav: 'crons', icon: 'history', label: t('nav.crons'), hint: null },
   { href: '/password', nav: 'password', icon: 'pencil', label: t('nav.password'), hint: null },
 ]
 

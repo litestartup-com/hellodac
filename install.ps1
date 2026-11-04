@@ -1,4 +1,4 @@
-# DAC — one-command install for Windows (bare-metal form: manager + brain + personal, running right on this machine).
+﻿# DAC — one-command install for Windows (bare-metal form: manager + brain + personal, running right on this machine).
 #
 # Recommended (download and read it first):
 #   irm https://raw.githubusercontent.com/litestartup-com/hellodac/v1.2.0/install.ps1 -OutFile install.ps1

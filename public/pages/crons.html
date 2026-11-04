@@ -1,0 +1,26 @@
+<div class="wrap">
+  <div class="page-head">
+    <h1 class="grow">{{t:crons.title}}</h1>
+    <span class="muted small">{{t:crons.subtitle}}</span>
+  </div>
+
+  <section class="section">
+    <div class="section-head">
+      <h2>{{t:crons.schedules}}</h2>
+      <span id="crons-refresh" class="muted small"></span>
+    </div>
+    <div id="crons-list" class="card list"><p class="muted small">{{t:common.loading}}</p></div>
+  </section>
+
+  <section class="section" id="crons-edit" hidden>
+    <div class="section-head"><h2>{{t:crons.edit}}</h2></div>
+    <div class="card">
+      <p class="muted small" id="crons-edit-meta"></p>
+      <textarea id="crons-prompt" class="prompt-box" rows="14"></textarea>
+      <div class="row-actions">
+        <button type="button" class="btn small" id="crons-save">{{t:crons.save}}</button>
+        <button type="button" class="btn small" id="crons-cancel">{{t:crons.cancel}}</button>
+      </div>
+    </div>
+  </section>
+</div>
