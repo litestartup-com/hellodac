@@ -87,4 +87,35 @@ $('crons-cancel').addEventListener('click', () => {
   $('crons-edit').hidden = true
 })
 
+// The create form: the same POST /api/crons the retired page used. The schedule is validated
+// server-side before it is stored (a typo accepted here becomes a job that never fires).
+$('crons-create').addEventListener('click', () => {
+  const msg = $('crons-create-msg')
+  const agentId = $('crons-new-agent').value.trim()
+  const name = $('crons-new-name').value.trim()
+  const schedule = $('crons-new-schedule').value.trim()
+  const prompt = $('crons-new-prompt').value
+  if (agentId === '' || name === '' || schedule === '' || prompt === '') {
+    msg.textContent = t('crons.fillAll')
+    return
+  }
+  msg.textContent = ''
+  void apiJson('/api/crons', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ agentId, name, schedule, timezone: 'Asia/Shanghai', prompt }),
+  }).then(async (r) => {
+    if (r.ok) {
+      msg.textContent = t('crons.created')
+      $('crons-new-name').value = ''
+      $('crons-new-agent').value = ''
+      $('crons-new-schedule').value = ''
+      $('crons-new-prompt').value = ''
+      await load()
+    } else {
+      msg.textContent = t('crons.createFailed')
+    }
+  })
+})
+
 void load()

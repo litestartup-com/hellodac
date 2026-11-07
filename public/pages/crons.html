@@ -23,4 +23,20 @@
       </div>
     </div>
   </section>
+
+  <section class="section">
+    <div class="section-head"><h2>{{t:crons.newTitle}}</h2></div>
+    <div class="card">
+      <div class="grid">
+        <label>{{t:crons.name}}<input type="text" id="crons-new-name" placeholder="duty-call" /></label>
+        <label>{{t:crons.agentId}}<input type="text" id="crons-new-agent" placeholder="kanban-brain" /></label>
+        <label>{{t:crons.scheduleLabel}}<input type="text" id="crons-new-schedule" placeholder="*/20 * * * *" /></label>
+      </div>
+      <textarea id="crons-new-prompt" class="prompt-box" rows="6" placeholder="{{t:crons.promptHint}}"></textarea>
+      <div class="row-actions">
+        <button type="button" class="btn small" id="crons-create">{{t:crons.create}}</button>
+        <span class="muted small" id="crons-create-msg"></span>
+      </div>
+    </div>
+  </section>
 </div>
