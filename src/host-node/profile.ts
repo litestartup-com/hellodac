@@ -119,6 +119,16 @@ export const LEGACY_PEER_PINS: Record<string, Record<string, string>> = {
     '@deepseek-ai/dsh-util-workspace-path': '0.2.0-rc.2',
     '@deepseek-ai/dsh-workflow': '0.2.0-rc.2',
   },
+  // 0.2.1 corridor (align-26, align-03): the facade 0.2.6 peer window still carries a `^0.2.2-0` arm,
+  // which under strict peer resolution auto-installs dsh-settings@0.2.2-rc.5 (cordis 4.1) against this
+  // line's cordis ~4.0.5 -> ERESOLVE. Pinning the three facade peers to the matching 0.2.1-rc.5 versions
+  // makes strict resolution converge on the 0.2.1 line (no --legacy-peer-deps; measured by lock:profile).
+  // Declared-not-verified: the full chain is validated by the align-01 pilot (row status stays pending).
+  '0.2.1-rc.5': {
+    '@deepseek-ai/dsh-sandbox-policy': '0.2.1-rc.5',
+    '@deepseek-ai/dsh-session': '0.2.1-rc.5',
+    '@deepseek-ai/dsh-settings': '0.2.1-rc.5',
+  },
 }
 
 export const profileDependencies = (

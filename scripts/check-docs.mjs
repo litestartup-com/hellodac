@@ -137,12 +137,14 @@ try {
     failures.push('images/node/Dockerfile: ARG GATEWAY_REF must default EMPTY (gen-node-profile.mjs resolves the paired ref per DSH_VERSION; a hard default mispairs the 0.2.0 line)')
   }
   const gatewayRefLegacy = /GATEWAY_REF_LEGACY = '([^']+)'/.exec(matrixSrc)?.[1] ?? ''
+  const gatewayRef0201 = /GATEWAY_REF_020_1 = '([^']+)'/.exec(matrixSrc)?.[1] ?? ''
   const row020 = /\{ dsh: '0\.2\.0-rc\.2', gateway: GATEWAY_REF,/.test(matrixSrc)
+  const row0201 = /\{ dsh: '0\.2\.1-rc\.5', gateway: GATEWAY_REF_020_1,/.test(matrixSrc)
   const legacyRows = (matrixSrc.match(/gateway: GATEWAY_REF_LEGACY/g) ?? []).length
-  if (gatewayRef === '' || gatewayRefLegacy === '' || !row020 || legacyRows !== 2) {
-    failures.push('src/dsh-matrix.ts: expected GATEWAY_REF (the 0.2.0 default-row ref), GATEWAY_REF_LEGACY (both 0.1.x rows) and the row wiring to be intact (per-version facade pin guard)')
+  if (gatewayRef === '' || gatewayRefLegacy === '' || gatewayRef0201 === '' || !row020 || !row0201 || legacyRows !== 2) {
+    failures.push('src/dsh-matrix.ts: expected GATEWAY_REF (the 0.2.0 default-row ref), GATEWAY_REF_LEGACY (both 0.1.x rows), GATEWAY_REF_020_1 (the 0.2.1 row) and the row wiring to be intact (per-version facade pin guard)')
   } else {
-    const expectedByRow = { '0.2.0-rc.2': gatewayRef, '0.1.5-rc.2': gatewayRefLegacy, '0.1.2-rc.1': gatewayRefLegacy }
+    const expectedByRow = { '0.2.0-rc.2': gatewayRef, '0.2.1-rc.5': gatewayRef0201, '0.1.5-rc.2': gatewayRefLegacy, '0.1.2-rc.1': gatewayRefLegacy }
     for (const file of ['images/node/gen-node-profile.mjs', 'scripts/upgrade-node-version.mjs']) {
       const content = readFileSync(join(root, file), 'utf8')
       const mapBlock = /GATEWAY_REF_BY_VERSION = \{([\s\S]*?)\}/.exec(content)?.[1] ?? ''

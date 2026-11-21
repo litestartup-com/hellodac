@@ -44,6 +44,14 @@ export const GATEWAY_REF = 'github:litestartup-com/dsh-api-gateway#398ea94'
  * cards hang forever -- dsh-facts §18.2); it must never be paired with a new-line version.
  */
 export const GATEWAY_REF_LEGACY = 'github:litestartup-com/dsh-api-gateway#b592b4f'
+/**
+ * The facade ref paired with the 0.2.1 line = tag v0.2.6 (align-02): the peer window widened to
+ * `^0.1.2-rc.1 || ^0.2.0-0 || ^0.2.1-rc.1 || ^0.2.2-0`. Declared-not-verified by align-02's semver
+ * check; the profile pins the facade's three dsh-* peers to the 0.2.1-rc.5 line (LEGACY_PEER_PINS)
+ * so strict resolution converges there -- the full-chain smoke is the align-01 pilot, after which this
+ * row flips to verified.
+ */
+export const GATEWAY_REF_020_1 = 'github:litestartup-com/dsh-api-gateway#23fc0662'
 
 export const SUPPORTED_DSH: DshPair[] = [
   // 0.2.0 corridor (2026-09-30/10-01, fact card dsh-facts §18): the default line (npm latest).
@@ -58,6 +66,13 @@ export const SUPPORTED_DSH: DshPair[] = [
   // LEGACY_PEER_PINS); running needs node ≥22.19 (registry engines); the session log migrates
   // V3→V4 ONE-WAY (§18.7 -- back the volume up before switching an existing node).
   { dsh: '0.2.0-rc.2', gateway: GATEWAY_REF, status: 'verified', needsLegacyPeerDeps: true },
+  // 0.2.1 corridor (align-26): a low-risk transition line (no Node 24 requirement, plan §4.1).
+  // PENDING until the align-01 pilot full-chain smoke passes; paired with facade v0.2.6. The facade's
+  // peer window still carries a `^0.2.2-0` arm, which under strict peer resolution auto-installs
+  // dsh-settings@0.2.2-rc.5 (peer cordis ~4.1.0) against this line's cordis ~4.0.5 -> ERESOLVE. The
+  // profile pins the three facade peers to the matching 0.2.1-rc.5 versions instead (LEGACY_PEER_PINS,
+  // measured by lock:profile in align-03), so no --legacy-peer-deps is needed.
+  { dsh: '0.2.1-rc.5', gateway: GATEWAY_REF_020_1, status: 'pending' },
   // P3 smoke (2026-09-20, the smoke15 node on the intranet pilot server): a 0.1.5-rc.2 host plus
   // facade b592b4f passed the full chain -- host.describe synthesised version / session.create /
   // a real session.prompt turn / the mux frame stream (user -> assistant -> turn/end). Fact card

@@ -14,6 +14,7 @@ const DSH_VERSION = process.env.DSH_VERSION ?? '0.2.0-rc.2'
 // gateway field; a standing check-docs.mjs assertion).
 const GATEWAY_REF_BY_VERSION = {
   '0.2.0-rc.2': 'github:litestartup-com/dsh-api-gateway#398ea94',
+  '0.2.1-rc.5': 'github:litestartup-com/dsh-api-gateway#23fc0662',
   '0.1.5-rc.2': 'github:litestartup-com/dsh-api-gateway#b592b4f',
   '0.1.2-rc.1': 'github:litestartup-com/dsh-api-gateway#b592b4f',
 }
@@ -107,6 +108,15 @@ const LEGACY_PEER_PINS = {
     '@deepseek-ai/dsh-util-time': '0.2.0-rc.2',
     '@deepseek-ai/dsh-util-workspace-path': '0.2.0-rc.2',
     '@deepseek-ai/dsh-workflow': '0.2.0-rc.2',
+  },
+  // 0.2.1 corridor (align-26, align-03): pin the three facade peers to the matching 0.2.1-rc.5 versions
+  // so strict peer resolution converges on the 0.2.1 line instead of the facade's `^0.2.2-0` arm pulling
+  // dsh-settings@0.2.2-rc.5 (cordis 4.1) -> ERESOLVE. No --legacy-peer-deps (measured by lock:profile).
+  // Kept word-for-word in sync with src/host-node/profile.ts.
+  '0.2.1-rc.5': {
+    '@deepseek-ai/dsh-sandbox-policy': '0.2.1-rc.5',
+    '@deepseek-ai/dsh-session': '0.2.1-rc.5',
+    '@deepseek-ai/dsh-settings': '0.2.1-rc.5',
   },
 }
 

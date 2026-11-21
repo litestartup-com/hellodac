@@ -48,6 +48,7 @@ const GATEWAY_REF = 'github:litestartup-com/dsh-api-gateway#398ea94'
 // rows in src/dsh-matrix.ts (a standing check-docs.mjs assertion).
 const GATEWAY_REF_BY_VERSION = {
   '0.2.0-rc.2': 'github:litestartup-com/dsh-api-gateway#398ea94',
+  '0.2.1-rc.5': 'github:litestartup-com/dsh-api-gateway#23fc0662',
   '0.1.5-rc.2': 'github:litestartup-com/dsh-api-gateway#b592b4f',
   '0.1.2-rc.1': 'github:litestartup-com/dsh-api-gateway#b592b4f',
 }
@@ -55,6 +56,7 @@ const SUPPORTED = [
   { dsh: '0.1.2-rc.1', legacyPeerDeps: false },
   { dsh: '0.1.5-rc.2', legacyPeerDeps: true },
   { dsh: '0.2.0-rc.2', legacyPeerDeps: true },
+  { dsh: '0.2.1-rc.5', legacyPeerDeps: false },
 ]
 // The version-line gate (dsh-facts §18.5/§18.10, upgrade card J1-04): legacy 0.1.2/0.1.5 take the
 // facade key through settings.yaml; on 0.1.7+/0.2.x that file is a one-shot import and
