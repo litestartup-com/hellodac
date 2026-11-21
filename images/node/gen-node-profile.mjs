@@ -163,9 +163,12 @@ writeFileSync(`${out}/package.json`, manifest, 'utf8')
 // Profile dependency installation moved to npm (see execFileSync below): pnpm@9 fails to resolve the inner
 // prerelease range of 0.1.2-rc.1, and pnpm@11's onlyBuiltDependencies allowlist stops working -- both nailed down by
 // two server builds; the same version set under npm demonstrably resolves and runs native build scripts with the old semantics.
-// The port passes CLI --port through as a dynamic expression (a hard-coded 3080 would override --port, every node would
-// listen on 3080 and the manager's probes of 3081/3082 would all fetch-fail -- a pit hit in the container).
-let patchYaml = "- id: webserver\n  config:\n    host: '0.0.0.0'\n    port: !!js ctx.webStartup.port ?? 3080\n"
+// Both host and port pass the CLI through as dynamic expressions (a hard-coded value would override --host/--port).
+// Host defaults to 0.0.0.0 for the legacy lines (they predate the wildcard restriction and keep their prod-proven
+// shape), but the entrypoint passes --host <container-ip> on the 0.2.x lines: DSH 0.2.1+ rejects the wildcard bind
+// (dsh-host-webserver: "binding every interface would expose remote code execution"), so a managed node must bind its
+// concrete hive-network address for the manager to reach it (align-01 pilot finding).
+let patchYaml = "- id: webserver\n  config:\n    host: !!js ctx.webStartup.host ?? '0.0.0.0'\n    port: !!js ctx.webStartup.port ?? 3080\n"
 if (!isLegacyLine) patchYaml += '- id: session-log-deepseek\n  config:\n    enabled: false\n'
 writeFileSync(`${out}/cordis.patch.yml`, patchYaml, 'utf8')
 // Seed version marker: the entrypoint uses it to decide whether an old profile in the volume needs re-seeding (image upgrade self-heal)
