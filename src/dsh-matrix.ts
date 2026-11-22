@@ -53,6 +53,9 @@ export const GATEWAY_REF_LEGACY = 'github:litestartup-com/dsh-api-gateway#b592b4
  */
 export const GATEWAY_REF_020_1 = 'github:litestartup-com/dsh-api-gateway#d8a4580'
 
+/** Facade pin for the Node 24 / DSH 0.2.2 corridor = v0.2.8 (align-06: control projection batch frames + tool failure codes). */
+export const GATEWAY_REF_020_2 = 'github:litestartup-com/dsh-api-gateway#7e44f42'
+
 export const SUPPORTED_DSH: DshPair[] = [
   // 0.2.0 corridor (2026-09-30/10-01, fact card dsh-facts §18): the default line (npm latest).
   // Manager-side promotion evidence (2026-10-01, Windows bare-metal + GitHub CI):
@@ -73,6 +76,8 @@ export const SUPPORTED_DSH: DshPair[] = [
   // profile pins the three facade peers to the matching 0.2.1-rc.5 versions instead (LEGACY_PEER_PINS,
   // measured by lock:profile in align-03), so no --legacy-peer-deps is needed.
   { dsh: '0.2.1-rc.5', gateway: GATEWAY_REF_020_1, status: 'pending' },
+  // 0.2.2 corridor (align-05/06): Node 24 base, facade v0.2.8. PENDING until the 0.2.2 pilot/conformance smoke passes.
+  { dsh: '0.2.2-rc.5', gateway: GATEWAY_REF_020_2, status: 'pending' },
   // P3 smoke (2026-09-20, the smoke15 node on the intranet pilot server): a 0.1.5-rc.2 host plus
   // facade b592b4f passed the full chain -- host.describe synthesised version / session.create /
   // a real session.prompt turn / the mux frame stream (user -> assistant -> turn/end). Fact card

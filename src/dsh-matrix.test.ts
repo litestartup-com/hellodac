@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  COMPAT_DSH_VERSION, GATEWAY_REF, GATEWAY_REF_LEGACY, GATEWAY_REF_020_1, SUPPORTED_DSH,
+  COMPAT_DSH_VERSION, GATEWAY_REF, GATEWAY_REF_LEGACY, GATEWAY_REF_020_1, GATEWAY_REF_020_2, SUPPORTED_DSH,
   defaultDshVersion, resolvePair, pairStatus, isSupportedDsh, dshCompatible, isLegacyDshLine,
   _setMatrixForTest, _resetMatrixForTest,
 } from './dsh-matrix.js'
@@ -9,21 +9,24 @@ import {
 test('Debt P3 regression: the default version is the matrix first row; 0.2.0-rc.2 leads as the verified corridor default', () => {
   assert.equal(COMPAT_DSH_VERSION, '0.2.0-rc.2')
   assert.equal(defaultDshVersion(), '0.2.0-rc.2')
-  assert.deepEqual(SUPPORTED_DSH.map((p) => p.dsh), ['0.2.0-rc.2', '0.2.1-rc.5', '0.1.5-rc.2', '0.1.2-rc.1'])
+  assert.deepEqual(SUPPORTED_DSH.map((p) => p.dsh), ['0.2.0-rc.2', '0.2.1-rc.5', '0.2.2-rc.5', '0.1.5-rc.2', '0.1.2-rc.1'])
   assert.equal(SUPPORTED_DSH[0]?.status, 'verified', 'promoted 2026-10-01: bare-metal full chain (smoke --model / cards / manager E2E) + CI compose-e2e on the 0.2.0 image')
   assert.equal(SUPPORTED_DSH[1]?.status, 'pending', 'align-03 adds the 0.2.1 row as pending; it flips to verified after the align-01 pilot full-chain smoke')
-  assert.equal(SUPPORTED_DSH[2]?.status, 'verified', 'promoted once the full P3 smoke chain passed')
-  assert.equal(SUPPORTED_DSH[3]?.status, 'verified')
+  assert.equal(SUPPORTED_DSH[2]?.status, 'pending', 'align-05/06 add the 0.2.2 row as pending; flips after the 0.2.2 pilot/conformance smoke')
+  assert.equal(SUPPORTED_DSH[3]?.status, 'verified', 'promoted once the full P3 smoke chain passed')
+  assert.equal(SUPPORTED_DSH[4]?.status, 'verified')
   assert.equal(SUPPORTED_DSH[0]?.needsLegacyPeerDeps, true, 'npm strict prerelease peer resolution rejects the 0.2.0 line (the gateway README pairs it with 0.1.5; dsh-facts §18.9)')
   assert.equal(SUPPORTED_DSH[1]?.needsLegacyPeerDeps, undefined, 'the 0.2.1 line pins the three facade peers instead of --legacy-peer-deps (see LEGACY_PEER_PINS)')
-  assert.equal(SUPPORTED_DSH[2]?.needsLegacyPeerDeps, true, 'installing 0.1.5 must carry --legacy-peer-deps (dsh-facts §12)')
-  assert.equal(SUPPORTED_DSH[3]?.needsLegacyPeerDeps, undefined, '0.1.2 does not need --legacy-peer-deps')
+  assert.equal(SUPPORTED_DSH[2]?.needsLegacyPeerDeps, undefined, '0.2.2 resolves its own peer line')
+  assert.equal(SUPPORTED_DSH[3]?.needsLegacyPeerDeps, true, 'installing 0.1.5 must carry --legacy-peer-deps (dsh-facts §12)')
+  assert.equal(SUPPORTED_DSH[4]?.needsLegacyPeerDeps, undefined, '0.1.2 does not need --legacy-peer-deps')
 })
 
 test('Debt P3 regression: resolvePair / pairStatus -- a known pairing returns its matrix row, an unknown one returns null', () => {
   assert.deepEqual(resolvePair('0.1.2-rc.1'), { dsh: '0.1.2-rc.1', gateway: GATEWAY_REF_LEGACY, status: 'verified' })
   assert.deepEqual(resolvePair('0.2.0-rc.2'), { dsh: '0.2.0-rc.2', gateway: GATEWAY_REF, status: 'verified', needsLegacyPeerDeps: true })
   assert.deepEqual(resolvePair('0.2.1-rc.5'), { dsh: '0.2.1-rc.5', gateway: GATEWAY_REF_020_1, status: 'pending' })
+  assert.deepEqual(resolvePair('0.2.2-rc.5'), { dsh: '0.2.2-rc.5', gateway: GATEWAY_REF_020_2, status: 'pending' })
   assert.equal(pairStatus('0.1.5-rc.2'), 'verified')
   assert.equal(pairStatus('0.2.1-rc.5'), 'pending')
   assert.equal(pairStatus('0.1.1-rc.2'), null)
@@ -38,6 +41,7 @@ test('0.2.0 corridor: the facade ref is per-row -- the default line pins 398ea94
   assert.equal(GATEWAY_REF, 'github:litestartup-com/dsh-api-gateway#398ea94')
   assert.equal(GATEWAY_REF_LEGACY, 'github:litestartup-com/dsh-api-gateway#b592b4f')
   assert.equal(GATEWAY_REF_020_1, 'github:litestartup-com/dsh-api-gateway#d8a4580')
+  assert.equal(GATEWAY_REF_020_2, 'github:litestartup-com/dsh-api-gateway#7e44f42')
   assert.equal(resolvePair('0.2.0-rc.2')?.gateway, GATEWAY_REF)
   assert.equal(resolvePair('0.2.1-rc.5')?.gateway, GATEWAY_REF_020_1)
   assert.equal(resolvePair('0.1.5-rc.2')?.gateway, GATEWAY_REF_LEGACY)
