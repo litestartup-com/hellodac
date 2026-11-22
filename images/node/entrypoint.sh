@@ -101,6 +101,17 @@ fi
 #    entry"). Legacy-line profiles have no local bin and keep the prod-proven global launch.
 PROFILE_BIN="$DSH_HOME/profiles/dac-node/node_modules/@deepseek-ai/dsh/lib/bin.js"
 if [ -f "$PROFILE_BIN" ]; then
-  exec node "$PROFILE_BIN" --profile dac-node --no-open "$@"
+  # 0.2.x lines reject the wildcard host 0.0.0.0 (dsh-host-webserver, align-01): bind the container's
+  # concrete hive-network address instead so the manager can still reach us by hostname. `hostname -I`
+  # lists the non-loopback addresses; take the first IPv4 literal. Legacy lines never reach this branch
+  # (they have no profile-local bin) and keep their prod-proven 0.0.0.0 default.
+  NODE_IP="$(hostname -I 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) { print $i; exit }}')"
+  if [ -z "$NODE_IP" ]; then
+    # Fail loudly rather than silently booting into the rejected wildcard bind: a 0.2.x node that
+    # reaches the 0.0.0.0 default would crash on webserver activation with a much less obvious error.
+    echo "[entrypoint] ERROR: could not determine a concrete IPv4 address for --host (DSH 0.2.x rejects the wildcard 0.0.0.0); refusing to boot" >&2
+    exit 1
+  fi
+  exec node "$PROFILE_BIN" --profile dac-node --no-open --host "$NODE_IP" "$@"
 fi
 exec dsh --profile dac-node --no-open "$@"

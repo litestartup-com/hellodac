@@ -10,8 +10,11 @@ FROM ${NODE_IMAGE}
 # git: plugins/workspaces; curl/jq: tools agents use often; tzdata: TZ=Asia/Shanghai;
 # python3/make/g++: for when the prebuilt download of the DSH suite's native dependencies fails and node-gyp is the
 # fallback (the same lesson as the manager image: installed at build time, unavoidable in the runtime layer).
+# hostname: the entrypoint detects the container's concrete IPv4 with `hostname -I` to bind --host on the 0.2.x
+# lines (DSH 0.2.1+ rejects the wildcard 0.0.0.0, align-01). It is Debian-required, pinned here so the dependency
+# is explicit rather than accidental; awk (mawk) is likewise Debian-required.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git ca-certificates curl jq tzdata python3 make g++ \
+    git ca-certificates curl jq tzdata python3 make g++ hostname \
     && rm -rf /var/lib/apt/lists/*
 
 ARG NPM_REGISTRY=https://registry.npmjs.org
