@@ -14,7 +14,7 @@ const DSH_VERSION = process.env.DSH_VERSION ?? '0.2.0-rc.2'
 // gateway field; a standing check-docs.mjs assertion).
 const GATEWAY_REF_BY_VERSION = {
   '0.2.0-rc.2': 'github:litestartup-com/dsh-api-gateway#398ea94',
-  '0.2.1-rc.5': 'github:litestartup-com/dsh-api-gateway#23fc0662',
+  '0.2.1-rc.5': 'github:litestartup-com/dsh-api-gateway#d8a4580',
   '0.1.5-rc.2': 'github:litestartup-com/dsh-api-gateway#b592b4f',
   '0.1.2-rc.1': 'github:litestartup-com/dsh-api-gateway#b592b4f',
 }
