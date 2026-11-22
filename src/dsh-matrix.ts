@@ -51,7 +51,7 @@ export const GATEWAY_REF_LEGACY = 'github:litestartup-com/dsh-api-gateway#b592b4
  * so strict resolution converges there -- the full-chain smoke is the align-01 pilot, after which this
  * row flips to verified.
  */
-export const GATEWAY_REF_020_1 = 'github:litestartup-com/dsh-api-gateway#23fc0662'
+export const GATEWAY_REF_020_1 = 'github:litestartup-com/dsh-api-gateway#d8a4580'
 
 export const SUPPORTED_DSH: DshPair[] = [
   // 0.2.0 corridor (2026-09-30/10-01, fact card dsh-facts §18): the default line (npm latest).
