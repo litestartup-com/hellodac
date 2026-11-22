@@ -26,7 +26,7 @@ test('Debt P3 regression: resolvePair / pairStatus -- a known pairing returns it
   assert.deepEqual(resolvePair('0.1.2-rc.1'), { dsh: '0.1.2-rc.1', gateway: GATEWAY_REF_LEGACY, status: 'verified' })
   assert.deepEqual(resolvePair('0.2.0-rc.2'), { dsh: '0.2.0-rc.2', gateway: GATEWAY_REF, status: 'verified', needsLegacyPeerDeps: true })
   assert.deepEqual(resolvePair('0.2.1-rc.5'), { dsh: '0.2.1-rc.5', gateway: GATEWAY_REF_020_1, status: 'pending' })
-  assert.deepEqual(resolvePair('0.2.2-rc.5'), { dsh: '0.2.2-rc.5', gateway: GATEWAY_REF_020_2, status: 'pending' })
+  assert.deepEqual(resolvePair('0.2.2-rc.5'), { dsh: '0.2.2-rc.5', gateway: GATEWAY_REF_020_2, status: 'verified' })
   assert.equal(pairStatus('0.1.5-rc.2'), 'verified')
   assert.equal(pairStatus('0.2.1-rc.5'), 'pending')
   assert.equal(pairStatus('0.1.1-rc.2'), null)
