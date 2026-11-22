@@ -12,7 +12,7 @@ test('Debt P3 regression: the default version is the matrix first row; 0.2.0-rc.
   assert.deepEqual(SUPPORTED_DSH.map((p) => p.dsh), ['0.2.0-rc.2', '0.2.1-rc.5', '0.2.2-rc.5', '0.1.5-rc.2', '0.1.2-rc.1'])
   assert.equal(SUPPORTED_DSH[0]?.status, 'verified', 'promoted 2026-10-01: bare-metal full chain (smoke --model / cards / manager E2E) + CI compose-e2e on the 0.2.0 image')
   assert.equal(SUPPORTED_DSH[1]?.status, 'pending', 'align-03 adds the 0.2.1 row as pending; it flips to verified after the align-01 pilot full-chain smoke')
-  assert.equal(SUPPORTED_DSH[2]?.status, 'pending', 'align-05/06 add the 0.2.2 row as pending; flips after the 0.2.2 pilot/conformance smoke')
+  assert.equal(SUPPORTED_DSH[2]?.status, 'verified', 'promoted 2026-11-22: Node24+0.2.2 image, conformance 17/17, worker card loop, question/approval resume on facade v0.2.9')
   assert.equal(SUPPORTED_DSH[3]?.status, 'verified', 'promoted once the full P3 smoke chain passed')
   assert.equal(SUPPORTED_DSH[4]?.status, 'verified')
   assert.equal(SUPPORTED_DSH[0]?.needsLegacyPeerDeps, true, 'npm strict prerelease peer resolution rejects the 0.2.0 line (the gateway README pairs it with 0.1.5; dsh-facts §18.9)')
