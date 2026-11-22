@@ -25,7 +25,7 @@ test('Debt P3 regression: the default version is the matrix first row; 0.2.0-rc.
 test('Debt P3 regression: resolvePair / pairStatus -- a known pairing returns its matrix row, an unknown one returns null', () => {
   assert.deepEqual(resolvePair('0.1.2-rc.1'), { dsh: '0.1.2-rc.1', gateway: GATEWAY_REF_LEGACY, status: 'verified' })
   assert.deepEqual(resolvePair('0.2.0-rc.2'), { dsh: '0.2.0-rc.2', gateway: GATEWAY_REF, status: 'verified', needsLegacyPeerDeps: true })
-  assert.deepEqual(resolvePair('0.2.1-rc.5'), { dsh: '0.2.1-rc.5', gateway: GATEWAY_REF_020_1, status: 'pending' })
+  assert.deepEqual(resolvePair('0.2.1-rc.5'), { dsh: '0.2.1-rc.5', gateway: GATEWAY_REF_020_1, status: 'verified' })
   assert.deepEqual(resolvePair('0.2.2-rc.5'), { dsh: '0.2.2-rc.5', gateway: GATEWAY_REF_020_2, status: 'verified' })
   assert.equal(pairStatus('0.1.5-rc.2'), 'verified')
   assert.equal(pairStatus('0.2.1-rc.5'), 'pending')

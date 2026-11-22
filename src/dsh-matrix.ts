@@ -75,7 +75,7 @@ export const SUPPORTED_DSH: DshPair[] = [
   // dsh-settings@0.2.2-rc.5 (peer cordis ~4.1.0) against this line's cordis ~4.0.5 -> ERESOLVE. The
   // profile pins the three facade peers to the matching 0.2.1-rc.5 versions instead (LEGACY_PEER_PINS,
   // measured by lock:profile in align-03), so no --legacy-peer-deps is needed.
-  { dsh: '0.2.1-rc.5', gateway: GATEWAY_REF_020_1, status: 'pending' },
+  { dsh: '0.2.1-rc.5', gateway: GATEWAY_REF_020_1, status: 'verified' },
   // 0.2.2 corridor (align-05/06): Node 24 base, facade v0.2.8. PENDING until the 0.2.2 pilot/conformance smoke passes.
   { dsh: '0.2.2-rc.5', gateway: GATEWAY_REF_020_2, status: 'verified' },
   // P3 smoke (2026-09-20, the smoke15 node on the intranet pilot server): a 0.1.5-rc.2 host plus
