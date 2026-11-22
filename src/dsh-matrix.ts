@@ -51,10 +51,10 @@ export const GATEWAY_REF_LEGACY = 'github:litestartup-com/dsh-api-gateway#b592b4
  * so strict resolution converges there -- the full-chain smoke is the align-01 pilot, after which this
  * row flips to verified.
  */
-export const GATEWAY_REF_020_1 = 'github:litestartup-com/dsh-api-gateway#d8a4580'
+export const GATEWAY_REF_020_1 = 'github:litestartup-com/dsh-api-gateway#f73cc2d'
 
 /** Facade pin for the Node 24 / DSH 0.2.2 corridor = v0.2.8 (align-06: control projection batch frames + tool failure codes). */
-export const GATEWAY_REF_020_2 = 'github:litestartup-com/dsh-api-gateway#7e44f42'
+export const GATEWAY_REF_020_2 = 'github:litestartup-com/dsh-api-gateway#f73cc2d'
 
 export const SUPPORTED_DSH: DshPair[] = [
   // 0.2.0 corridor (2026-09-30/10-01, fact card dsh-facts §18): the default line (npm latest).
