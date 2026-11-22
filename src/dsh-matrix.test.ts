@@ -30,14 +30,14 @@ test('Debt P3 regression: resolvePair / pairStatus -- a known pairing returns it
   assert.equal(resolvePair('0.9.9'), null)
 })
 
-test('0.2.0 corridor: the facade ref is per-row -- the default line pins 398ea94 (facade v0.2.5), 0.2.1 pins 23fc0662 (facade v0.2.6), the verified legacy rows stay on b592b4f', () => {
+test('0.2.0 corridor: the facade ref is per-row -- the default line pins 398ea94 (facade v0.2.5), 0.2.1 pins d8a4580 (facade v0.2.7), the verified legacy rows stay on b592b4f', () => {
   // A pre-corridor facade on a 0.2.0 host kills the answerer pump silently (3-arg wireStream.open,
   // dsh-facts §18.2): question/approval cards hang forever. 0.2.0 hosts require facade >= 0.2.4;
   // v0.2.5 is pinned because it also restores the assistant/chunk typewriter (§18.13). The 0.2.1 row
   // uses facade v0.2.6 (align-02): its peer window widened to cover 0.2.1-rc.x.
   assert.equal(GATEWAY_REF, 'github:litestartup-com/dsh-api-gateway#398ea94')
   assert.equal(GATEWAY_REF_LEGACY, 'github:litestartup-com/dsh-api-gateway#b592b4f')
-  assert.equal(GATEWAY_REF_020_1, 'github:litestartup-com/dsh-api-gateway#23fc0662')
+  assert.equal(GATEWAY_REF_020_1, 'github:litestartup-com/dsh-api-gateway#d8a4580')
   assert.equal(resolvePair('0.2.0-rc.2')?.gateway, GATEWAY_REF)
   assert.equal(resolvePair('0.2.1-rc.5')?.gateway, GATEWAY_REF_020_1)
   assert.equal(resolvePair('0.1.5-rc.2')?.gateway, GATEWAY_REF_LEGACY)
