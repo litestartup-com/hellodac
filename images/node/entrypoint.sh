@@ -21,6 +21,18 @@ if [ ! -d "$DSH_HOME/profiles/dac-node" ] || [ "$SEED_CUR" != "$SEED_NEW" ]; the
   echo "[entrypoint] profile seeded into $DSH_HOME/profiles/dac-node (seed ${SEED_NEW:0:8})"
 fi
 
+# 1b) A volume that already carries the current seed but no profile-local node_modules was seeded by
+# an image that booted from a GLOBAL dsh install. Reuse the image profile's tree via a symlink instead
+# of copying 1.3 GB into the volume (the copy outlives the manager's 60s readiness window).
+if [ -d "$DSH_HOME/profiles/dac-node" ] && [ "$SEED_CUR" = "$SEED_NEW" ] \
+   && [ ! -e "$DSH_HOME/profiles/dac-node/node_modules/@deepseek-ai/dsh/lib/bin.js" ] \
+   && [ -d /opt/dac-profile/node_modules ]; then
+  rm -rf "$DSH_HOME/profiles/dac-node/node_modules"
+  cp -a /opt/dac-profile/package.json /opt/dac-profile/package-lock.json "$DSH_HOME/profiles/dac-node/" 2>/dev/null || true
+  ln -s /opt/dac-profile/node_modules "$DSH_HOME/profiles/dac-node/node_modules"
+  echo "[entrypoint] linked node_modules from /opt/dac-profile"
+fi
+
 # 2) Gateway static key: the environment variable is the truth (checklist A: derived files are never edited by hand).
 #    The injection path is VERSION-GATED (0.2.0 corridor, upgrade card J1-04, fact card dsh-facts §18.5):
 #    in the 0.1.7 corridor $DSH_HOME/settings.yaml became a one-shot import (renamed to
